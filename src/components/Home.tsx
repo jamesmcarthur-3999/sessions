@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Video, Feather, ChevronRight, Settings, Sparkles } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { ai } from '../services/ai'
+import { apiKeyConfigured } from '../services/bots'
 import { generateId } from '../utils/id'
 import { RecordingSettings, defaultRecordingConfig, type RecordingConfig } from './RecordingSettings'
 import type { Session } from '../types'
@@ -60,14 +60,14 @@ const itemVariants = {
   visible: {
     opacity: 1,
     y: 0,
-    transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] },
+    transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] as const },
   },
 }
 
 export function Home({ onNavigate, onSessionSelect }: HomeProps) {
   const { state, dispatch } = useApp()
   const recentSessions = state.sessions.slice(0, 5)
-  const hasApiKey = ai.hasApiKey()
+  const apiKeyConfigured = apiKeyConfigured()
   const [showRecordingSettings, setShowRecordingSettings] = useState(false)
   const [recordingConfig, setRecordingConfig] = useState<RecordingConfig>(defaultRecordingConfig)
 
@@ -107,7 +107,7 @@ export function Home({ onNavigate, onSessionSelect }: HomeProps) {
           onClick={() => onNavigate('settings')}
           className="flex items-center gap-2 p-2.5 rounded-lg text-[var(--ink-muted)] hover:text-[var(--ink)] hover:bg-[var(--paper-warm)] transition-all duration-200"
         >
-          {!hasApiKey && (
+          {!apiKeyConfigured && (
             <span className="w-2 h-2 rounded-full bg-[var(--accent)] animate-pulse" />
           )}
           <Settings className="w-5 h-5" />
@@ -121,7 +121,7 @@ export function Home({ onNavigate, onSessionSelect }: HomeProps) {
           <h1 className="font-display text-5xl md:text-6xl font-light text-[var(--ink)] tracking-tight mb-4">
             {getGreeting()}
           </h1>
-          {hasApiKey ? (
+          {apiKeyConfigured ? (
             <p className="flex items-center justify-center gap-2 text-sm text-[var(--ink-muted)]">
               <Sparkles className="w-4 h-4 text-[var(--accent)]" />
               <span>AI-powered insights enabled</span>

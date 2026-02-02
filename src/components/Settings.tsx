@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Key, Sparkles, Check, Eye, EyeOff, Zap, AlertCircle, Brain, CheckSquare, MessageCircle, Link } from 'lucide-react'
-import { ai } from '../services/ai'
+import { ArrowLeft, Key, Sparkles, Check, Eye, EyeOff, Zap, AlertCircle, Brain, CheckSquare, MessageCircle, Link, Mic } from 'lucide-react'
+import { updateApiKeys, initializeBots, isBotsReady } from '../services/bots'
 
 interface SettingsProps {
   onBack: () => void
@@ -22,17 +22,22 @@ const itemVariants = {
 
 export function Settings({ onBack }: SettingsProps) {
   const [apiKey, setApiKey] = useState('')
+  const [openaiKey, setOpenaiKey] = useState('')
   const [showKey, setShowKey] = useState(false)
+  const [showOpenaiKey, setShowOpenaiKey] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
 
-  // Load saved API key on mount
+  // Load saved API keys on mount
   useEffect(() => {
     const savedKey = localStorage.getItem('sessions_api_key')
+    const savedOpenaiKey = localStorage.getItem('sessions_openai_api_key')
     if (savedKey) {
       setApiKey(savedKey)
-      ai.setApiKey(savedKey)
+    }
+    if (savedOpenaiKey) {
+      setOpenaiKey(savedOpenaiKey)
     }
   }, [])
 
@@ -41,14 +46,11 @@ export function Settings({ onBack }: SettingsProps) {
     setSaveStatus('idle')
 
     try {
-      // Save to localStorage
-      if (apiKey.trim()) {
-        localStorage.setItem('sessions_api_key', apiKey.trim())
-        ai.setApiKey(apiKey.trim())
-      } else {
-        localStorage.removeItem('sessions_api_key')
-        ai.setApiKey('')
-      }
+      // Update bots config with both keys (handles localStorage internally)
+      await updateApiKeys({
+        claudeApiKey: apiKey.trim() || undefined,
+        openaiApiKey: openaiKey.trim() || undefined,
+      })
 
       setSaveStatus('success')
       setTimeout(() => setSaveStatus('idle'), 2000)
@@ -64,7 +66,10 @@ export function Settings({ onBack }: SettingsProps) {
 
     setTestStatus('testing')
     try {
-      const result = await ai.testConnection()
+      // Test by initializing bots with the current key
+      await updateApiKeys({ claudeApiKey: apiKey.trim() })
+      await initializeBots()
+      const result = isBotsReady()
       setTestStatus(result ? 'success' : 'error')
     } catch {
       setTestStatus('error')
@@ -180,7 +185,7 @@ export function Settings({ onBack }: SettingsProps) {
                     <span>Saved!</span>
                   </>
                 ) : (
-                  <span>{isSaving ? 'Saving...' : 'Save Key'}</span>
+                  <span>{isSaving ? 'Saving...' : 'Save Keys'}</span>
                 )}
               </button>
 
@@ -215,6 +220,59 @@ export function Settings({ onBack }: SettingsProps) {
                 )}
               </button>
             </div>
+          </div>
+        </motion.section>
+
+        {/* OpenAI API Key Section */}
+        <motion.section variants={itemVariants} className="mb-8">
+          <div className="p-6 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                <Mic className="w-5 h-5 text-green-600 dark:text-green-400" />
+              </div>
+              <div>
+                <h3 className="font-medium text-neutral-900 dark:text-neutral-100">
+                  OpenAI API Key
+                </h3>
+                <p className="text-sm text-neutral-500">
+                  For audio transcription (Whisper).{' '}
+                  <a
+                    href="https://platform.openai.com/api-keys"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-violet-600 dark:text-violet-400 hover:underline"
+                  >
+                    Get key
+                  </a>
+                </p>
+              </div>
+            </div>
+
+            {/* Input */}
+            <div className="relative">
+              <input
+                type={showOpenaiKey ? 'text' : 'password'}
+                value={showOpenaiKey ? openaiKey : (openaiKey ? maskApiKey(openaiKey) : '')}
+                onChange={(e) => setOpenaiKey(e.target.value)}
+                onFocus={() => setShowOpenaiKey(true)}
+                placeholder="sk-..."
+                className="w-full px-4 py-3 pr-12 rounded-xl border border-neutral-200 dark:border-neutral-700
+                           bg-neutral-50 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100
+                           placeholder:text-neutral-400 font-mono text-sm
+                           focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+              />
+              <button
+                onClick={() => setShowOpenaiKey(!showOpenaiKey)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg
+                           text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300
+                           hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors"
+              >
+                {showOpenaiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+            <p className="text-xs text-neutral-400 mt-2">
+              Optional. Only needed for session audio transcription.
+            </p>
           </div>
         </motion.section>
 
@@ -277,7 +335,7 @@ export function Settings({ onBack }: SettingsProps) {
           variants={itemVariants}
           className="text-center text-sm text-neutral-400 mt-12"
         >
-          Your API key is stored locally and never sent anywhere except Anthropic's servers.
+          Your API keys are stored locally and only sent to their respective API servers.
         </motion.p>
       </main>
     </motion.div>

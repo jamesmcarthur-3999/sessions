@@ -1,6 +1,13 @@
 /**
  * AI Service
  *
+ * @deprecated This service is deprecated. Use Baleybots instead:
+ * - For captures: use createCaptureBot() from './bots'
+ * - For sessions: use createFinalSummaryBot() from './bots'
+ * - For chat: use createQABot() from './bots'
+ *
+ * This file is kept for reference but should not be used for new code.
+ *
  * Handles AI-powered summarization and task extraction.
  * Uses Claude API when configured, falls back to smart mock responses.
  */
@@ -98,7 +105,7 @@ class AIService {
   /**
    * Process a text capture and generate a summary
    */
-  async processCapture(text: string, attachments?: File[]): Promise<ProcessCaptureResult> {
+  async processCapture(text: string, _attachments?: File[]): Promise<ProcessCaptureResult> {
     // If we have an API key, use Claude
     if (this.hasApiKey()) {
       try {
