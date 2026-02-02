@@ -45,6 +45,19 @@ export const QAResponseSchema = z.object({
 
 export type QAResponse = z.infer<typeof QAResponseSchema>;
 
+// Final summary output (matches app's Summary type)
+export const FinalSummarySchema = z.object({
+  text: z.string().describe('A comprehensive 2-4 paragraph summary of the entire session'),
+  tasks: z.array(z.object({
+    title: z.string().describe('A clear, actionable task'),
+  })).describe('Action items extracted from the session'),
+  notes: z.array(z.object({
+    content: z.string().describe('A key insight or note worth remembering'),
+  })).describe('Important observations and insights'),
+});
+
+export type FinalSummary = z.infer<typeof FinalSummarySchema>;
+
 // Session context for bots
 export interface SessionContext {
   sessionId: string;

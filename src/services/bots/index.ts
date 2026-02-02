@@ -7,5 +7,14 @@
 export * from './types';
 export { createSummarizerBot, buildSummarizerInput } from './summarizer';
 export { createActivityDetectorBot, buildActivityDetectorInput } from './activity-detector';
-export { createAnalysisControllerBot, buildAnalysisControllerInput } from './analysis-controller';
+export { createAnalysisControllerBot, buildAnalysisControllerInput, type ActivityMetrics } from './analysis-controller';
 export { createQABot, buildQAInput } from './qa-bot';
+export { createFinalSummaryBot, buildFinalSummaryInput, type FinalSummaryInput } from './final-summary';
+export {
+  initializeBots,
+  updateApiKeys,
+  isBotsReady,
+  hasApiKey,
+  resetBots,
+  type BotConfig,
+} from './config';
