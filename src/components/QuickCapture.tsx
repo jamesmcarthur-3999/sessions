@@ -2,9 +2,9 @@ import { useState, useRef, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { ArrowLeft, Sparkles, Paperclip, X, Image as ImageIcon, FileText, Feather } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { ai } from '../services/ai'
+import { createCaptureBot, buildCaptureInput, initializeBots, isBotsReady } from '../services/bots'
 import { generateId } from '../utils/id'
-import type { Session } from '../types'
+import type { Session, Summary } from '../types'
 
 interface QuickCaptureProps {
   onBack: () => void
@@ -41,10 +41,52 @@ export function QuickCapture({ onBack, onComplete }: QuickCaptureProps) {
     setProcessingStage('Reading your thoughts...')
 
     try {
-      // Process with AI
+      // Ensure bots are initialized
+      await initializeBots()
+
       await new Promise(r => setTimeout(r, 500))
       setProcessingStage('Extracting insights...')
-      const result = await ai.processCapture(text, attachments)
+
+      let title: string
+      let summary: Summary
+
+      if (isBotsReady()) {
+        // Use Capture Bot
+        const captureBot = createCaptureBot()
+
+        // Build attachment descriptions
+        const attachmentDescriptions = attachments.map(f =>
+          `${f.type.startsWith('image/') ? 'Image' : 'File'}: ${f.name}`
+        )
+
+        const input = buildCaptureInput(text, attachmentDescriptions)
+        const result = await captureBot.process(input)
+
+        title = result.title
+        summary = {
+          text: result.summary,
+          tasks: result.tasks.map(t => ({
+            id: generateId(),
+            title: t.title,
+            completed: false,
+          })),
+          notes: result.notes.map(n => ({
+            id: generateId(),
+            content: n.content,
+          })),
+          generatedAt: new Date().toISOString(),
+        }
+      } else {
+        // Fallback when no API key
+        const words = text.split(/\s+/).length
+        title = words < 10 ? 'Quick Note' : 'Captured Notes'
+        summary = {
+          text: `Captured ${words} words. Configure your Claude API key in Settings to enable AI-powered analysis.`,
+          tasks: [],
+          notes: [],
+          generatedAt: new Date().toISOString(),
+        }
+      }
 
       setProcessingStage('Crafting your summary...')
       await new Promise(r => setTimeout(r, 300))
@@ -53,10 +95,10 @@ export function QuickCapture({ onBack, onComplete }: QuickCaptureProps) {
       const session: Session = {
         id: generateId(),
         type: 'capture',
-        title: result.title,
+        title,
         createdAt: new Date().toISOString(),
         captureText: text,
-        summary: result.summary,
+        summary,
       }
 
       // Save and navigate
