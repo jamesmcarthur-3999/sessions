@@ -1,13 +1,16 @@
-import { useState, useEffect, useRef } from 'react'
-import { motion } from 'framer-motion'
-import { Square, Pause, Play, Camera, Mic, AlertCircle, Video, Monitor } from 'lucide-react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Square, Pause, Play, Camera, Mic, AlertCircle, Video, Monitor, Sparkles } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { ai } from '../services/ai'
 import { sessionRecorder, isTauri, checkScreenRecordingPermission, requestScreenRecordingPermission, type RecordingOptions } from '../services/recording'
-import { createSession, updateSessionStatus } from '../services/database'
+import { createSession, updateSessionStatus, getRollingSummary, getInsights, getAudioChunks, getScreenshots } from '../services/database'
 import { sessionCoordinator } from '../services/session-coordinator'
+import { createFinalSummaryBot, buildFinalSummaryInput, initializeBots, isBotsReady } from '../services/bots'
 import { generateId } from '../utils/id'
-import type { Session } from '../types'
+import { useSessionIntelligence } from '../hooks/useSessionIntelligence'
+import { LiveSessionPanel } from './LiveSessionPanel'
+import { PeripheralGlow } from './PeripheralGlow'
+import type { Session, Summary } from '../types'
 import type { RecordingConfig } from './RecordingSettings'
 
 interface SessionRecordingProps {
@@ -34,12 +37,18 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
   const [sessionTitle, setSessionTitle] = useState('')
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [screenshotCount, setScreenshotCount] = useState(0)
-  const [hasPermission, setHasPermission] = useState<boolean | null>(null)
+  const [_hasPermission, setHasPermission] = useState<boolean | null>(null)
   const [permissionError, setPermissionError] = useState<string | null>(null)
+  const [showIntelligence, setShowIntelligence] = useState(false)
+  const [audioLevel, _setAudioLevel] = useState(0)
+  const [captureFlash, setCaptureFlash] = useState(false)
   const startTimeRef = useRef(Date.now())
   const pausedTimeRef = useRef(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const sessionIdRef = useRef(generateId())
+
+  // Get session intelligence state
+  const { analysisMode } = useSessionIntelligence(sessionIdRef.current)
 
   // Get recording config from active session
   const recordingConfig: RecordingConfig | undefined = (state.activeSession as any)?.recordingConfig
@@ -60,7 +69,15 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
         screenshotIntervalMs: recordingConfig.screenshotInterval * 60 * 1000, // Convert minutes to ms
         selectedMicrophone: recordingConfig.selectedMicrophone,
         selectedScreen: recordingConfig.selectedScreen,
+        smartCaptureEnabled: recordingConfig.smartCaptureEnabled,
       } : {}
+
+      // Determine initial analysis mode from config
+      // 'adaptive' starts in 'ambient' and AI adjusts; otherwise use user selection
+      const initialAnalysisMode: 'ambient' | 'deep' =
+        recordingConfig?.analysisMode === 'adaptive' || recordingConfig?.analysisMode === 'ambient'
+          ? 'ambient'
+          : recordingConfig?.analysisMode === 'deep' ? 'deep' : 'ambient'
 
       // Check if we're in Tauri
       if (isTauri()) {
@@ -81,7 +98,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
           await sessionRecorder.startRecording(sessionIdRef.current, recordingOptions)
 
           // Create database session with the same ID as the recording
-          await createSession(sessionIdRef.current, 'session', sessionTitle, 'ambient')
+          await createSession(sessionIdRef.current, 'session', sessionTitle, initialAnalysisMode)
 
           // Start session coordinator for AI analysis
           await sessionCoordinator.startSession(sessionIdRef.current)
@@ -127,7 +144,19 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
     return () => clearInterval(interval)
   }, [isPaused, isEnding])
 
-  const handlePauseResume = async () => {
+  // Listen for activity events to trigger capture flash
+  useEffect(() => {
+    const unsubActivity = sessionCoordinator.on('activity-detected', () => {
+      setCaptureFlash(true)
+      setTimeout(() => setCaptureFlash(false), 100)
+    })
+
+    return () => {
+      unsubActivity()
+    }
+  }, [])
+
+  const handlePauseResume = useCallback(async () => {
     if (isPaused) {
       // Resume
       startTimeRef.current = Date.now() - (duration * 1000)
@@ -144,8 +173,8 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
         console.error('Failed to pause:', e)
       }
     }
-    setIsPaused(!isPaused)
-  }
+    setIsPaused(prev => !prev)
+  }, [isPaused, duration])
 
   const handleEndSession = async () => {
     setIsEnding(true)
@@ -165,8 +194,59 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
       // Update database session status
       await updateSessionStatus(sessionIdRef.current, 'processing', duration)
 
-      // Process with AI
-      const summary = await ai.processSession(screenshots)
+      // Gather all Baleybots intelligence from the database
+      const [rollingSummary, insights, audioChunks, dbScreenshots] = await Promise.all([
+        getRollingSummary(sessionIdRef.current),
+        getInsights(sessionIdRef.current),
+        getAudioChunks(sessionIdRef.current),
+        getScreenshots(sessionIdRef.current),
+      ])
+
+      // Generate final summary using Baleybots
+      let summary: Summary
+
+      // Ensure bots are initialized
+      await initializeBots()
+
+      if (isBotsReady()) {
+        // Use Final Summary Bot with all accumulated intelligence
+        const finalBot = createFinalSummaryBot()
+        const input = buildFinalSummaryInput({
+          rollingSummary,
+          insights,
+          audioChunks,
+          screenshots: dbScreenshots,
+          durationSeconds: duration,
+          title: sessionTitle || 'Untitled Session',
+        })
+
+        const result = await finalBot.process(input)
+
+        summary = {
+          text: result.text,
+          tasks: result.tasks.map((t, i) => ({
+            id: generateId(),
+            title: t.title,
+            completed: false,
+          })),
+          notes: result.notes.map((n, i) => ({
+            id: generateId(),
+            content: n.content,
+          })),
+          generatedAt: new Date().toISOString(),
+        }
+      } else {
+        // Fallback when no API key - create summary from available data
+        summary = {
+          text: rollingSummary?.content || `Session recorded for ${Math.floor(duration / 60)} minutes. Configure your Claude API key in Settings to enable AI-powered summaries.`,
+          tasks: [],
+          notes: insights.slice(0, 5).map(i => ({
+            id: generateId(),
+            content: i.content,
+          })),
+          generatedAt: new Date().toISOString(),
+        }
+      }
 
       // Update database session status to complete
       await updateSessionStatus(sessionIdRef.current, 'complete', duration)
@@ -206,6 +286,48 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
     }
   }
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't handle shortcuts when editing title
+      if (isEditingTitle || isEnding) return
+
+      // Space: Pause/Resume (only when not focused on interactive elements)
+      const activeTag = document.activeElement?.tagName.toLowerCase()
+      const isInteractive = activeTag === 'input' || activeTag === 'button' || activeTag === 'textarea'
+      if (e.code === 'Space' && !e.metaKey && !e.ctrlKey && !isInteractive) {
+        e.preventDefault()
+        handlePauseResume()
+      }
+
+      // Cmd+Enter: End session
+      if (e.metaKey && e.key === 'Enter') {
+        e.preventDefault()
+        handleEndSession()
+      }
+
+      // Cmd+I: Toggle intelligence panel
+      if (e.metaKey && e.key === 'i') {
+        e.preventDefault()
+        setShowIntelligence(prev => !prev)
+      }
+
+      // Cmd+/: Focus chat input (opens panel if closed)
+      if (e.metaKey && e.key === '/') {
+        e.preventDefault()
+        setShowIntelligence(true)
+      }
+
+      // Escape: Close intelligence panel
+      if (e.key === 'Escape' && showIntelligence) {
+        setShowIntelligence(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isEditingTitle, isEnding, showIntelligence, isPaused, duration])
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -213,6 +335,37 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
       exit={{ opacity: 0 }}
       className="min-h-screen flex flex-col items-center justify-center bg-[var(--ink)] text-[var(--paper)]"
     >
+      {/* Peripheral Glow */}
+      {!isEnding && !permissionError && (
+        <PeripheralGlow
+          analysisMode={analysisMode}
+          audioLevel={audioLevel}
+          onCapture={captureFlash}
+        />
+      )}
+
+      {/* Intelligence Panel Toggle */}
+      {!isEnding && !permissionError && (
+        <button
+          onClick={() => setShowIntelligence(true)}
+          className="fixed top-4 right-4 p-3 rounded-xl bg-[var(--paper)]/10 hover:bg-[var(--paper)]/20 transition-colors z-50"
+          title="Toggle Intelligence Panel (⌘I)"
+        >
+          <Sparkles className="w-5 h-5 text-[var(--paper)]" />
+        </button>
+      )}
+
+      {/* Live Session Panel */}
+      <AnimatePresence>
+        {showIntelligence && !isEnding && (
+          <LiveSessionPanel
+            sessionId={sessionIdRef.current}
+            isExpanded={showIntelligence}
+            onToggleExpand={() => setShowIntelligence(false)}
+          />
+        )}
+      </AnimatePresence>
+
       {isEnding ? (
         /* Ending state - Elegant processing */
         <motion.div
@@ -402,10 +555,21 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
             </motion.button>
           </div>
 
-          {/* Hint */}
-          <p className="text-sm text-[var(--paper)]/40 mt-10">
-            Press the red button to end and generate your summary
-          </p>
+          {/* Keyboard shortcuts hint */}
+          <div className="flex items-center justify-center gap-4 text-xs text-[var(--paper)]/30 mt-10">
+            <span className="flex items-center gap-1">
+              <kbd className="px-1.5 py-0.5 rounded bg-[var(--paper)]/10">Space</kbd>
+              {isPaused ? 'Resume' : 'Pause'}
+            </span>
+            <span className="flex items-center gap-1">
+              <kbd className="px-1.5 py-0.5 rounded bg-[var(--paper)]/10">⌘I</kbd>
+              Intelligence
+            </span>
+            <span className="flex items-center gap-1">
+              <kbd className="px-1.5 py-0.5 rounded bg-[var(--paper)]/10">⌘↵</kbd>
+              End
+            </span>
+          </div>
         </div>
       )}
     </motion.div>
