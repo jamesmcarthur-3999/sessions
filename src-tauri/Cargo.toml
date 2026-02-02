@@ -1,17 +1,22 @@
 [package]
-name = "app"
+name = "sessions"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
-license = ""
+description = "AI-powered session recording and capture"
+authors = ["James McArthur"]
+license = "MIT"
 repository = ""
 edition = "2021"
 rust-version = "1.77.2"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
 
 [lib]
-name = "app_lib"
+name = "sessions_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -23,3 +28,31 @@ serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 tauri = { version = "2.9.5" }
 tauri-plugin-log = "2"
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-sql = { version = "2", features = ["sqlite"] }
+
+# Screen capture
+screenshots = "0.8"
+base64 = "0.22"
+image = "0.25"
+
+# Audio capture
+cpal = "0.15"
+hound = "3.5"
+
+# Utilities
+chrono = "0.4"
+libc = "0.2"
+
+# Async + HTTP for AI calls
+reqwest = { version = "0.12", features = ["json", "stream"] }
+tokio = { version = "1", features = ["full"] }
+futures-util = "0.3"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = "0.23"
+core-foundation = "0.9"
+cocoa = "0.25"
+objc = "0.2"
