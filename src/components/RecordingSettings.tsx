@@ -61,7 +61,7 @@ export function RecordingSettings({
   const [audioDevices, setAudioDevices] = useState<AudioDevice[]>([])
   const [screens, setScreens] = useState<ScreenInfo[]>([])
   const [hasPermission, setHasPermission] = useState<boolean | null>(null)
-  const [_isLoadingDevices, setIsLoadingDevices] = useState(true)
+  const [isLoadingDevices, setIsLoadingDevices] = useState(true)
   const [showMicDropdown, setShowMicDropdown] = useState(false)
   const [showScreenDropdown, setShowScreenDropdown] = useState(false)
   const [showIntervalDropdown, setShowIntervalDropdown] = useState(false)
@@ -205,7 +205,26 @@ export function RecordingSettings({
               </motion.div>
             )}
 
+            {/* Loading skeleton */}
+            {isLoadingDevices && (
+              <div className="space-y-4 animate-pulse">
+                <div className="h-4 w-24 bg-[var(--paper-dark)] rounded" />
+                <div className="space-y-3">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="h-16 bg-[var(--paper-dark)] rounded-xl" />
+                  ))}
+                </div>
+                <div className="h-4 w-20 bg-[var(--paper-dark)] rounded" />
+                <div className="space-y-2">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="h-14 bg-[var(--paper-dark)] rounded-xl" />
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Capture toggles */}
+            {!isLoadingDevices && (
             <div className="space-y-3">
               <h3 className="label-section">Capture Modes</h3>
 
@@ -539,6 +558,7 @@ export function RecordingSettings({
                 </button>
               </div>
             </div>
+            )}
           </div>
 
           {/* Footer */}
