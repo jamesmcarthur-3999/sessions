@@ -58,6 +58,20 @@ export const FinalSummarySchema = z.object({
 
 export type FinalSummary = z.infer<typeof FinalSummarySchema>;
 
+// Capture processing output
+export const CaptureResultSchema = z.object({
+  title: z.string().describe('A concise 2-6 word title for the capture'),
+  summary: z.string().describe('A brief paragraph summarizing the captured content'),
+  tasks: z.array(z.object({
+    title: z.string().describe('A clear, actionable task'),
+  })).describe('Action items extracted from the content'),
+  notes: z.array(z.object({
+    content: z.string().describe('A key insight or note'),
+  })).describe('Important observations'),
+});
+
+export type CaptureResult = z.infer<typeof CaptureResultSchema>;
+
 // Session context for bots
 export interface SessionContext {
   sessionId: string;
