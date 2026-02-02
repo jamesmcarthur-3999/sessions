@@ -9,18 +9,7 @@
  */
 
 import { EventEmitter } from './event-emitter';
-import {
-  createSummarizerBot,
-  buildSummarizerInput,
-  createActivityDetectorBot,
-  buildActivityDetectorInput,
-  createAnalysisControllerBot,
-  buildAnalysisControllerInput,
-  createQABot,
-  buildQAInput,
-  type SessionContext,
-  type ActivityDetection,
-} from './bots';
+import type { SessionContext, ActivityDetection } from './bots/types';
 import {
   getSession,
   getScreenshots,
@@ -54,11 +43,34 @@ class SessionCoordinatorService {
     lastAnalysisCheck: number;
   }>();
 
-  // Bot instances (created lazily)
-  private summarizerBot = createSummarizerBot();
-  private activityBot = createActivityDetectorBot();
-  private analysisControllerBot = createAnalysisControllerBot();
-  private qaBot = createQABot();
+  // Bot instances (created lazily to avoid loading Node.js dependencies at startup)
+  private summarizerBot: Awaited<ReturnType<typeof import('./bots').createSummarizerBot>> | null = null;
+  private activityBot: Awaited<ReturnType<typeof import('./bots').createActivityDetectorBot>> | null = null;
+  private analysisControllerBot: Awaited<ReturnType<typeof import('./bots').createAnalysisControllerBot>> | null = null;
+  private qaBot: Awaited<ReturnType<typeof import('./bots').createQABot>> | null = null;
+  private botsModule: typeof import('./bots') | null = null;
+
+  /**
+   * Lazily load bots module and create bot instances
+   */
+  private async ensureBots() {
+    if (!this.botsModule) {
+      this.botsModule = await import('./bots');
+    }
+    if (!this.summarizerBot) {
+      this.summarizerBot = this.botsModule.createSummarizerBot();
+    }
+    if (!this.activityBot) {
+      this.activityBot = this.botsModule.createActivityDetectorBot();
+    }
+    if (!this.analysisControllerBot) {
+      this.analysisControllerBot = this.botsModule.createAnalysisControllerBot();
+    }
+    if (!this.qaBot) {
+      this.qaBot = this.botsModule.createQABot();
+    }
+    return this.botsModule;
+  }
 
   /**
    * Subscribe to coordinator events
@@ -106,16 +118,17 @@ class SessionCoordinatorService {
    */
   async processScreenshot(sessionId: string, screenshot: DbScreenshot): Promise<void> {
     const context = await this.buildContext(sessionId);
+    const bots = await this.ensureBots();
 
     try {
       // Run activity detection with multimodal input
-      const input = buildActivityDetectorInput(
+      const input = bots.buildActivityDetectorInput(
         screenshot.data_base64,
         context.recentScreenshots[1]?.analysis || undefined
       );
 
       // Pass both text and image to the activity bot
-      const result = await this.activityBot.process([input.text, input.image]);
+      const result = await this.activityBot!.process([input.text, input.image]);
 
       // Update screenshot with analysis
       await updateScreenshotAnalysis(screenshot.id, result.currentContext);
@@ -165,10 +178,11 @@ class SessionCoordinatorService {
     await saveChatMessage(sessionId, 'user', message);
 
     const context = await this.buildContext(sessionId);
+    const bots = await this.ensureBots();
 
     try {
-      const input = buildQAInput(message, context);
-      const result = await this.qaBot.process(input);
+      const input = bots.buildQAInput(message, context);
+      const result = await this.qaBot!.process(input);
 
       // Save assistant response
       await saveChatMessage(sessionId, 'assistant', result.answer);
@@ -223,10 +237,11 @@ class SessionCoordinatorService {
    */
   private async updateSummary(sessionId: string): Promise<void> {
     const context = await this.buildContext(sessionId);
+    const bots = await this.ensureBots();
 
     try {
-      const input = buildSummarizerInput(context);
-      const result = await this.summarizerBot.process(input);
+      const input = bots.buildSummarizerInput(context);
+      const result = await this.summarizerBot!.process(input);
 
       await updateRollingSummary(sessionId, result.summary);
 
@@ -243,9 +258,11 @@ class SessionCoordinatorService {
    * Check if analysis mode should change
    */
   private async checkAnalysisMode(sessionId: string, context: SessionContext): Promise<void> {
+    const bots = await this.ensureBots();
+
     try {
-      const input = buildAnalysisControllerInput(context);
-      const result = await this.analysisControllerBot.process(input);
+      const input = bots.buildAnalysisControllerInput(context);
+      const result = await this.analysisControllerBot!.process(input);
 
       // Only change if confident and different from current
       if (result.confidence > 0.7 && result.recommendedMode !== context.analysisMode) {

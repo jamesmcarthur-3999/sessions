@@ -2,6 +2,7 @@ import { createContext, useContext, useReducer, useEffect, useState, type ReactN
 import type { Session } from '../types'
 import { storage } from '../services/storage'
 import { initDatabase } from '../services/database'
+import { isTauri } from '../services/recording'
 
 interface AppState {
   sessions: Session[]
@@ -68,11 +69,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(appReducer, initialState)
   const [dbReady, setDbReady] = useState(false)
 
-  // Initialize database on mount
+  // Initialize database on mount (only in Tauri)
   useEffect(() => {
-    initDatabase()
-      .then(() => setDbReady(true))
-      .catch(err => console.error('Database init failed:', err))
+    if (isTauri()) {
+      initDatabase()
+        .then(() => setDbReady(true))
+        .catch(err => console.error('Database init failed:', err))
+    } else {
+      // In browser mode, skip database initialization
+      setDbReady(true)
+    }
   }, [])
 
   // Load sessions on mount (after db is ready)
