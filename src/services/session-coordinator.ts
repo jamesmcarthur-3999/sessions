@@ -36,15 +36,14 @@ import {
 import type { DbScreenshot } from '../types/database';
 
 // Events emitted by the coordinator
-export interface CoordinatorEvents {
-  [key: string]: unknown;
+export type CoordinatorEvents = {
   'summary-updated': { sessionId: string; summary: string };
   'insight-created': { sessionId: string; type: string; content: string };
   'mode-changed': { sessionId: string; mode: 'ambient' | 'deep'; reason: string };
   'activity-detected': { sessionId: string; activity: ActivityDetection };
   'chat-response': { sessionId: string; message: string };
   'error': { sessionId: string; error: string };
-}
+};
 
 type EventCallback<K extends keyof CoordinatorEvents> = (data: CoordinatorEvents[K]) => void;
 
@@ -109,15 +108,14 @@ class SessionCoordinatorService {
     const context = await this.buildContext(sessionId);
 
     try {
-      // Run activity detection
+      // Run activity detection with multimodal input
       const input = buildActivityDetectorInput(
         screenshot.data_base64,
         context.recentScreenshots[1]?.analysis || undefined
       );
 
-      // For multimodal input, we need to pass text and image separately
-      // The activity bot expects a combined input
-      const result = await this.activityBot.process(input.text + '\n[Image attached]');
+      // Pass both text and image to the activity bot
+      const result = await this.activityBot.process([input.text, input.image]);
 
       // Update screenshot with analysis
       await updateScreenshotAnalysis(screenshot.id, result.currentContext);

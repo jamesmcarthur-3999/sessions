@@ -80,8 +80,8 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
           // Start recording with config options
           await sessionRecorder.startRecording(sessionIdRef.current, recordingOptions)
 
-          // Create database session
-          await createSession('session', sessionTitle, 'ambient')
+          // Create database session with the same ID as the recording
+          await createSession(sessionIdRef.current, 'session', sessionTitle, 'ambient')
 
           // Start session coordinator for AI analysis
           await sessionCoordinator.startSession(sessionIdRef.current)

@@ -131,13 +131,14 @@ export function getDb(): Database {
 // ============================================================================
 
 export async function createSession(
+  id: string,
   type: 'session' | 'capture',
   title: string,
   analysisMode: 'ambient' | 'deep' = 'ambient'
 ): Promise<DbSession> {
   const now = new Date().toISOString();
   const session: DbSession = {
-    id: generateId(),
+    id,
     type,
     title,
     created_at: now,
