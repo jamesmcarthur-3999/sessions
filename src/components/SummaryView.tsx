@@ -15,10 +15,15 @@ import {
   BookOpen,
   ListChecks,
   StickyNote,
+  Camera,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { createQABot, buildQAInput, initializeBots, isBotsReady, type SessionContext } from '../services/bots'
+import { ScreenshotGallery } from './ScreenshotGallery'
+import { TranscriptViewer } from './TranscriptViewer'
+import { getScreenshots, getAudioChunks } from '../services/database'
 import type { Session } from '../types'
+import type { DbScreenshot, DbAudioChunk } from '../types/database'
 
 interface SummaryViewProps {
   session: Session
@@ -89,6 +94,28 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
   const [chatError, setChatError] = useState<string | null>(null)
   const [showMenu, setShowMenu] = useState(false)
   const [showTypewriter, setShowTypewriter] = useState(true)
+  const [screenshots, setScreenshots] = useState<DbScreenshot[]>([])
+  const [audioChunks, setAudioChunks] = useState<DbAudioChunk[]>([])
+  const [loadingMedia, setLoadingMedia] = useState(true)
+
+  // Load screenshots and audio chunks for sessions
+  useEffect(() => {
+    if (session.type === 'session') {
+      Promise.all([
+        getScreenshots(session.id),
+        getAudioChunks(session.id),
+      ]).then(([ss, ac]) => {
+        setScreenshots(ss)
+        setAudioChunks(ac)
+        setLoadingMedia(false)
+      }).catch(err => {
+        console.error('Failed to load session media:', err)
+        setLoadingMedia(false)
+      })
+    } else {
+      setLoadingMedia(false)
+    }
+  }, [session.id, session.type])
 
   const summary = session.summary
   const completedTasks = summary?.tasks.filter(t => t.completed).length ?? 0
@@ -471,6 +498,32 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
                     </motion.div>
                   ))}
                 </div>
+              </motion.section>
+            )}
+
+            {/* Screenshots Section (for sessions only) */}
+            {session.type === 'session' && screenshots.length > 0 && (
+              <motion.section
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.35, ease: [0.16, 1, 0.3, 1] }}
+              >
+                <div className="flex items-center gap-3 mb-5">
+                  <Camera className="w-5 h-5 text-[var(--ink-muted)]" />
+                  <h2 className="label-section">Screenshots</h2>
+                </div>
+                <ScreenshotGallery screenshots={screenshots} />
+              </motion.section>
+            )}
+
+            {/* Transcript Section (for sessions only) */}
+            {session.type === 'session' && audioChunks.length > 0 && (
+              <motion.section
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.4, ease: [0.16, 1, 0.3, 1] }}
+              >
+                <TranscriptViewer audioChunks={audioChunks} />
               </motion.section>
             )}
 
