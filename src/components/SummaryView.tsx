@@ -4,7 +4,6 @@ import {
   ArrowLeft,
   CheckCircle2,
   Circle,
-  FileText,
   Send,
   Video,
   Feather,
@@ -18,8 +17,8 @@ import {
   StickyNote,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { ai } from '../services/ai'
-import type { Session, Task } from '../types'
+import { createQABot, buildQAInput, initializeBots, isBotsReady, type SessionContext } from '../services/bots'
+import type { Session } from '../types'
 
 interface SummaryViewProps {
   session: Session
@@ -126,19 +125,31 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
     setChatError(null)
 
     try {
-      const sessionContext = `Title: ${session.title}
-Type: ${session.type}
-${session.summary ? `Summary: ${session.summary.text}
-Tasks: ${session.summary.tasks.map(t => `- [${t.completed ? 'x' : ' '}] ${t.title}`).join('\n')}
-Notes: ${session.summary.notes.map(n => `- ${n.content}`).join('\n')}` : ''}
-${session.captureText ? `Original text: ${session.captureText.slice(0, 1000)}...` : ''}`
+      await initializeBots()
 
-      const response = await ai.chat(session.id, chatInput, sessionContext)
+      if (!isBotsReady()) {
+        throw new Error('API key not configured. Please add your Claude API key in Settings.')
+      }
+
+      // Build session context for QA Bot
+      const context: SessionContext = {
+        sessionId: session.id,
+        rollingSummary: session.summary?.text || '',
+        recentScreenshots: [],
+        recentTranscripts: [],
+        recentInsights: session.summary?.notes.map(n => n.content) || [],
+        durationSeconds: session.duration || 0,
+        analysisMode: 'ambient',
+      }
+
+      const qaBot = createQABot()
+      const input = buildQAInput(chatInput, context)
+      const result = await qaBot.process(input)
 
       const assistantMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: response,
+        content: result.answer,
       }
 
       setChatMessages((prev) => [...prev, assistantMessage])
@@ -179,18 +190,31 @@ ${session.captureText ? `Original text: ${session.captureText.slice(0, 1000)}...
     setChatError(null)
 
     try {
-      const sessionContext = `Title: ${session.title}
-Type: ${session.type}
-${session.summary ? `Summary: ${session.summary.text}
-Tasks: ${session.summary.tasks.map(t => `- [${t.completed ? 'x' : ' '}] ${t.title}`).join('\n')}
-Notes: ${session.summary.notes.map(n => `- ${n.content}`).join('\n')}` : ''}
-${session.captureText ? `Original text: ${session.captureText.slice(0, 1000)}` : ''}`
+      await initializeBots()
 
-      const response = await ai.chat(session.id, prompt, sessionContext)
+      if (!isBotsReady()) {
+        throw new Error('API key not configured. Please add your Claude API key in Settings.')
+      }
+
+      // Build session context for QA Bot
+      const context: SessionContext = {
+        sessionId: session.id,
+        rollingSummary: session.summary?.text || '',
+        recentScreenshots: [],
+        recentTranscripts: [],
+        recentInsights: session.summary?.notes.map(n => n.content) || [],
+        durationSeconds: session.duration || 0,
+        analysisMode: 'ambient',
+      }
+
+      const qaBot = createQABot()
+      const input = buildQAInput(prompt, context)
+      const result = await qaBot.process(input)
+
       setChatMessages((prev) => [...prev, {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: response,
+        content: result.answer,
       }])
     } catch (error) {
       console.error('Chat error:', error)
