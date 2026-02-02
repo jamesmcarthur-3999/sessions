@@ -32,6 +32,7 @@ export function useSessionChat(sessionId: string | null) {
     }
 
     async function loadHistory() {
+      if (!sessionId) return;
       try {
         const messages = await getChatHistory(sessionId);
         setState({

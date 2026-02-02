@@ -42,10 +42,20 @@ npm run tauri build
 src/
 ├── components/
 │   ├── Home.tsx           # Start screen - two action cards
-│   ├── SummaryView.tsx    # The star - beautiful AI summaries
-│   └── History.tsx        # Timeline of past sessions
-├── context/               # Minimal context (1-2 max)
-├── services/              # AI, storage, MCP client
+│   ├── QuickCapture.tsx   # Text/file capture with processing
+│   ├── SessionRecording.tsx # Timer-based session recording
+│   ├── SummaryView.tsx    # The star - AI summaries with chat
+│   ├── History.tsx        # Timeline with search
+│   ├── Settings.tsx       # API key configuration
+│   ├── CommandPalette.tsx # ⌘K quick actions
+│   └── Toast.tsx          # Notification system
+├── hooks/
+│   └── useKeyboardShortcuts.ts # Global shortcuts
+├── context/
+│   └── AppContext.tsx     # Minimal state management
+├── services/
+│   ├── ai.ts              # Claude API + smart mock fallback
+│   └── storage.ts         # localStorage persistence
 └── types/
     └── index.ts           # Simple, flat types
 ```
@@ -78,11 +88,40 @@ interface Summary {
 
 Keep types simple and flat. No over-engineering.
 
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `⌘K` | Open command palette |
+| `⌘N` | New capture |
+| `⇧⌘N` | Start session |
+| `⌘H` | Go home |
+
+## AI Integration
+
+The app uses Claude API when configured (Settings → API Key). Without a key, smart mock responses are used.
+
+**Configure API Key:**
+1. Get key from [console.anthropic.com](https://console.anthropic.com/settings/keys)
+2. Open Settings (gear icon)
+3. Paste key and save
+
+**Features with API:**
+- Intelligent content analysis
+- Task and note extraction
+- Contextual chat about sessions
+- MCP-ready for integrations
+
 ## Roadmap
 
 See `docs/PLAN.md` for the full implementation plan.
 
-**Phase 1:** Quick capture → AI summary (MVP)
+**Phase 1:** ✅ Quick capture → AI summary (MVP)
 **Phase 2:** Session recording (pull Rust code from Taskerino)
-**Phase 3:** AI chat + MCP integrations
-**Phase 4:** Polish and keyboard shortcuts
+**Phase 3:** ✅ AI chat + MCP foundations
+**Phase 4:** ✅ Polish and keyboard shortcuts
+
+**Next:**
+- Real session recording (Tauri + Rust)
+- MCP client integration
+- Linear, Notion, Slack connectors

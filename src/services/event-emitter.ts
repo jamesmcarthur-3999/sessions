@@ -4,7 +4,7 @@
 
 type Listener<T> = (data: T) => void;
 
-export class EventEmitter<Events extends Record<string, unknown>> {
+export class EventEmitter<Events extends { [key: string]: unknown }> {
   private listeners = new Map<keyof Events, Set<Listener<unknown>>>();
 
   on<K extends keyof Events>(event: K, callback: Listener<Events[K]>): () => void {

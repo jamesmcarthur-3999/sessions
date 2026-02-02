@@ -35,6 +35,7 @@ export function useSessionIntelligence(sessionId: string | null) {
     }
 
     async function loadInitialData() {
+      if (!sessionId) return;
       try {
         const [summary, insights, analysisState] = await Promise.all([
           getRollingSummary(sessionId),

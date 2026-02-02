@@ -32,12 +32,12 @@ import {
   updateAnalysisMode,
   updateScreenshotAnalysis,
   saveChatMessage,
-  getChatHistory,
 } from './database';
 import type { DbScreenshot } from '../types/database';
 
 // Events emitted by the coordinator
 export interface CoordinatorEvents {
+  [key: string]: unknown;
   'summary-updated': { sessionId: string; summary: string };
   'insight-created': { sessionId: string; type: string; content: string };
   'mode-changed': { sessionId: string; mode: 'ambient' | 'deep'; reason: string };
