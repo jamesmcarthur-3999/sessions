@@ -10,6 +10,7 @@
 
 import { EventEmitter } from './event-emitter';
 import type { SessionContext, ActivityDetection } from './bots/types';
+import type { ActivityMetrics } from './bots/analysis-controller';
 import {
   getSession,
   getScreenshots,
@@ -21,8 +22,14 @@ import {
   updateAnalysisMode,
   updateScreenshotAnalysis,
   saveChatMessage,
+  saveAudioChunk,
+  updateAudioTranscript,
 } from './database';
 import type { DbScreenshot } from '../types/database';
+import { transcriptionService } from './transcription';
+
+// Re-export for use by other modules
+export type { ActivityMetrics };
 
 // Events emitted by the coordinator
 export type CoordinatorEvents = {
@@ -43,6 +50,14 @@ class SessionCoordinatorService {
     lastAnalysisCheck: number;
   }>();
 
+  // Activity tracking for adaptive analysis
+  private activityTracking = new Map<string, {
+    appSwitches: Array<{ app: string; timestamp: number }>;
+    lastActivityTime: number;
+    focusStartTime: number;
+    currentApp: string | null;
+  }>();
+
   // Bot instances (created lazily to avoid loading Node.js dependencies at startup)
   private summarizerBot: Awaited<ReturnType<typeof import('./bots').createSummarizerBot>> | null = null;
   private activityBot: Awaited<ReturnType<typeof import('./bots').createActivityDetectorBot>> | null = null;
@@ -56,6 +71,12 @@ class SessionCoordinatorService {
   private async ensureBots() {
     if (!this.botsModule) {
       this.botsModule = await import('./bots');
+
+      // Initialize bots with API keys before first use
+      const initialized = await this.botsModule.initializeBots();
+      if (!initialized) {
+        console.warn('[COORDINATOR] Bots not initialized - no API key configured');
+      }
     }
     if (!this.summarizerBot) {
       this.summarizerBot = this.botsModule.createSummarizerBot();
@@ -110,6 +131,7 @@ class SessionCoordinatorService {
       clearInterval(session.intervalId);
     }
     this.activeSessions.delete(sessionId);
+    this.activityTracking.delete(sessionId);
     console.log('Session coordinator stopped for ' + sessionId);
   }
 
@@ -120,15 +142,25 @@ class SessionCoordinatorService {
     const context = await this.buildContext(sessionId);
     const bots = await this.ensureBots();
 
+    // Check if bots are ready (API key configured)
+    if (!bots.isBotsReady()) {
+      console.log('[COORDINATOR] Skipping screenshot analysis - no API key configured');
+      // Still save basic metadata to screenshot
+      await updateScreenshotAnalysis(screenshot.id, 'Analysis unavailable - configure API key in Settings');
+      return;
+    }
+
     try {
       // Run activity detection with multimodal input
+      // Compare with the most recent previous screenshot (index 0 is the newest in our list)
       const input = bots.buildActivityDetectorInput(
         screenshot.data_base64,
-        context.recentScreenshots[1]?.analysis || undefined
+        context.recentScreenshots[0]?.analysis || undefined
       );
 
-      // Pass both text and image to the activity bot
-      const result = await this.activityBot!.process([input.text, input.image]);
+      // Pass multimodal content to the activity bot
+      // Baleybots combine() returns the correct format
+      const result = await this.activityBot!.process(input);
 
       // Update screenshot with analysis
       await updateScreenshotAnalysis(screenshot.id, result.currentContext);
@@ -171,14 +203,141 @@ class SessionCoordinatorService {
   }
 
   /**
+   * Process a new audio chunk (save, transcribe, update)
+   */
+  async processAudioChunk(
+    sessionId: string,
+    audioBase64: string,
+    durationSeconds: number
+  ): Promise<void> {
+    const now = new Date();
+    const startTime = new Date(now.getTime() - durationSeconds * 1000).toISOString();
+    const endTime = now.toISOString();
+
+    // Save audio chunk to database
+    const chunk = await saveAudioChunk(
+      sessionId,
+      startTime,
+      endTime,
+      durationSeconds,
+      audioBase64
+    );
+
+    console.log('[COORDINATOR] Audio chunk saved:', chunk.id);
+
+    // Transcribe audio
+    try {
+      const result = await transcriptionService.transcribe(audioBase64);
+
+      if (result.text) {
+        // Update chunk with transcript
+        await updateAudioTranscript(chunk.id, result.text);
+
+        // Track activity (word count affects mode)
+        this.trackAudioActivity(sessionId, result.text);
+
+        // Trigger summary update with new transcript
+        await this.processTranscript(sessionId, result.text);
+
+        console.log('[COORDINATOR] Audio transcribed:', result.text.substring(0, 100) + '...');
+      }
+    } catch (error) {
+      console.error('[COORDINATOR] Transcription failed:', error);
+    }
+  }
+
+  /**
+   * Track app switch activity
+   */
+  trackAppSwitch(sessionId: string, appName: string): void {
+    let tracking = this.activityTracking.get(sessionId);
+    const now = Date.now();
+
+    if (!tracking) {
+      tracking = {
+        appSwitches: [],
+        lastActivityTime: now,
+        focusStartTime: now,
+        currentApp: null,
+      };
+      this.activityTracking.set(sessionId, tracking);
+    }
+
+    tracking.lastActivityTime = now;
+
+    if (appName !== tracking.currentApp) {
+      tracking.appSwitches.push({ app: appName, timestamp: now });
+      tracking.currentApp = appName;
+      tracking.focusStartTime = now;
+
+      // Keep only last 2 minutes of switches
+      const twoMinutesAgo = now - 120000;
+      tracking.appSwitches = tracking.appSwitches.filter(s => s.timestamp > twoMinutesAgo);
+    }
+  }
+
+  /**
+   * Track audio activity (for word count metrics)
+   */
+  private trackAudioActivity(sessionId: string, _transcript: string): void {
+    const tracking = this.activityTracking.get(sessionId);
+    if (tracking) {
+      tracking.lastActivityTime = Date.now();
+    }
+  }
+
+  /**
+   * Compute activity metrics for adaptive analysis
+   */
+  computeActivityMetrics(sessionId: string, context: SessionContext): ActivityMetrics {
+    const tracking = this.activityTracking.get(sessionId);
+    const now = Date.now();
+
+    const appSwitches = tracking?.appSwitches || [];
+    const uniqueApps = new Set(appSwitches.map(s => s.app));
+
+    // Count words in recent transcripts
+    const wordCount = context.recentTranscripts
+      .join(' ')
+      .split(/\s+/)
+      .filter(w => w.length > 0).length;
+
+    return {
+      appSwitchCount: appSwitches.length,
+      uniqueAppsCount: uniqueApps.size,
+      screenshotCount: context.recentScreenshots.length,
+      audioWordCount: wordCount,
+      averageScreenshotChangeMagnitude: 0.5, // TODO: compute from analysis
+      timeSinceLastActivity: tracking
+        ? Math.floor((now - tracking.lastActivityTime) / 1000)
+        : 0,
+      currentFocusDuration: tracking
+        ? Math.floor((now - tracking.focusStartTime) / 1000)
+        : 0,
+    };
+  }
+
+  /**
    * Handle a chat message from the user
    */
   async handleChatMessage(sessionId: string, message: string): Promise<string> {
     // Save user message
     await saveChatMessage(sessionId, 'user', message);
 
-    const context = await this.buildContext(sessionId);
     const bots = await this.ensureBots();
+
+    // Check if bots are ready
+    if (!bots.isBotsReady()) {
+      const noKeyResponse = 'I need an API key to answer questions. Please configure your Claude API key in Settings.';
+      await saveChatMessage(sessionId, 'assistant', noKeyResponse);
+      this.emitter.emit('chat-response', {
+        sessionId,
+        message: noKeyResponse,
+      });
+      return noKeyResponse;
+    }
+
+    const context = await this.buildContext(sessionId);
 
     try {
       const input = bots.buildQAInput(message, context);
@@ -236,8 +395,15 @@ class SessionCoordinatorService {
    * Update the rolling summary
    */
   private async updateSummary(sessionId: string): Promise<void> {
-    const context = await this.buildContext(sessionId);
     const bots = await this.ensureBots();
+
+    // Skip if no API key configured
+    if (!bots.isBotsReady()) {
+      console.log('[COORDINATOR] Skipping summary update - no API key configured');
+      return;
+    }
+
+    const context = await this.buildContext(sessionId);
 
     try {
       const input = bots.buildSummarizerInput(context);
@@ -260,8 +426,15 @@ class SessionCoordinatorService {
   private async checkAnalysisMode(sessionId: string, context: SessionContext): Promise<void> {
     const bots = await this.ensureBots();
 
+    // Skip if no API key configured
+    if (!bots.isBotsReady()) {
+      return;
+    }
+
+    const metrics = this.computeActivityMetrics(sessionId, context);
+
     try {
-      const input = bots.buildAnalysisControllerInput(context);
+      const input = bots.buildAnalysisControllerInput(context, metrics);
       const result = await this.analysisControllerBot!.process(input);
 
       // Only change if confident and different from current
@@ -272,6 +445,9 @@ class SessionCoordinatorService {
           mode: result.recommendedMode,
           reason: result.reason,
         });
+
+        // Log mode change with metrics
+        console.log('[COORDINATOR] Mode changed to', result.recommendedMode, 'due to:', result.reason, metrics);
       }
     } catch (error) {
       console.error('Analysis mode check error:', error);

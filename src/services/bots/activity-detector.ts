@@ -5,7 +5,7 @@
  * identify context changes, and suggest insights.
  */
 
-import { Baleybot, image } from '@baleybots/core';
+import { Baleybot, combine, text, image } from '@baleybots/core';
 import { ActivityDetectionSchema, type ActivityDetection } from './types';
 
 const SYSTEM_PROMPT = `You are an activity detector analyzing screenshots from a work session.
@@ -34,19 +34,19 @@ export function buildActivityDetectorInput(
 ) {
   // Strip data URL prefix if present
   const imageData = screenshotBase64.replace(/^data:image\/\w+;base64,/, '');
-  
+
   const textPrompt = previousContext
     ? `Previous context: ${previousContext}\n\nAnalyze this new screenshot:`
     : 'Analyze this screenshot from the start of a work session:';
 
-  // Use the multimodal combine helper to create mixed content
-  return {
-    text: textPrompt,
-    image: image({
+  // Use the multimodal combine helper for proper Baleybots format
+  return combine(
+    text(textPrompt),
+    image({
       data: imageData,
       mediaType: 'image/png',
-    }),
-  };
+    })
+  );
 }
 
 export type { ActivityDetection };
