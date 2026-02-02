@@ -59,6 +59,17 @@ class StorageService {
     const sessions = await this.loadSessions()
     return sessions.find(s => s.id === id) || null
   }
+
+  /**
+   * Get the stored API key for AI services
+   */
+  getApiKey(): string | null {
+    try {
+      return localStorage.getItem('sessions_api_key')
+    } catch {
+      return null
+    }
+  }
 }
 
 export const storage = new StorageService()

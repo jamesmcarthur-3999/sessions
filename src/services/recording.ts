@@ -7,8 +7,10 @@
  * - Video recording (macOS)
  */
 
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { saveScreenshot } from './database'
 import { sessionCoordinator } from './session-coordinator'
+import { smartCapture } from './smart-capture'
 
 // Type-safe invoke wrapper
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -138,6 +140,7 @@ export interface RecordingOptions {
   screenshotIntervalMs: number
   selectedMicrophone: string | null
   selectedScreen: string | null
+  smartCaptureEnabled: boolean
 }
 
 export interface SessionRecordingState {
@@ -157,11 +160,13 @@ const defaultOptions: RecordingOptions = {
   screenshotIntervalMs: 30000,
   selectedMicrophone: null,
   selectedScreen: null,
+  smartCaptureEnabled: true,
 }
 
 class SessionRecordingController {
   private state: SessionRecordingState | null = null
   private screenshotInterval: ReturnType<typeof setInterval> | null = null
+  private audioChunkListener: UnlistenFn | null = null
 
   async startRecording(sessionId: string, options: Partial<RecordingOptions> = {}): Promise<void> {
     if (this.state?.isRecording) {
@@ -193,14 +198,40 @@ class SessionRecordingController {
         try {
           await startAudioRecording(sessionId, 120, mergedOptions.selectedMicrophone)
           console.log('🎤 Audio recording started')
+
+          // Listen for audio chunk events from Rust
+          this.audioChunkListener = await listen<{
+            sessionId: string;
+            audioBase64: string;
+            duration: number;
+          }>('audio-chunk', async (event) => {
+            const { sessionId: sid, audioBase64, duration } = event.payload;
+
+            // Process through coordinator for transcription
+            await sessionCoordinator.processAudioChunk(
+              sid,
+              audioBase64,
+              duration
+            );
+          });
+          console.log('🎤 Audio chunk listener started')
         } catch (e) {
           console.error('Failed to start audio recording:', e)
         }
       }
 
-      // Start screenshot capture interval if enabled
+      // Start screenshot capture if enabled
       if (mergedOptions.enableScreenshots) {
-        this.startScreenshotCapture()
+        if (mergedOptions.smartCaptureEnabled) {
+          // Use smart capture (event-driven)
+          await smartCapture.start(sessionId, mergedOptions.selectedScreen, {
+            maxIntervalMs: mergedOptions.screenshotIntervalMs,
+          })
+          console.log('Smart capture started')
+        } else {
+          // Use interval-based capture
+          this.startScreenshotCapture()
+        }
       }
 
       // Start video recording if enabled
@@ -294,14 +325,28 @@ class SessionRecordingController {
 
     const { options } = this.state
 
-    // Stop screenshot interval
-    if (this.screenshotInterval) {
-      clearInterval(this.screenshotInterval)
-      this.screenshotInterval = null
+    // Stop screenshot capture
+    if (options.enableScreenshots) {
+      if (options.smartCaptureEnabled) {
+        // Smart capture handles final screenshot internally
+        await smartCapture.stop()
+        console.log('Smart capture stopped')
+      } else if (this.screenshotInterval) {
+        clearInterval(this.screenshotInterval)
+        this.screenshotInterval = null
+        // Capture final screenshot
+        await this.captureAndStoreScreenshot()
+      }
     }
 
     // Stop audio recording if it was enabled
     if (isTauri() && options.enableAudio) {
+      // Clean up audio chunk listener
+      if (this.audioChunkListener) {
+        this.audioChunkListener()
+        this.audioChunkListener = null
+      }
+
       try {
         await stopAudioRecording()
         console.log('🎤 Audio recording stopped')
@@ -318,11 +363,6 @@ class SessionRecordingController {
       } catch (e) {
         console.error('Failed to stop video:', e)
       }
-    }
-
-    // Capture final screenshot if screenshots were enabled
-    if (options.enableScreenshots) {
-      await this.captureAndStoreScreenshot()
     }
 
     const result = { ...this.state }

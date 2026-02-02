@@ -85,6 +85,17 @@ function AppContent() {
     }
   }, [state.activeSession, view])
 
+  // Listen for navigate-to-settings events (from LiveSessionPanel)
+  useEffect(() => {
+    const handleNavigateToSettings = () => {
+      setView('settings')
+    }
+    window.addEventListener('navigate-to-settings', handleNavigateToSettings)
+    return () => {
+      window.removeEventListener('navigate-to-settings', handleNavigateToSettings)
+    }
+  }, [])
+
   return (
     <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100">
       <AnimatePresence mode="wait">

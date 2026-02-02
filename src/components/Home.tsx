@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Video, Feather, ChevronRight, Settings, Sparkles } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { apiKeyConfigured } from '../services/bots'
+import { hasApiKey } from '../services/bots'
 import { generateId } from '../utils/id'
 import { RecordingSettings, defaultRecordingConfig, type RecordingConfig } from './RecordingSettings'
 import type { Session } from '../types'
@@ -67,7 +67,7 @@ const itemVariants = {
 export function Home({ onNavigate, onSessionSelect }: HomeProps) {
   const { state, dispatch } = useApp()
   const recentSessions = state.sessions.slice(0, 5)
-  const apiKeyConfigured = apiKeyConfigured()
+  const apiKeyConfigured = hasApiKey()
   const [showRecordingSettings, setShowRecordingSettings] = useState(false)
   const [recordingConfig, setRecordingConfig] = useState<RecordingConfig>(defaultRecordingConfig)
 

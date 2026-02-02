@@ -9,6 +9,10 @@ import {
   Check,
   AlertCircle,
   Settings2,
+  Zap,
+  Sun,
+  Moon,
+  Sparkles,
 } from 'lucide-react'
 import {
   getAudioDevices,
@@ -27,6 +31,8 @@ export interface RecordingConfig {
   screenshotInterval: number // in minutes
   selectedMicrophone: string | null
   selectedScreen: string | null
+  smartCaptureEnabled: boolean
+  analysisMode: 'ambient' | 'deep' | 'adaptive'
 }
 
 interface RecordingSettingsProps {
@@ -55,7 +61,7 @@ export function RecordingSettings({
   const [audioDevices, setAudioDevices] = useState<AudioDevice[]>([])
   const [screens, setScreens] = useState<ScreenInfo[]>([])
   const [hasPermission, setHasPermission] = useState<boolean | null>(null)
-  const [isLoadingDevices, setIsLoadingDevices] = useState(true)
+  const [_isLoadingDevices, setIsLoadingDevices] = useState(true)
   const [showMicDropdown, setShowMicDropdown] = useState(false)
   const [showScreenDropdown, setShowScreenDropdown] = useState(false)
   const [showIntervalDropdown, setShowIntervalDropdown] = useState(false)
@@ -414,6 +420,124 @@ export function RecordingSettings({
                   </AnimatePresence>
                 </div>
               )}
+
+              {/* Smart Capture Toggle */}
+              {config.enableScreenshots && (
+                <div className="mt-3 pt-3 border-t border-[var(--border-subtle)]">
+                  <button
+                    onClick={() => onConfigChange({
+                      ...config,
+                      smartCaptureEnabled: !config.smartCaptureEnabled
+                    })}
+                    className="w-full flex items-center justify-between p-4 rounded-xl bg-[var(--paper-warm)] border border-[var(--border-subtle)] hover:border-[var(--border-medium)] transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                        config.smartCaptureEnabled ? 'bg-emerald-100' : 'bg-[var(--paper-dark)]'
+                      }`}>
+                        <Zap className={`w-4 h-4 ${
+                          config.smartCaptureEnabled ? 'text-emerald-600' : 'text-[var(--ink-muted)]'
+                        }`} />
+                      </div>
+                      <div className="text-left">
+                        <div className="font-medium text-[var(--ink)]">Smart Capture</div>
+                        <div className="text-xs text-[var(--ink-muted)]">
+                          Capture on app switches & activity
+                        </div>
+                      </div>
+                    </div>
+                    <div
+                      className={`w-12 h-7 rounded-full transition-colors flex items-center ${
+                        config.smartCaptureEnabled ? 'bg-emerald-500' : 'bg-[var(--paper-dark)]'
+                      }`}
+                    >
+                      <motion.div
+                        animate={{ x: config.smartCaptureEnabled ? 22 : 2 }}
+                        className="w-5 h-5 rounded-full bg-white shadow-sm"
+                      />
+                    </div>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Analysis Mode */}
+            <div className="space-y-3">
+              <h3 className="label-section">Analysis Mode</h3>
+
+              <div className="space-y-2">
+                <button
+                  onClick={() => onConfigChange({ ...config, analysisMode: 'adaptive' })}
+                  className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-colors ${
+                    config.analysisMode === 'adaptive'
+                      ? 'border-[var(--session-recording)] bg-[var(--session-recording)]/5'
+                      : 'border-[var(--border-subtle)] hover:bg-[var(--paper-warm)]'
+                  }`}
+                >
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                    config.analysisMode === 'adaptive' ? 'bg-[var(--session-recording)]/20' : 'bg-[var(--paper-dark)]'
+                  }`}>
+                    <Sparkles className={`w-4 h-4 ${
+                      config.analysisMode === 'adaptive' ? 'text-[var(--session-recording)]' : 'text-[var(--ink-muted)]'
+                    }`} />
+                  </div>
+                  <div className="text-left flex-1">
+                    <div className="font-medium text-[var(--ink)]">Adaptive</div>
+                    <div className="text-xs text-[var(--ink-muted)]">AI adjusts based on activity</div>
+                  </div>
+                  {config.analysisMode === 'adaptive' && (
+                    <Check className="w-5 h-5 text-[var(--session-recording)]" />
+                  )}
+                </button>
+
+                <button
+                  onClick={() => onConfigChange({ ...config, analysisMode: 'ambient' })}
+                  className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-colors ${
+                    config.analysisMode === 'ambient'
+                      ? 'border-amber-400 bg-amber-50'
+                      : 'border-[var(--border-subtle)] hover:bg-[var(--paper-warm)]'
+                  }`}
+                >
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                    config.analysisMode === 'ambient' ? 'bg-amber-100' : 'bg-[var(--paper-dark)]'
+                  }`}>
+                    <Sun className={`w-4 h-4 ${
+                      config.analysisMode === 'ambient' ? 'text-amber-600' : 'text-[var(--ink-muted)]'
+                    }`} />
+                  </div>
+                  <div className="text-left flex-1">
+                    <div className="font-medium text-[var(--ink)]">Ambient</div>
+                    <div className="text-xs text-[var(--ink-muted)]">Light analysis, less intrusive</div>
+                  </div>
+                  {config.analysisMode === 'ambient' && (
+                    <Check className="w-5 h-5 text-amber-600" />
+                  )}
+                </button>
+
+                <button
+                  onClick={() => onConfigChange({ ...config, analysisMode: 'deep' })}
+                  className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-colors ${
+                    config.analysisMode === 'deep'
+                      ? 'border-blue-400 bg-blue-50'
+                      : 'border-[var(--border-subtle)] hover:bg-[var(--paper-warm)]'
+                  }`}
+                >
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                    config.analysisMode === 'deep' ? 'bg-blue-100' : 'bg-[var(--paper-dark)]'
+                  }`}>
+                    <Moon className={`w-4 h-4 ${
+                      config.analysisMode === 'deep' ? 'text-blue-600' : 'text-[var(--ink-muted)]'
+                    }`} />
+                  </div>
+                  <div className="text-left flex-1">
+                    <div className="font-medium text-[var(--ink)]">Deep</div>
+                    <div className="text-xs text-[var(--ink-muted)]">Full analysis, real-time insights</div>
+                  </div>
+                  {config.analysisMode === 'deep' && (
+                    <Check className="w-5 h-5 text-blue-600" />
+                  )}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -449,4 +573,6 @@ export const defaultRecordingConfig: RecordingConfig = {
   screenshotInterval: 0.5, // 30 seconds
   selectedMicrophone: null,
   selectedScreen: null,
+  smartCaptureEnabled: true,
+  analysisMode: 'adaptive',
 }

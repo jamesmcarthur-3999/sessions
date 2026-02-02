@@ -18,4 +18,20 @@ export default defineConfig({
   },
   // Prevent Vite from clearing the terminal
   clearScreen: false,
+  // Externalize baleybots packages (they use Node.js APIs and only run in Tauri)
+  build: {
+    rollupOptions: {
+      external: [
+        '@baleybots/core',
+        '@baleybots/auth',
+        'wsl-utils',
+        'open',
+        'is-wsl',
+      ],
+    },
+  },
+  // Optimize deps to exclude Node.js packages
+  optimizeDeps: {
+    exclude: ['@baleybots/core', '@baleybots/auth'],
+  },
 })

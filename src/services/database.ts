@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS screenshots (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   captured_at TEXT NOT NULL,
-  trigger TEXT NOT NULL CHECK (trigger IN ('interval', 'app_switch', 'activity', 'manual')),
+  trigger TEXT NOT NULL CHECK (trigger IN ('interval', 'app_switch', 'activity', 'manual', 'session_start', 'session_end')),
   app_name TEXT,
   window_title TEXT,
   data_base64 TEXT NOT NULL,
@@ -359,11 +359,17 @@ export async function updateRollingSummary(
   content: string
 ): Promise<void> {
   const now = new Date().toISOString();
+
+  // Use INSERT OR REPLACE to handle race condition where
+  // rolling_summary may not exist yet
   await getDb().execute(
-    `UPDATE rolling_summaries
-     SET content = $1, updated_at = $2, version = version + 1
-     WHERE session_id = $3`,
-    [content, now, sessionId]
+    `INSERT INTO rolling_summaries (id, session_id, updated_at, content, version)
+     VALUES ($1, $2, $3, $4, 1)
+     ON CONFLICT(session_id) DO UPDATE SET
+       content = excluded.content,
+       updated_at = excluded.updated_at,
+       version = version + 1`,
+    [generateId(), sessionId, now, content]
   );
 }
 

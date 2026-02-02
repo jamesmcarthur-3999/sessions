@@ -224,12 +224,12 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
 
         summary = {
           text: result.text,
-          tasks: result.tasks.map((t, i) => ({
+          tasks: result.tasks.map((t) => ({
             id: generateId(),
             title: t.title,
             completed: false,
           })),
-          notes: result.notes.map((n, i) => ({
+          notes: result.notes.map((n) => ({
             id: generateId(),
             content: n.content,
           })),

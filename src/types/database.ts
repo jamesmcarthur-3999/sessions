@@ -19,7 +19,7 @@ export interface DbScreenshot {
   id: string;
   session_id: string;
   captured_at: string;
-  trigger: 'interval' | 'app_switch' | 'activity' | 'manual';
+  trigger: 'interval' | 'app_switch' | 'activity' | 'manual' | 'session_start' | 'session_end';
   app_name: string | null;
   window_title: string | null;
   data_base64: string;

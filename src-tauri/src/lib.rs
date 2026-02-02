@@ -1,7 +1,9 @@
+mod activity_monitor;
 mod audio_capture;
 mod video_recording;
 
 use tauri::Manager;
+use activity_monitor::ActivityMonitor;
 use screenshots::{Screen, image::ImageFormat};
 use std::io::Cursor;
 use std::sync::{Arc, Mutex};
@@ -208,6 +210,30 @@ fn stop_audio_recording(
 // Video Recording Commands are defined in video_recording.rs module
 
 // ============================================================================
+// Activity Monitoring Commands
+// ============================================================================
+
+#[tauri::command]
+fn start_activity_monitor(
+    app_handle: tauri::AppHandle,
+    monitor: tauri::State<'_, Arc<Mutex<ActivityMonitor>>>,
+) -> Result<(), String> {
+    let monitor = monitor.lock()
+        .map_err(|e| format!("Failed to lock activity monitor: {}", e))?;
+    monitor.start(app_handle)
+}
+
+#[tauri::command]
+fn stop_activity_monitor(
+    monitor: tauri::State<'_, Arc<Mutex<ActivityMonitor>>>,
+) -> Result<(), String> {
+    let monitor = monitor.lock()
+        .map_err(|e| format!("Failed to lock activity monitor: {}", e))?;
+    monitor.stop();
+    Ok(())
+}
+
+// ============================================================================
 // App Entry Point
 // ============================================================================
 
@@ -216,11 +242,13 @@ pub fn run() {
     // Create recording state
     let audio_recorder = Arc::new(Mutex::new(AudioRecorder::new()));
     let video_recorder = Arc::new(Mutex::new(VideoRecorder::new()));
+    let activity_monitor = Arc::new(Mutex::new(ActivityMonitor::new()));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_sql::Builder::new().build())
         .manage(audio_recorder.clone())
         .manage(video_recorder)
+        .manage(activity_monitor)
         .setup(move |app| {
             // Initialize audio recorder with app handle
             if let Ok(recorder) = audio_recorder.lock() {
@@ -255,6 +283,9 @@ pub fn run() {
             video_recording::start_video_recording,
             video_recording::stop_video_recording,
             video_recording::is_recording,
+            // Activity monitoring
+            start_activity_monitor,
+            stop_activity_monitor,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

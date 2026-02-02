@@ -96,7 +96,7 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
   const [showTypewriter, setShowTypewriter] = useState(true)
   const [screenshots, setScreenshots] = useState<DbScreenshot[]>([])
   const [audioChunks, setAudioChunks] = useState<DbAudioChunk[]>([])
-  const [loadingMedia, setLoadingMedia] = useState(true)
+  const [_loadingMedia, setLoadingMedia] = useState(true)
 
   // Load screenshots and audio chunks for sessions
   useEffect(() => {

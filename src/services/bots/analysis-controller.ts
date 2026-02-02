@@ -31,31 +31,56 @@ export function createAnalysisControllerBot() {
   });
 }
 
-export function buildAnalysisControllerInput(context: SessionContext): string {
+export interface ActivityMetrics {
+  appSwitchCount: number;
+  uniqueAppsCount: number;
+  screenshotCount: number;
+  audioWordCount: number;
+  averageScreenshotChangeMagnitude: number;
+  timeSinceLastActivity: number;
+  currentFocusDuration: number;
+}
+
+export function buildAnalysisControllerInput(
+  context: SessionContext,
+  metrics?: ActivityMetrics
+): string {
   const parts: string[] = [];
 
   parts.push(`## Current Mode: ${context.analysisMode}`);
   parts.push(`## Session Duration: ${Math.floor(context.durationSeconds / 60)} minutes`);
 
-  // Analyze screenshot frequency and diversity
-  if (context.recentScreenshots.length > 0) {
-    const apps = new Set(context.recentScreenshots.map(s => s.appName).filter(Boolean));
-    parts.push(`## Recent Screenshots: ${context.recentScreenshots.length}`);
-    parts.push(`## Unique Apps: ${apps.size} (${Array.from(apps).join(', ')})`);
-  }
+  // Use provided metrics if available, otherwise compute from context
+  if (metrics) {
+    parts.push('\n## Activity Metrics (last 2 minutes):');
+    parts.push(`- App switches: ${metrics.appSwitchCount}`);
+    parts.push(`- Unique apps: ${metrics.uniqueAppsCount}`);
+    parts.push(`- Screenshots: ${metrics.screenshotCount}`);
+    parts.push(`- Audio words: ${metrics.audioWordCount}`);
+    parts.push(`- Idle time: ${metrics.timeSinceLastActivity}s`);
+    parts.push(`- Current focus: ${metrics.currentFocusDuration}s`);
 
-  // Check audio activity
-  if (context.recentTranscripts.length > 0) {
-    const wordCount = context.recentTranscripts.join(' ').split(/\s+/).length;
-    parts.push(`## Recent Audio: ${wordCount} words transcribed`);
+    parts.push('\n## Mode Guidelines:');
+    parts.push('- **Deep mode** triggers: >3 app switches, >50 words spoken, multi-app workflow');
+    parts.push('- **Ambient mode** triggers: <2 app switches, no audio, single-app focus >5min');
   } else {
-    parts.push('## Recent Audio: None');
+    // Fallback to analyzing from context
+    if (context.recentScreenshots.length > 0) {
+      const apps = new Set(context.recentScreenshots.map(s => s.appName).filter(Boolean));
+      parts.push(`## Recent Screenshots: ${context.recentScreenshots.length}`);
+      parts.push(`## Unique Apps: ${apps.size} (${Array.from(apps).join(', ')})`);
+    }
+
+    if (context.recentTranscripts.length > 0) {
+      const wordCount = context.recentTranscripts.join(' ').split(/\s+/).length;
+      parts.push(`## Recent Audio: ${wordCount} words transcribed`);
+    } else {
+      parts.push('## Recent Audio: None');
+    }
   }
 
-  // Recent insights as indicator of activity
   parts.push(`## Recent Insights: ${context.recentInsights.length}`);
-
-  parts.push('\nBased on this activity pattern, what analysis mode is appropriate?');
+  parts.push('\nBased on these metrics, should we change analysis mode?');
 
   return parts.join('\n');
 }
