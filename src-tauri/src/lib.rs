@@ -129,6 +129,50 @@ fn capture_screenshot(screen_id: Option<String>) -> Result<String, String> {
     }, 3)
 }
 
+/// Captures a test screenshot and returns a smaller thumbnail for preview
+#[tauri::command]
+fn test_capture_screenshot(screen_id: Option<String>) -> Result<String, String> {
+    capture_with_retry(|| {
+        let screens = Screen::all().map_err(|e| format!("Failed to get screens: {}", e))?;
+
+        if screens.is_empty() {
+            return Err("No screens found".to_string());
+        }
+
+        // Select screen by ID (index) or default to first
+        let screen_idx: usize = screen_id
+            .as_ref()
+            .and_then(|id| id.parse().ok())
+            .unwrap_or(0);
+
+        let screen = screens.get(screen_idx).unwrap_or(&screens[0]);
+        let image = screen.capture().map_err(|e| format!("Failed to capture screen: {}", e))?;
+
+        // Resize to thumbnail (max 400px width for preview)
+        let thumbnail = if image.width() > 400 {
+            let scale = 400.0 / image.width() as f32;
+            let new_height = (image.height() as f32 * scale) as u32;
+            screenshots::image::imageops::resize(
+                &image,
+                400,
+                new_height,
+                screenshots::image::imageops::FilterType::Triangle,
+            )
+        } else {
+            image.clone()
+        };
+
+        let mut bytes: Vec<u8> = Vec::new();
+        let mut cursor = Cursor::new(&mut bytes);
+        thumbnail
+            .write_to(&mut cursor, ImageFormat::Png)
+            .map_err(|e| format!("Failed to encode PNG: {}", e))?;
+
+        let base64_data = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
+        Ok(format!("data:image/png;base64,{}", base64_data))
+    }, 3)
+}
+
 // ============================================================================
 // Screen Recording Permission (macOS)
 // ============================================================================
@@ -272,6 +316,7 @@ pub fn run() {
             get_screens,
             // Screenshot
             capture_screenshot,
+            test_capture_screenshot,
             // Permissions
             request_screen_recording_permission,
             check_screen_recording_permission,
