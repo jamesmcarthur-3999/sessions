@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   ArrowLeft,
@@ -97,6 +97,9 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
   const [screenshots, setScreenshots] = useState<DbScreenshot[]>([])
   const [audioChunks, setAudioChunks] = useState<DbAudioChunk[]>([])
   const [_loadingMedia, setLoadingMedia] = useState(true)
+  const [isEditingTitle, setIsEditingTitle] = useState(false)
+  const [editedTitle, setEditedTitle] = useState(session.title)
+  const titleInputRef = useRef<HTMLInputElement>(null)
 
   // Load screenshots and audio chunks for sessions
   useEffect(() => {
@@ -363,10 +366,45 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
             </span>
           </div>
 
-          {/* Title */}
-          <h1 className="font-display text-4xl md:text-5xl font-light text-[var(--ink)] tracking-tight leading-tight">
-            {session.title}
-          </h1>
+          {/* Title - click to edit */}
+          {isEditingTitle ? (
+            <input
+              ref={titleInputRef}
+              type="text"
+              value={editedTitle}
+              onChange={(e) => setEditedTitle(e.target.value)}
+              onBlur={async () => {
+                setIsEditingTitle(false)
+                if (editedTitle !== session.title && editedTitle.trim()) {
+                  const updatedSession = { ...session, title: editedTitle.trim() }
+                  await updateSession(updatedSession)
+                } else {
+                  setEditedTitle(session.title) // Reset if empty
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.currentTarget.blur()
+                } else if (e.key === 'Escape') {
+                  setEditedTitle(session.title)
+                  setIsEditingTitle(false)
+                }
+              }}
+              className="font-display text-4xl md:text-5xl font-light text-[var(--ink)] tracking-tight leading-tight bg-transparent border-b-2 border-[var(--accent)] outline-none w-full"
+              autoFocus
+            />
+          ) : (
+            <h1
+              onClick={() => {
+                setIsEditingTitle(true)
+                setTimeout(() => titleInputRef.current?.focus(), 0)
+              }}
+              className="font-display text-4xl md:text-5xl font-light text-[var(--ink)] tracking-tight leading-tight cursor-pointer hover:text-[var(--ink)]/80 transition-colors"
+              title="Click to edit title"
+            >
+              {session.title}
+            </h1>
+          )}
         </motion.header>
 
         {/* Summary */}
