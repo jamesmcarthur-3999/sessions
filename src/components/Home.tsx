@@ -130,7 +130,7 @@ export function Home({ onNavigate, onSessionSelect }: HomeProps) {
               onClick={() => onNavigate('settings')}
               className="text-sm text-[var(--accent)] hover:underline underline-offset-4"
             >
-              Configure Claude API for intelligent summaries →
+              Add your API key to unlock AI →
             </button>
           )}
         </motion.div>
@@ -154,10 +154,10 @@ export function Home({ onNavigate, onSessionSelect }: HomeProps) {
                 </div>
                 <div className="flex-1">
                   <h2 className="text-lg font-medium text-[var(--ink)] mb-1">
-                    Record a Session
+                    Record Session
                   </h2>
                   <p className="text-sm text-[var(--ink-muted)]">
-                    Capture your screen while you work
+                    Screen, audio, and insights — captured as you work
                   </p>
                 </div>
                 <ChevronRight className="w-5 h-5 text-[var(--ink-muted)] group-hover:text-[var(--session-recording)] group-hover:translate-x-1 transition-all duration-300" />
@@ -185,7 +185,7 @@ export function Home({ onNavigate, onSessionSelect }: HomeProps) {
                     Quick Capture
                   </h2>
                   <p className="text-sm text-[var(--ink-muted)]">
-                    Write or paste to summarize
+                    Text, files, or thoughts — distilled in seconds
                   </p>
                 </div>
                 <ChevronRight className="w-5 h-5 text-[var(--ink-muted)] group-hover:text-[var(--session-capture)] group-hover:translate-x-1 transition-all duration-300" />

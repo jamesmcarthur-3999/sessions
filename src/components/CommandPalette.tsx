@@ -115,9 +115,9 @@ export function CommandPalette({
       type: 'session',
       icon:
         session.type === 'session' ? (
-          <Video className="w-4 h-4 text-red-500" />
+          <Video className="w-4 h-4 text-[var(--session-red)]" />
         ) : (
-          <MessageSquare className="w-4 h-4 text-blue-500" />
+          <MessageSquare className="w-4 h-4 text-[var(--capture-blue)]" />
         ),
       title: session.title,
       subtitle: session.summary?.text?.substring(0, 60) + '...' || undefined,
@@ -189,7 +189,7 @@ export function CommandPalette({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
+            className="fixed inset-0 z-50 bg-[var(--ink)]/50 backdrop-blur-sm"
           />
 
           {/* Palette */}
@@ -200,10 +200,10 @@ export function CommandPalette({
             transition={{ duration: 0.15 }}
             className="fixed left-1/2 top-[20%] z-50 w-full max-w-lg -translate-x-1/2"
           >
-            <div className="mx-4 overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-2xl">
+            <div className="mx-4 overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--paper)] shadow-2xl">
               {/* Search input */}
-              <div className="flex items-center gap-3 px-4 py-3 border-b border-neutral-200 dark:border-neutral-800">
-                <Search className="w-5 h-5 text-neutral-400" />
+              <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border-subtle)]">
+                <Search className="w-5 h-5 text-[var(--ink-muted)]" />
                 <input
                   ref={inputRef}
                   type="text"
@@ -213,18 +213,18 @@ export function CommandPalette({
                     setSelectedIndex(0)
                   }}
                   placeholder="Search commands and sessions..."
-                  className="flex-1 bg-transparent text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 focus:outline-none"
+                  className="flex-1 bg-transparent text-[var(--ink)] placeholder:text-[var(--ink-muted)] focus:outline-none"
                 />
-                <div className="flex items-center gap-1 px-2 py-1 rounded bg-neutral-100 dark:bg-neutral-800">
-                  <Command className="w-3 h-3 text-neutral-500" />
-                  <span className="text-xs text-neutral-500">K</span>
+                <div className="flex items-center gap-1 px-2 py-1 rounded bg-[var(--paper-warm)]">
+                  <Command className="w-3 h-3 text-[var(--ink-muted)]" />
+                  <span className="text-xs text-[var(--ink-muted)]">K</span>
                 </div>
               </div>
 
               {/* Results */}
               <div className="max-h-80 overflow-y-auto p-2">
                 {commands.length === 0 ? (
-                  <div className="px-4 py-8 text-center text-neutral-400">
+                  <div className="px-4 py-8 text-center text-[var(--ink-muted)]">
                     No results found
                   </div>
                 ) : (
@@ -235,31 +235,31 @@ export function CommandPalette({
                       onMouseEnter={() => setSelectedIndex(index)}
                       className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors ${
                         index === selectedIndex
-                          ? 'bg-neutral-100 dark:bg-neutral-800'
-                          : 'hover:bg-neutral-50 dark:hover:bg-neutral-800/50'
+                          ? 'bg-[var(--paper-warm)]'
+                          : 'hover:bg-[var(--paper-warm)]/50'
                       }`}
                     >
                       <div
                         className={`w-8 h-8 rounded-lg flex items-center justify-center ${
                           command.type === 'action'
-                            ? 'bg-neutral-100 dark:bg-neutral-800'
+                            ? 'bg-[var(--paper-warm)]'
                             : 'bg-transparent'
                         }`}
                       >
                         {command.icon}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="font-medium text-neutral-900 dark:text-neutral-100 truncate">
+                        <div className="font-medium text-[var(--ink)] truncate">
                           {command.title}
                         </div>
                         {command.subtitle && (
-                          <div className="text-sm text-neutral-500 truncate">
+                          <div className="text-sm text-[var(--ink-muted)] truncate">
                             {command.subtitle}
                           </div>
                         )}
                       </div>
                       {command.shortcut && (
-                        <div className="text-xs text-neutral-400">
+                        <div className="text-xs text-[var(--ink-muted)]">
                           {command.shortcut}
                         </div>
                       )}
@@ -269,7 +269,7 @@ export function CommandPalette({
               </div>
 
               {/* Footer */}
-              <div className="flex items-center justify-between px-4 py-2 border-t border-neutral-200 dark:border-neutral-800 text-xs text-neutral-400">
+              <div className="flex items-center justify-between px-4 py-2 border-t border-[var(--border-subtle)] text-xs text-[var(--ink-muted)]">
                 <div className="flex items-center gap-4">
                   <span>↑↓ navigate</span>
                   <span>↵ select</span>

@@ -105,16 +105,16 @@ export function Settings({ onBack }: SettingsProps) {
       className="min-h-screen"
     >
       {/* Header */}
-      <header className="sticky top-0 z-10 bg-neutral-50/80 dark:bg-neutral-950/80 backdrop-blur-sm border-b border-neutral-200 dark:border-neutral-800">
+      <header className="sticky top-0 z-10 bg-[var(--paper)]/80 backdrop-blur-sm border-b border-[var(--border-subtle)]">
         <div className="max-w-2xl mx-auto px-6 py-4 flex items-center justify-between">
           <button
             onClick={onBack}
-            className="flex items-center gap-2 text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors"
+            className="flex items-center gap-2 text-[var(--ink-muted)] hover:text-[var(--ink)] transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
             <span>Back</span>
           </button>
-          <h1 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">
+          <h1 className="text-lg font-medium text-[var(--ink)]">
             Settings
           </h1>
           <div className="w-16" />
@@ -125,35 +125,35 @@ export function Settings({ onBack }: SettingsProps) {
       <main className="max-w-2xl mx-auto px-6 py-8">
         {/* Hero */}
         <motion.div variants={itemVariants} className="text-center mb-12">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-[var(--accent)] flex items-center justify-center">
             <Sparkles className="w-8 h-8 text-white" />
           </div>
-          <h2 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100 mb-2">
-            Power Up with AI
+          <h2 className="text-2xl font-semibold text-[var(--ink)] mb-2">
+            Intelligence
           </h2>
-          <p className="text-neutral-500 max-w-md mx-auto">
-            Connect your Claude API key to unlock intelligent summaries, task extraction, and smart chat features.
+          <p className="text-[var(--ink-muted)] max-w-md mx-auto">
+            API keys enable summaries, task extraction, and chat.
           </p>
         </motion.div>
 
         {/* API Key Section */}
         <motion.section variants={itemVariants} className="mb-8">
-          <div className="p-6 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+          <div className="p-6 rounded-2xl border border-[var(--border-subtle)] bg-[var(--paper)]">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
-                <Key className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+              <div className="w-10 h-10 rounded-xl bg-[var(--accent)]/10 flex items-center justify-center">
+                <Key className="w-5 h-5 text-[var(--accent)]" />
               </div>
               <div>
-                <h3 className="font-medium text-neutral-900 dark:text-neutral-100">
+                <h3 className="font-medium text-[var(--ink)]">
                   Claude API Key
                 </h3>
-                <p className="text-sm text-neutral-500">
+                <p className="text-sm text-[var(--ink-muted)]">
                   Get yours at{' '}
                   <a
                     href="https://console.anthropic.com/settings/keys"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-violet-600 dark:text-violet-400 hover:underline"
+                    className="text-[var(--accent)] hover:underline"
                   >
                     console.anthropic.com
                   </a>
@@ -171,17 +171,17 @@ export function Settings({ onBack }: SettingsProps) {
                 onChange={(e) => setApiKey(e.target.value)}
                 onFocus={() => setShowKey(true)}
                 placeholder="sk-ant-api..."
-                className="w-full px-4 py-3 pr-12 rounded-xl border border-neutral-200 dark:border-neutral-700
-                           bg-neutral-50 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100
-                           placeholder:text-neutral-400 font-mono text-sm
-                           focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+                className="w-full px-4 py-3 pr-12 rounded-xl border border-[var(--border-subtle)]
+                           bg-[var(--paper-warm)] text-[var(--ink)]
+                           placeholder:text-[var(--ink-muted)] font-mono text-sm
+                           focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent"
               />
               <button
                 onClick={() => setShowKey(!showKey)}
                 aria-label={showKey ? 'Hide API key' : 'Show API key'}
                 className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg
-                           text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300
-                           hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors"
+                           text-[var(--ink-muted)] hover:text-[var(--ink)]
+                           hover:bg-[var(--paper-dark)] transition-colors"
               >
                 {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
@@ -194,8 +194,8 @@ export function Settings({ onBack }: SettingsProps) {
                 disabled={isSaving}
                 className={`flex items-center gap-2 px-4 py-2 rounded-xl transition-colors disabled:opacity-50 ${
                   saveStatus === 'error'
-                    ? 'bg-red-600 text-white'
-                    : 'bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 hover:bg-neutral-800 dark:hover:bg-neutral-200'
+                    ? 'bg-[var(--error)] text-white'
+                    : 'bg-[var(--ink)] text-[var(--paper)] hover:opacity-90'
                 }`}
               >
                 {saveStatus === 'success' ? (
@@ -217,8 +217,8 @@ export function Settings({ onBack }: SettingsProps) {
                 onClick={handleTestConnection}
                 disabled={!apiKey.trim() || testStatus === 'testing'}
                 className="flex items-center gap-2 px-4 py-2 rounded-xl
-                           border border-neutral-200 dark:border-neutral-700
-                           hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors
+                           border border-[var(--border-subtle)]
+                           hover:bg-[var(--paper-warm)] transition-colors
                            disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {testStatus === 'testing' ? (
@@ -228,13 +228,13 @@ export function Settings({ onBack }: SettingsProps) {
                   </>
                 ) : testStatus === 'success' ? (
                   <>
-                    <Check className="w-4 h-4 text-green-500" />
-                    <span className="text-green-600 dark:text-green-400">Connected!</span>
+                    <Check className="w-4 h-4 text-[var(--success)]" />
+                    <span className="text-[var(--success)]">Connected!</span>
                   </>
                 ) : testStatus === 'error' ? (
                   <>
-                    <AlertCircle className="w-4 h-4 text-red-500" />
-                    <span className="text-red-600 dark:text-red-400">Failed</span>
+                    <AlertCircle className="w-4 h-4 text-[var(--error)]" />
+                    <span className="text-[var(--error)]">Failed</span>
                   </>
                 ) : (
                   <>
@@ -247,7 +247,7 @@ export function Settings({ onBack }: SettingsProps) {
 
             {/* Test error message */}
             {testError && (
-              <p className="text-sm text-red-600 dark:text-red-400 mt-3">
+              <p className="text-sm text-[var(--error)] mt-3">
                 {testError}
               </p>
             )}
@@ -256,22 +256,22 @@ export function Settings({ onBack }: SettingsProps) {
 
         {/* OpenAI API Key Section */}
         <motion.section variants={itemVariants} className="mb-8">
-          <div className="p-6 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+          <div className="p-6 rounded-2xl border border-[var(--border-subtle)] bg-[var(--paper)]">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-                <Mic className="w-5 h-5 text-green-600 dark:text-green-400" />
+              <div className="w-10 h-10 rounded-xl bg-[var(--success)]/10 flex items-center justify-center">
+                <Mic className="w-5 h-5 text-[var(--success)]" />
               </div>
               <div>
-                <h3 className="font-medium text-neutral-900 dark:text-neutral-100">
+                <h3 className="font-medium text-[var(--ink)]">
                   OpenAI API Key
                 </h3>
-                <p className="text-sm text-neutral-500">
+                <p className="text-sm text-[var(--ink-muted)]">
                   For audio transcription (Whisper).{' '}
                   <a
                     href="https://platform.openai.com/api-keys"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-violet-600 dark:text-violet-400 hover:underline"
+                    className="text-[var(--accent)] hover:underline"
                   >
                     Get key
                   </a>
@@ -289,22 +289,22 @@ export function Settings({ onBack }: SettingsProps) {
                 onChange={(e) => setOpenaiKey(e.target.value)}
                 onFocus={() => setShowOpenaiKey(true)}
                 placeholder="sk-..."
-                className="w-full px-4 py-3 pr-12 rounded-xl border border-neutral-200 dark:border-neutral-700
-                           bg-neutral-50 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100
-                           placeholder:text-neutral-400 font-mono text-sm
-                           focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                className="w-full px-4 py-3 pr-12 rounded-xl border border-[var(--border-subtle)]
+                           bg-[var(--paper-warm)] text-[var(--ink)]
+                           placeholder:text-[var(--ink-muted)] font-mono text-sm
+                           focus:outline-none focus:ring-2 focus:ring-[var(--success)] focus:border-transparent"
               />
               <button
                 onClick={() => setShowOpenaiKey(!showOpenaiKey)}
                 aria-label={showOpenaiKey ? 'Hide API key' : 'Show API key'}
                 className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg
-                           text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300
-                           hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors"
+                           text-[var(--ink-muted)] hover:text-[var(--ink)]
+                           hover:bg-[var(--paper-dark)] transition-colors"
               >
                 {showOpenaiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
-            <p className="text-xs text-neutral-400 mt-2">
+            <p className="text-xs text-[var(--ink-muted)] mt-2">
               Optional. Only needed for session audio transcription.
             </p>
           </div>
@@ -312,52 +312,52 @@ export function Settings({ onBack }: SettingsProps) {
 
         {/* Features Preview */}
         <motion.section variants={itemVariants}>
-          <h3 className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-4">
-            What You'll Unlock
+          <h3 className="text-xs font-semibold text-[var(--ink-muted)] uppercase tracking-wider mb-4">
+            Capabilities
           </h3>
           <div className="grid gap-3">
             {[
               {
                 icon: Brain,
-                iconColor: 'text-violet-500',
-                bgColor: 'bg-violet-100 dark:bg-violet-900/30',
+                iconColor: 'text-[var(--accent)]',
+                bgColor: 'bg-[var(--accent)]/10',
                 title: 'Smart Summaries',
                 desc: 'AI-powered analysis of your captures and sessions',
               },
               {
                 icon: CheckSquare,
-                iconColor: 'text-green-500',
-                bgColor: 'bg-green-100 dark:bg-green-900/30',
+                iconColor: 'text-[var(--success)]',
+                bgColor: 'bg-[var(--success)]/10',
                 title: 'Task Extraction',
                 desc: 'Automatically find and organize action items',
               },
               {
                 icon: MessageCircle,
-                iconColor: 'text-blue-500',
-                bgColor: 'bg-blue-100 dark:bg-blue-900/30',
+                iconColor: 'text-[var(--capture-blue)]',
+                bgColor: 'bg-[var(--capture-blue)]/10',
                 title: 'Interactive Chat',
                 desc: 'Ask questions about your sessions',
               },
               {
                 icon: Link,
-                iconColor: 'text-amber-500',
-                bgColor: 'bg-amber-100 dark:bg-amber-900/30',
+                iconColor: 'text-[var(--accent)]',
+                bgColor: 'bg-[var(--accent)]/10',
                 title: 'MCP Integrations',
                 desc: 'Connect to Linear, Notion, Slack and more',
               },
             ].map((feature) => (
               <div
                 key={feature.title}
-                className="flex items-center gap-4 p-4 rounded-xl border border-neutral-200 dark:border-neutral-800"
+                className="flex items-center gap-4 p-4 rounded-xl border border-[var(--border-subtle)]"
               >
                 <div className={`w-10 h-10 rounded-lg ${feature.bgColor} flex items-center justify-center`}>
                   <feature.icon className={`w-5 h-5 ${feature.iconColor}`} />
                 </div>
                 <div>
-                  <h4 className="font-medium text-neutral-900 dark:text-neutral-100">
+                  <h4 className="font-medium text-[var(--ink)]">
                     {feature.title}
                   </h4>
-                  <p className="text-sm text-neutral-500">{feature.desc}</p>
+                  <p className="text-sm text-[var(--ink-muted)]">{feature.desc}</p>
                 </div>
               </div>
             ))}
@@ -367,7 +367,7 @@ export function Settings({ onBack }: SettingsProps) {
         {/* Footer note */}
         <motion.p
           variants={itemVariants}
-          className="text-center text-sm text-neutral-400 mt-12"
+          className="text-center text-sm text-[var(--ink-muted)] mt-12"
         >
           Your API keys are stored locally and only sent to their respective API servers.
         </motion.p>

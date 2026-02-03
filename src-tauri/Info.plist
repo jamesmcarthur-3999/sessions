@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Sessions needs access to your microphone to record audio during work sessions.</string>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>Sessions needs to capture your screen to record your work session.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Sessions monitors app switches to intelligently capture screenshots.</string>
+</dict>
+</plist>

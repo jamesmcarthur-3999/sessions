@@ -176,8 +176,8 @@ export function RecordingSettings({
                 <Settings2 className="w-5 h-5 text-[var(--session-recording)]" />
               </div>
               <div>
-                <h2 className="font-medium text-[var(--ink)]">Recording Settings</h2>
-                <p className="text-xs text-[var(--ink-muted)]">Configure capture options</p>
+                <h2 className="font-medium text-[var(--ink)]">Configure Recording</h2>
+                <p className="text-xs text-[var(--ink-muted)]">Choose what to capture</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -292,7 +292,7 @@ export function RecordingSettings({
                   <Camera className="w-5 h-5 text-[var(--ink-muted)]" />
                   <div>
                     <span className="text-[var(--ink)] font-medium">Screenshots</span>
-                    <p className="text-xs text-[var(--ink-muted)]">Capture screen at intervals</p>
+                    <p className="text-xs text-[var(--ink-muted)]">Periodic screenshots</p>
                   </div>
                 </div>
                 <div
@@ -314,7 +314,7 @@ export function RecordingSettings({
                   <Mic className="w-5 h-5 text-[var(--ink-muted)]" />
                   <div>
                     <span className="text-[var(--ink)] font-medium">Audio</span>
-                    <p className="text-xs text-[var(--ink-muted)]">Record microphone input</p>
+                    <p className="text-xs text-[var(--ink-muted)]">Audio transcription</p>
                   </div>
                 </div>
                 <div
@@ -336,7 +336,7 @@ export function RecordingSettings({
                   <Monitor className="w-5 h-5 text-[var(--ink-muted)]" />
                   <div>
                     <span className="text-[var(--ink)] font-medium">Video</span>
-                    <p className="text-xs text-[var(--ink-muted)]">Record screen as video</p>
+                    <p className="text-xs text-[var(--ink-muted)]">Screen recording</p>
                   </div>
                 </div>
                 <div
@@ -665,7 +665,7 @@ export function RecordingSettings({
             )}
             {!config.enableScreenshots && !config.enableAudio && !config.enableVideo && (
               <p className="text-xs text-[var(--error)] mb-3 text-center">
-                Enable at least one capture mode to start recording
+                Select at least one capture mode
               </p>
             )}
 

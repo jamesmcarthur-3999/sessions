@@ -79,17 +79,17 @@ export function History({ onBack, onSessionSelect }: HistoryProps) {
       className="min-h-screen"
     >
       {/* Header */}
-      <header className="sticky top-0 z-10 bg-neutral-50/80 dark:bg-neutral-950/80 backdrop-blur-sm border-b border-neutral-200 dark:border-neutral-800">
+      <header className="sticky top-0 z-10 bg-[var(--paper)]/80 backdrop-blur-sm border-b border-[var(--border-subtle)]">
         <div className="max-w-3xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between mb-4">
             <button
               onClick={onBack}
-              className="flex items-center gap-2 text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors"
+              className="flex items-center gap-2 text-[var(--ink-muted)] hover:text-[var(--ink)] transition-colors"
             >
               <ArrowLeft className="w-4 h-4" />
               <span>Back</span>
             </button>
-            <h1 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">
+            <h1 className="text-lg font-medium text-[var(--ink)]">
               History
             </h1>
             <div className="w-16" />
@@ -97,16 +97,16 @@ export function History({ onBack, onSessionSelect }: HistoryProps) {
 
           {/* Search */}
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--ink-muted)]" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search sessions..."
-              className="w-full pl-10 pr-4 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800
-                         bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100
-                         placeholder:text-neutral-400
-                         focus:outline-none focus:ring-2 focus:ring-neutral-900 dark:focus:ring-neutral-100 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 rounded-lg border border-[var(--border-subtle)]
+                         bg-[var(--paper)] text-[var(--ink)]
+                         placeholder:text-[var(--ink-muted)]
+                         focus:outline-none focus:ring-2 focus:ring-[var(--ink)] focus:border-transparent"
             />
           </div>
         </div>
@@ -118,26 +118,26 @@ export function History({ onBack, onSessionSelect }: HistoryProps) {
           <motion.div variants={itemVariants} className="space-y-4">
             {/* Loading skeleton */}
             {[1, 2, 3].map((i) => (
-              <div key={i} className="animate-pulse flex items-center gap-4 p-4 rounded-xl border border-neutral-200 dark:border-neutral-800">
-                <div className="w-10 h-10 rounded-lg bg-neutral-200 dark:bg-neutral-800" />
+              <div key={i} className="animate-pulse flex items-center gap-4 p-4 rounded-xl border border-[var(--border-subtle)]">
+                <div className="w-10 h-10 rounded-lg bg-[var(--paper-warm)]" />
                 <div className="flex-1 space-y-2">
-                  <div className="h-4 w-1/3 bg-neutral-200 dark:bg-neutral-800 rounded" />
-                  <div className="h-3 w-1/2 bg-neutral-100 dark:bg-neutral-900 rounded" />
+                  <div className="h-4 w-1/3 bg-[var(--paper-warm)] rounded" />
+                  <div className="h-3 w-1/2 bg-[var(--paper-dark)] rounded" />
                 </div>
               </div>
             ))}
           </motion.div>
         ) : state.sessions.length === 0 ? (
           <motion.div variants={itemVariants} className="text-center py-16">
-            <p className="text-neutral-400">No sessions yet</p>
-            <p className="text-sm text-neutral-400 mt-1">
+            <p className="text-[var(--ink-muted)]">No sessions yet</p>
+            <p className="text-sm text-[var(--ink-muted)] mt-1">
               Start a session or make a capture to see it here
             </p>
           </motion.div>
         ) : filteredSessions.length === 0 ? (
           <motion.div variants={itemVariants} className="text-center py-16">
-            <p className="text-neutral-400">No results found</p>
-            <p className="text-sm text-neutral-400 mt-1">
+            <p className="text-[var(--ink-muted)]">No results found</p>
+            <p className="text-sm text-[var(--ink-muted)] mt-1">
               Try a different search term
             </p>
           </motion.div>
@@ -145,7 +145,7 @@ export function History({ onBack, onSessionSelect }: HistoryProps) {
           <div className="space-y-8">
             {Array.from(groupedSessions.entries()).map(([date, dateSessions]) => (
               <motion.div key={date} variants={itemVariants}>
-                <h2 className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-3">
+                <h2 className="text-xs font-semibold text-[var(--ink-muted)] uppercase tracking-wider mb-3">
                   {date}
                 </h2>
                 <div className="space-y-2">
@@ -153,41 +153,41 @@ export function History({ onBack, onSessionSelect }: HistoryProps) {
                     <motion.button
                       key={session.id}
                       variants={itemVariants}
+                      whileHover={{ y: -2 }}
                       onClick={() => onSessionSelect(session)}
                       className="w-full flex items-center gap-4 p-4 rounded-xl
-                                 border border-neutral-200 dark:border-neutral-800
-                                 hover:border-neutral-300 dark:hover:border-neutral-700
-                                 hover:bg-neutral-50 dark:hover:bg-neutral-900
+                                 border border-[var(--border-subtle)]
+                                 hover:bg-[var(--paper-warm)]
                                  transition-all text-left group"
                     >
                       <div className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors
                         ${session.type === 'session'
-                          ? 'bg-red-50 dark:bg-red-950 group-hover:bg-red-100 dark:group-hover:bg-red-900'
-                          : 'bg-blue-50 dark:bg-blue-950 group-hover:bg-blue-100 dark:group-hover:bg-blue-900'
+                          ? 'bg-[var(--session-red)]/10 group-hover:bg-[var(--session-red)]/20'
+                          : 'bg-[var(--capture-blue)]/10 group-hover:bg-[var(--capture-blue)]/20'
                         }`}
                       >
                         {session.type === 'session' ? (
-                          <Video className="w-5 h-5 text-red-600 dark:text-red-400" />
+                          <Video className="w-5 h-5 text-[var(--session-red)]" />
                         ) : (
-                          <MessageSquare className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                          <MessageSquare className="w-5 h-5 text-[var(--capture-blue)]" />
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <h3 className="font-medium text-neutral-900 dark:text-neutral-100 truncate">
+                        <h3 className="font-medium text-[var(--ink)] truncate">
                           {session.title}
                         </h3>
-                        <p className="text-sm text-neutral-500 truncate">
+                        <p className="text-sm text-[var(--ink-muted)] truncate">
                           {session.summary?.text || (session.type === 'session' ? 'Session' : 'Capture')}
                         </p>
                       </div>
                       <div className="text-right">
                         {session.duration && (
-                          <span className="text-sm text-neutral-400 block">
+                          <span className="text-sm text-[var(--ink-muted)] block">
                             {formatDuration(session.duration)}
                           </span>
                         )}
                         {session.summary && (
-                          <span className="text-xs text-neutral-400">
+                          <span className="text-xs text-[var(--ink-muted)]">
                             {session.summary.tasks.filter(t => !t.completed).length} tasks
                           </span>
                         )}
