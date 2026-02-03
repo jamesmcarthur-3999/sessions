@@ -202,6 +202,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
       pausedTimeRef.current += Date.now() - pauseStartRef.current
       try {
         await sessionRecorder.resumeRecording()
+        sessionCoordinator.resumeSession(sessionIdRef.current)
       } catch (e) {
         console.error('Failed to resume:', e)
       }
@@ -210,6 +211,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
       pauseStartRef.current = Date.now()
       try {
         await sessionRecorder.pauseRecording()
+        sessionCoordinator.pauseSession(sessionIdRef.current)
       } catch (e) {
         console.error('Failed to pause:', e)
       }
