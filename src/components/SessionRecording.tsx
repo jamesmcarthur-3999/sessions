@@ -12,6 +12,7 @@ import { useSessionIntelligence } from '../hooks/useSessionIntelligence'
 import { LiveSessionPanel } from './LiveSessionPanel'
 import { PeripheralGlow } from './PeripheralGlow'
 import { useToast } from './Toast'
+import { ConfirmDialog } from './ConfirmDialog'
 import type { Session, Summary } from '../types'
 
 interface SessionRecordingProps {
@@ -35,6 +36,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
   const { showToast } = useToast()
   const [isPaused, setIsPaused] = useState(false)
   const [isEnding, setIsEnding] = useState(false)
+  const [showEndConfirm, setShowEndConfirm] = useState(false)
   const [duration, setDuration] = useState(0)
   const [sessionTitle, setSessionTitle] = useState('')
   const [isEditingTitle, setIsEditingTitle] = useState(false)
@@ -691,7 +693,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
             </motion.button>
 
             <motion.button
-              onClick={handleEndSession}
+              onClick={() => setShowEndConfirm(true)}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               className="w-16 h-16 rounded-2xl bg-[var(--session-recording)] hover:bg-[var(--session-recording)]/80 flex items-center justify-center transition-colors shadow-lg shadow-[var(--session-recording)]/30"
@@ -717,6 +719,21 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
           </div>
         </div>
       )}
+
+      {/* End Session Confirmation */}
+      <ConfirmDialog
+        isOpen={showEndConfirm}
+        title="End Session?"
+        message="Recording will stop and AI will process your session. This may take a moment."
+        confirmText="End Session"
+        cancelText="Keep Recording"
+        confirmVariant="danger"
+        onConfirm={() => {
+          setShowEndConfirm(false)
+          handleEndSession()
+        }}
+        onCancel={() => setShowEndConfirm(false)}
+      />
     </motion.div>
   )
 }
