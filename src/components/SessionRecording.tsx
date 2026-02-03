@@ -37,6 +37,8 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
   const [isPaused, setIsPaused] = useState(false)
   const [isEnding, setIsEnding] = useState(false)
   const [showEndConfirm, setShowEndConfirm] = useState(false)
+  const [processingStep, setProcessingStep] = useState<string>('')
+  const [processingPercent, setProcessingPercent] = useState(0)
   const [duration, setDuration] = useState(0)
   const [sessionTitle, setSessionTitle] = useState('')
   const [isEditingTitle, setIsEditingTitle] = useState(false)
@@ -264,12 +266,18 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
 
   const handleEndSession = async () => {
     setIsEnding(true)
+    setProcessingStep('Stopping recording...')
+    setProcessingPercent(10)
 
     try {
       // Stop session coordinator
+      setProcessingStep('Stopping AI analysis...')
+      setProcessingPercent(20)
       await sessionCoordinator.stopSession(sessionIdRef.current)
 
       // Stop recording and get captured data
+      setProcessingStep('Finalizing captures...')
+      setProcessingPercent(30)
       let screenshots: string[] = []
       let stopWarnings: string[] = []
       if (sessionRecorder.isRecording()) {
@@ -287,9 +295,12 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
       }
 
       // Update database session status
+      setProcessingStep('Gathering session data...')
+      setProcessingPercent(40)
       await updateSessionStatus(sessionIdRef.current, 'processing', duration)
 
       // Gather all Baleybots intelligence from the database
+      setProcessingPercent(50)
       const [rollingSummary, insights, audioChunks, dbScreenshots] = await Promise.all([
         getRollingSummary(sessionIdRef.current),
         getInsights(sessionIdRef.current),
@@ -298,6 +309,8 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
       ])
 
       // Generate final summary using Baleybots
+      setProcessingStep('Generating AI summary...')
+      setProcessingPercent(60)
       let summary: Summary
 
       // Ensure bots are initialized
@@ -322,6 +335,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
           title: sessionTitle || 'Untitled Session',
         })
 
+        setProcessingPercent(70)
         const result = await finalBot.process(input)
 
         summary = {
@@ -357,6 +371,8 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
       }
 
       // Update database session status to complete
+      setProcessingStep('Saving session...')
+      setProcessingPercent(90)
       await updateSessionStatus(sessionIdRef.current, 'complete', duration)
 
       // Create session
@@ -371,6 +387,10 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
 
       // Save and navigate
       await addSession(session)
+
+      setProcessingStep('Complete!')
+      setProcessingPercent(100)
+
       dispatch({ type: 'STOP_RECORDING' })
       onComplete(session)
     } catch (error) {
@@ -384,6 +404,8 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
       // Show user-facing error
       showToast('Failed to process session. Please try again.', 'error', 5000)
       setIsEnding(false)
+      setProcessingStep('')
+      setProcessingPercent(0)
     }
   }
 
@@ -523,13 +545,24 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
             animate={{ opacity: 1, y: 0 }}
             className="font-display text-2xl text-[var(--paper)] mb-3"
           >
-            Processing your session
+            {processingStep || 'Processing your session'}
           </motion.h2>
+
+          {/* Progress bar */}
+          <div className="w-64 mx-auto mb-4">
+            <div className="h-1.5 bg-[var(--paper)]/20 rounded-full overflow-hidden">
+              <motion.div
+                className="h-full bg-[var(--accent)]"
+                initial={{ width: 0 }}
+                animate={{ width: `${processingPercent}%` }}
+                transition={{ duration: 0.3 }}
+              />
+            </div>
+            <p className="text-xs text-[var(--paper)]/40 mt-2">{processingPercent}%</p>
+          </div>
+
           <p className="text-[var(--paper)]/60">
             Analyzing {formatTime(duration)} of work
-          </p>
-          <p className="text-sm text-[var(--paper)]/40 mt-4">
-            AI is extracting insights and action items
           </p>
         </motion.div>
       ) : permissionError ? (
