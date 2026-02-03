@@ -5,6 +5,7 @@ import { useApp } from '../context/AppContext'
 import { sessionRecorder, isTauri, checkScreenRecordingPermission, requestScreenRecordingPermission, type RecordingOptions } from '../services/recording'
 import { createSession, updateSessionStatus, getRollingSummary, getInsights, getAudioChunks, getScreenshots } from '../services/database'
 import { sessionCoordinator } from '../services/session-coordinator'
+import { smartCapture } from '../services/smart-capture'
 import { createFinalSummaryBot, buildFinalSummaryInput, initializeBots, isBotsReady } from '../services/bots'
 import { generateId } from '../utils/id'
 import { useSessionIntelligence } from '../hooks/useSessionIntelligence'
@@ -161,15 +162,15 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
     return () => clearInterval(interval)
   }, [isPaused, isEnding])
 
-  // Listen for activity events to trigger capture flash
+  // Listen for capture events (immediate) from smart capture
   useEffect(() => {
-    const unsubActivity = sessionCoordinator.on('activity-detected', () => {
+    const unsubCapture = smartCapture.on('capture', () => {
       setCaptureFlash(true)
       setTimeout(() => setCaptureFlash(false), 100)
     })
 
     return () => {
-      unsubActivity()
+      unsubCapture()
     }
   }, [])
 

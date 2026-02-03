@@ -13,7 +13,12 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { saveScreenshot } from './database';
 import { sessionCoordinator } from './session-coordinator';
 import { captureScreenshot, isTauri } from './recording';
+import { EventEmitter } from './event-emitter';
 import type { DbScreenshot } from '../types/database';
+
+type SmartCaptureEvents = {
+  'capture': { sessionId: string; trigger: string };
+};
 
 interface ActivityEvent {
   event_type: string;
@@ -41,6 +46,17 @@ class SmartCaptureService {
   private sessionId: string | null = null;
   private screenId: string | null = null;
   private isRunning = false;
+  private emitter = new EventEmitter<SmartCaptureEvents>();
+
+  /**
+   * Subscribe to smart capture events
+   */
+  on<K extends keyof SmartCaptureEvents>(
+    event: K,
+    callback: (data: SmartCaptureEvents[K]) => void
+  ): () => void {
+    return this.emitter.on(event, callback);
+  }
 
   // State tracking
   private lastApp: string | null = null;
@@ -200,6 +216,9 @@ class SmartCaptureService {
     try {
       const screenshot = await captureScreenshot(this.screenId);
       this.lastCaptureTime = Date.now();
+
+      // Emit capture event immediately for UI feedback
+      this.emitter.emit('capture', { sessionId: this.sessionId, trigger });
 
       // Save to database
       const dbScreenshot = await saveScreenshot(
