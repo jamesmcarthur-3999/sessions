@@ -60,8 +60,8 @@ impl ActivityMonitor {
 
             // Continue until stop flag is set
             while !stop_flag.load(Ordering::SeqCst) {
-                // Poll every 500ms
-                std::thread::sleep(Duration::from_millis(500));
+                // Poll every 1000ms
+                std::thread::sleep(Duration::from_millis(1000));
 
                 // Check stop flag again after sleep
                 if stop_flag.load(Ordering::SeqCst) {
@@ -182,5 +182,11 @@ fn get_frontmost_app() -> Option<(String, String)> {
 impl Default for ActivityMonitor {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Drop for ActivityMonitor {
+    fn drop(&mut self) {
+        self.stop();
     }
 }
