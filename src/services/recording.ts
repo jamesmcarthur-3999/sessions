@@ -190,11 +190,12 @@ class SessionRecordingController {
       options: mergedOptions,
     }
 
-    // Check and request permissions
+    // Permission should be granted before calling startRecording
+    // Just verify it's still valid
     if (isTauri()) {
       const hasPermission = await checkScreenRecordingPermission()
       if (!hasPermission) {
-        await requestScreenRecordingPermission()
+        throw new Error('Screen recording permission not granted')
       }
 
       // Start audio recording if enabled

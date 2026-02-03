@@ -10,6 +10,7 @@ import { generateId } from '../utils/id'
 import { useSessionIntelligence } from '../hooks/useSessionIntelligence'
 import { LiveSessionPanel } from './LiveSessionPanel'
 import { PeripheralGlow } from './PeripheralGlow'
+import { useToast } from './Toast'
 import type { Session, Summary } from '../types'
 import type { RecordingConfig } from './RecordingSettings'
 
@@ -31,6 +32,7 @@ function formatTime(seconds: number): string {
 
 export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps) {
   const { state, addSession, dispatch } = useApp()
+  const { showToast } = useToast()
   const [isPaused, setIsPaused] = useState(false)
   const [isEnding, setIsEnding] = useState(false)
   const [duration, setDuration] = useState(0)
@@ -44,6 +46,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
   const [captureFlash, setCaptureFlash] = useState(false)
   const startTimeRef = useRef(Date.now())
   const pausedTimeRef = useRef(0)
+  const pauseStartRef = useRef(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const sessionIdRef = useRef(generateId())
 
@@ -82,15 +85,13 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
       // Check if we're in Tauri
       if (isTauri()) {
         try {
-          // Check permissions
+          // Permission already validated in RecordingSettings
+          // Just verify it's still valid (edge case: user revoked mid-transition)
           const permitted = await checkScreenRecordingPermission()
           if (!permitted) {
-            const granted = await requestScreenRecordingPermission()
-            if (!granted) {
-              setPermissionError('Screen recording permission required')
-              setHasPermission(false)
-              return
-            }
+            setPermissionError('Screen recording permission was revoked. Please grant permission again.')
+            setHasPermission(false)
+            return
           }
           setHasPermission(true)
 
@@ -118,11 +119,21 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
 
     // Cleanup on unmount
     return () => {
-      if (sessionRecorder.isRecording()) {
-        sessionRecorder.stopRecording().catch(console.error)
+      const cleanup = async () => {
+        try {
+          if (sessionRecorder.isRecording()) {
+            await sessionRecorder.stopRecording()
+          }
+        } catch (err) {
+          console.error('Failed to stop recording:', err)
+        }
+        try {
+          await sessionCoordinator.stopSession(sessionIdRef.current)
+        } catch (err) {
+          console.error('Failed to stop coordinator:', err)
+        }
       }
-      // Stop coordinator
-      sessionCoordinator.stopSession(sessionIdRef.current).catch(console.error)
+      cleanup()
     }
   }, [recordingConfig])
 
@@ -158,15 +169,16 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
 
   const handlePauseResume = useCallback(async () => {
     if (isPaused) {
-      // Resume
-      startTimeRef.current = Date.now() - (duration * 1000)
+      // Resume - add paused duration to total paused time
+      pausedTimeRef.current += Date.now() - pauseStartRef.current
       try {
         await sessionRecorder.resumeRecording()
       } catch (e) {
         console.error('Failed to resume:', e)
       }
     } else {
-      // Pause
+      // Pause - record when pause started
+      pauseStartRef.current = Date.now()
       try {
         await sessionRecorder.pauseRecording()
       } catch (e) {
@@ -174,7 +186,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
       }
     }
     setIsPaused(prev => !prev)
-  }, [isPaused, duration])
+  }, [isPaused])
 
   const handleEndSession = async () => {
     setIsEnding(true)
@@ -208,14 +220,21 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
       // Ensure bots are initialized
       await initializeBots()
 
-      if (isBotsReady()) {
+      // Check if we have enough content for AI processing
+      const hasContent =
+        rollingSummary?.content ||
+        (insights && insights.length > 0) ||
+        (audioChunks && audioChunks.some(c => c.transcript)) ||
+        (dbScreenshots && dbScreenshots.some(s => s.analysis))
+
+      if (isBotsReady() && (hasContent || duration >= 60)) {
         // Use Final Summary Bot with all accumulated intelligence
         const finalBot = createFinalSummaryBot()
         const input = buildFinalSummaryInput({
           rollingSummary,
-          insights,
-          audioChunks,
-          screenshots: dbScreenshots,
+          insights: insights || [],
+          audioChunks: audioChunks || [],
+          screenshots: dbScreenshots || [],
           durationSeconds: duration,
           title: sessionTitle || 'Untitled Session',
         })
@@ -223,24 +242,30 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
         const result = await finalBot.process(input)
 
         summary = {
-          text: result.text,
-          tasks: result.tasks.map((t) => ({
+          text: result?.text || 'Session completed.',
+          tasks: (result?.tasks || []).map((t) => ({
             id: generateId(),
-            title: t.title,
+            title: t?.title || 'Untitled task',
             completed: false,
           })),
-          notes: result.notes.map((n) => ({
+          notes: (result?.notes || []).map((n) => ({
             id: generateId(),
-            content: n.content,
+            content: n?.content || '',
           })),
           generatedAt: new Date().toISOString(),
         }
       } else {
-        // Fallback when no API key - create summary from available data
+        // Fallback when no API key or insufficient content
+        const fallbackText = !isBotsReady()
+          ? `Session recorded for ${Math.floor(duration / 60)} minutes. Configure your Claude API key in Settings to enable AI-powered summaries.`
+          : duration < 60
+          ? `Brief session recorded for ${duration} seconds. No significant activity captured.`
+          : rollingSummary?.content || `Session recorded for ${Math.floor(duration / 60)} minutes.`
+
         summary = {
-          text: rollingSummary?.content || `Session recorded for ${Math.floor(duration / 60)} minutes. Configure your Claude API key in Settings to enable AI-powered summaries.`,
+          text: fallbackText,
           tasks: [],
-          notes: insights.slice(0, 5).map(i => ({
+          notes: (insights || []).slice(0, 5).map(i => ({
             id: generateId(),
             content: i.content,
           })),
@@ -267,6 +292,14 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
       onComplete(session)
     } catch (error) {
       console.error('Failed to end session:', error)
+      // Update database status to error state
+      try {
+        await updateSessionStatus(sessionIdRef.current, 'error', duration)
+      } catch (dbError) {
+        console.error('Failed to update session status:', dbError)
+      }
+      // Show user-facing error
+      showToast('Failed to process session. Please try again.', 'error', 5000)
       setIsEnding(false)
     }
   }
