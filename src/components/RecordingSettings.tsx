@@ -14,6 +14,7 @@ import {
   Moon,
   Sparkles,
 } from 'lucide-react'
+import { AudioLevelMeter } from './AudioLevelMeter'
 import {
   getAudioDevices,
   getScreens,
@@ -342,6 +343,14 @@ export function RecordingSettings({
                     )}
                   </AnimatePresence>
                 </div>
+              )}
+
+              {/* Audio level preview */}
+              {config.enableAudio && config.selectedMicrophone && (
+                <AudioLevelMeter
+                  deviceId={config.selectedMicrophone}
+                  isActive={config.enableAudio}
+                />
               )}
 
               {/* Screen selector */}
