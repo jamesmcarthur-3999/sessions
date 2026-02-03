@@ -43,6 +43,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
   const [permissionError, setPermissionError] = useState<string | null>(null)
   const [showIntelligence, setShowIntelligence] = useState(false)
   const [audioLevel, setAudioLevel] = useState(0)
+  const [transcriptionStatus, setTranscriptionStatus] = useState<'idle' | 'transcribing' | 'success' | 'error'>('idle')
   const [captureFlash, setCaptureFlash] = useState(false)
   const startTimeRef = useRef(Date.now())
   const pausedTimeRef = useRef(0)
@@ -201,6 +202,11 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
   useEffect(() => {
     const unsubError = sessionCoordinator.on('error', ({ error }) => {
       showToast(error, 'error', 5000)
+
+      // Track transcription errors
+      if (error.includes('transcription')) {
+        setTranscriptionStatus('error')
+      }
     })
 
     return () => {
@@ -549,8 +555,27 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
               )}
               {recordingConfig?.enableAudio && (
                 <div className="flex items-center gap-2">
-                  <Mic className="w-4 h-4 text-[var(--success)]" />
-                  <span>Audio</span>
+                  <Mic className={`w-4 h-4 ${
+                    transcriptionStatus === 'error'
+                      ? 'text-[var(--error)]'
+                      : audioLevel > 0.1
+                        ? 'text-[var(--success)]'
+                        : 'text-[var(--ink-muted)]'
+                  }`} />
+                  <span>{transcriptionStatus === 'error' ? 'Transcription failed' : 'Audio'}</span>
+                  {/* Audio level indicator */}
+                  {audioLevel > 0 && (
+                    <div className="flex items-center gap-0.5">
+                      {[0.2, 0.4, 0.6, 0.8].map((threshold) => (
+                        <div
+                          key={threshold}
+                          className={`w-1 h-3 rounded-full transition-colors ${
+                            audioLevel >= threshold ? 'bg-[var(--success)]' : 'bg-[var(--paper)]/20'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
               {recordingConfig?.enableVideo && (
