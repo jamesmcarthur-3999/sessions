@@ -15,6 +15,7 @@ import {
   Sparkles,
 } from 'lucide-react'
 import { AudioLevelMeter } from './AudioLevelMeter'
+import { ScreenPreview } from './ScreenPreview'
 import {
   getAudioDevices,
   getScreens,
@@ -66,6 +67,7 @@ export function RecordingSettings({
   const [showMicDropdown, setShowMicDropdown] = useState(false)
   const [showScreenDropdown, setShowScreenDropdown] = useState(false)
   const [showIntervalDropdown, setShowIntervalDropdown] = useState(false)
+  const [showScreenPreview, setShowScreenPreview] = useState(false)
 
   // Load devices on mount
   useEffect(() => {
@@ -403,6 +405,28 @@ export function RecordingSettings({
                   </AnimatePresence>
                 </div>
               )}
+
+              {/* Preview button */}
+              {selectedScreen && (config.enableScreenshots || config.enableVideo) && (
+                <button
+                  onClick={() => setShowScreenPreview(!showScreenPreview)}
+                  className="w-full flex items-center justify-center gap-2 p-2 rounded-lg text-sm text-[var(--accent)] hover:bg-[var(--accent-muted)] transition-colors"
+                >
+                  <Monitor className="w-4 h-4" />
+                  <span>{showScreenPreview ? 'Hide Preview' : 'Preview Capture'}</span>
+                </button>
+              )}
+
+              {/* Screen preview */}
+              <AnimatePresence>
+                {showScreenPreview && selectedScreen && (
+                  <ScreenPreview
+                    screenId={config.selectedScreen}
+                    screenName={selectedScreen.name}
+                    onClose={() => setShowScreenPreview(false)}
+                  />
+                )}
+              </AnimatePresence>
 
               {/* Screenshot interval */}
               {config.enableScreenshots && (
