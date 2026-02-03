@@ -434,3 +434,26 @@ export async function updateAnalysisMode(
     [mode, now, sessionId]
   );
 }
+
+// ============================================================================
+// Session Cleanup
+// ============================================================================
+
+/**
+ * Delete all session data from database
+ * Cascades to: screenshots, audio_chunks, insights, rolling_summaries, chat_messages
+ */
+export async function deleteSessionData(sessionId: string): Promise<void> {
+  const db = getDb();
+
+  // Delete in order to respect foreign key constraints (if not using CASCADE)
+  await db.execute('DELETE FROM chat_messages WHERE session_id = $1', [sessionId]);
+  await db.execute('DELETE FROM insights WHERE session_id = $1', [sessionId]);
+  await db.execute('DELETE FROM rolling_summaries WHERE session_id = $1', [sessionId]);
+  await db.execute('DELETE FROM analysis_state WHERE session_id = $1', [sessionId]);
+  await db.execute('DELETE FROM audio_chunks WHERE session_id = $1', [sessionId]);
+  await db.execute('DELETE FROM screenshots WHERE session_id = $1', [sessionId]);
+  await db.execute('DELETE FROM sessions WHERE id = $1', [sessionId]);
+
+  console.log('[DATABASE] Deleted session data:', sessionId);
+}

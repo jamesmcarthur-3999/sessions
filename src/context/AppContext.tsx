@@ -1,7 +1,7 @@
 import { createContext, useContext, useReducer, useEffect, useState, type ReactNode } from 'react'
 import type { Session } from '../types'
 import { storage } from '../services/storage'
-import { initDatabase } from '../services/database'
+import { initDatabase, deleteSessionData } from '../services/database'
 import { isTauri } from '../services/recording'
 
 interface AppState {
@@ -109,6 +109,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const deleteSession = async (id: string) => {
     dispatch({ type: 'DELETE_SESSION', payload: id })
+
+    // Delete from database first (includes all related data)
+    try {
+      await deleteSessionData(id)
+    } catch (err) {
+      console.error('Failed to delete session from database:', err)
+    }
+
+    // Then delete from localStorage
     await storage.deleteSession(id)
   }
 
