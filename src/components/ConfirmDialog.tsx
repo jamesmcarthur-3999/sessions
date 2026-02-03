@@ -4,6 +4,7 @@
  * Reusable confirmation dialog with customizable title, message, and actions.
  */
 
+import { useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { AlertTriangle } from 'lucide-react'
 
@@ -28,6 +29,29 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
+  const cancelButtonRef = useRef<HTMLButtonElement>(null)
+
+  // Focus cancel button when dialog opens
+  useEffect(() => {
+    if (isOpen) {
+      cancelButtonRef.current?.focus()
+    }
+  }, [isOpen])
+
+  // Handle escape key to close dialog
+  useEffect(() => {
+    if (!isOpen) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onCancel()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, onCancel])
+
   if (!isOpen) return null
 
   return (
@@ -40,6 +64,10 @@ export function ConfirmDialog({
         onClick={onCancel}
       >
         <motion.div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="confirm-dialog-title"
+          aria-describedby="confirm-dialog-message"
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -56,14 +84,15 @@ export function ConfirmDialog({
                 }`} />
               </div>
               <div>
-                <h3 className="font-medium text-[var(--ink)] text-lg">{title}</h3>
-                <p className="text-sm text-[var(--ink-muted)] mt-1">{message}</p>
+                <h3 id="confirm-dialog-title" className="font-medium text-[var(--ink)] text-lg">{title}</h3>
+                <p id="confirm-dialog-message" className="text-sm text-[var(--ink-muted)] mt-1">{message}</p>
               </div>
             </div>
           </div>
 
           <div className="px-6 py-4 bg-[var(--paper-warm)] border-t border-[var(--border-subtle)] flex justify-end gap-3">
             <button
+              ref={cancelButtonRef}
               onClick={onCancel}
               className="px-4 py-2 rounded-lg border border-[var(--border-medium)] text-[var(--ink)] hover:bg-[var(--paper)] transition-colors text-sm"
             >
