@@ -5,6 +5,8 @@
  * Handles rate limits and transient failures gracefully.
  */
 
+import { claudeRateLimiter } from './rate-limiter'
+
 export interface RetryOptions {
   maxRetries: number;
   initialDelayMs: number;
@@ -85,8 +87,12 @@ export async function withRetry<T>(
 /**
  * Wrapper specifically for bot.process() calls
  * Uses conservative retry settings appropriate for AI API calls
+ * Includes rate limiting to prevent exceeding API quotas
  */
 export async function withBotRetry<T>(fn: () => Promise<T>): Promise<T> {
+  // Acquire rate limit token before making the request
+  await claudeRateLimiter.acquire()
+
   return withRetry(fn, {
     maxRetries: 2,
     initialDelayMs: 2000,
