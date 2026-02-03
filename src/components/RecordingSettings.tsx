@@ -13,6 +13,7 @@ import {
   Sun,
   Moon,
   Sparkles,
+  RefreshCw,
 } from 'lucide-react'
 import { AudioLevelMeter } from './AudioLevelMeter'
 import { ScreenPreview } from './ScreenPreview'
@@ -69,59 +70,60 @@ export function RecordingSettings({
   const [showIntervalDropdown, setShowIntervalDropdown] = useState(false)
   const [showScreenPreview, setShowScreenPreview] = useState(false)
 
+  // Load devices function (also used for refresh)
+  const loadDevices = async () => {
+    setIsLoadingDevices(true)
+    setHasPermission(null)
+
+    if (isTauri()) {
+      try {
+        // Check permissions first
+        const permitted = await checkScreenRecordingPermission()
+        setHasPermission(permitted)
+
+        // Load devices
+        const [mics, displays] = await Promise.all([
+          getAudioDevices(),
+          getScreens(),
+        ])
+
+        setAudioDevices(mics)
+        setScreens(displays)
+
+        // Auto-select defaults only if not already selected
+        if (!config.selectedMicrophone) {
+          const defaultMic = mics.find(d => d.isDefault)
+          if (defaultMic) {
+            onConfigChange({ ...config, selectedMicrophone: defaultMic.id })
+          }
+        }
+
+        if (!config.selectedScreen) {
+          const primaryScreen = displays.find(s => s.isPrimary)
+          if (primaryScreen) {
+            onConfigChange({ ...config, selectedScreen: primaryScreen.id })
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load devices:', e)
+      }
+    } else {
+      // Browser mode - mock devices
+      setAudioDevices([
+        { id: 'default', name: 'Default Microphone', isDefault: true },
+      ])
+      setScreens([
+        { id: '0', name: 'Primary Display', width: 1920, height: 1080, x: 0, y: 0, isPrimary: true },
+      ])
+      setHasPermission(true)
+    }
+
+    setIsLoadingDevices(false)
+  }
+
   // Load devices on mount
   useEffect(() => {
     if (!isOpen) return
-
-    async function loadDevices() {
-      setIsLoadingDevices(true)
-
-      if (isTauri()) {
-        try {
-          // Check permissions first
-          const permitted = await checkScreenRecordingPermission()
-          setHasPermission(permitted)
-
-          // Load devices
-          const [mics, displays] = await Promise.all([
-            getAudioDevices(),
-            getScreens(),
-          ])
-
-          setAudioDevices(mics)
-          setScreens(displays)
-
-          // Auto-select defaults
-          if (!config.selectedMicrophone) {
-            const defaultMic = mics.find(d => d.isDefault)
-            if (defaultMic) {
-              onConfigChange({ ...config, selectedMicrophone: defaultMic.id })
-            }
-          }
-
-          if (!config.selectedScreen) {
-            const primaryScreen = displays.find(s => s.isPrimary)
-            if (primaryScreen) {
-              onConfigChange({ ...config, selectedScreen: primaryScreen.id })
-            }
-          }
-        } catch (e) {
-          console.error('Failed to load devices:', e)
-        }
-      } else {
-        // Browser mode - mock devices
-        setAudioDevices([
-          { id: 'default', name: 'Default Microphone', isDefault: true },
-        ])
-        setScreens([
-          { id: '0', name: 'Primary Display', width: 1920, height: 1080, x: 0, y: 0, isPrimary: true },
-        ])
-        setHasPermission(true)
-      }
-
-      setIsLoadingDevices(false)
-    }
-
     loadDevices()
   }, [isOpen])
 
@@ -173,12 +175,22 @@ export function RecordingSettings({
                 <p className="text-xs text-[var(--ink-muted)]">Configure capture options</p>
               </div>
             </div>
-            <button
-              onClick={onClose}
-              className="p-2 rounded-lg hover:bg-[var(--paper-warm)] transition-colors"
-            >
-              <X className="w-5 h-5 text-[var(--ink-muted)]" />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={loadDevices}
+                disabled={isLoadingDevices}
+                className="p-2 rounded-lg hover:bg-[var(--paper-warm)] transition-colors disabled:opacity-50"
+                title="Refresh devices"
+              >
+                <RefreshCw className={`w-4 h-4 text-[var(--ink-muted)] ${isLoadingDevices ? 'animate-spin' : ''}`} />
+              </button>
+              <button
+                onClick={onClose}
+                className="p-2 rounded-lg hover:bg-[var(--paper-warm)] transition-colors"
+              >
+                <X className="w-5 h-5 text-[var(--ink-muted)]" />
+              </button>
+            </div>
           </div>
 
           {/* Content */}
