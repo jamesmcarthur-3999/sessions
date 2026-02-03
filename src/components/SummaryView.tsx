@@ -96,7 +96,7 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
   const [showTypewriter, setShowTypewriter] = useState(true)
   const [screenshots, setScreenshots] = useState<DbScreenshot[]>([])
   const [audioChunks, setAudioChunks] = useState<DbAudioChunk[]>([])
-  const [_loadingMedia, setLoadingMedia] = useState(true)
+  const [loadingMedia, setLoadingMedia] = useState(true)
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editedTitle, setEditedTitle] = useState(session.title)
   const titleInputRef = useRef<HTMLInputElement>(null)
@@ -562,7 +562,7 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
             )}
 
             {/* Screenshots Section (for sessions only) */}
-            {session.type === 'session' && screenshots.length > 0 && (
+            {session.type === 'session' && (loadingMedia || screenshots.length > 0) && (
               <motion.section
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -572,12 +572,20 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
                   <Camera className="w-5 h-5 text-[var(--ink-muted)]" />
                   <h2 className="label-section">Screenshots</h2>
                 </div>
-                <ScreenshotGallery screenshots={screenshots} />
+                {loadingMedia ? (
+                  <div className="grid grid-cols-4 gap-3">
+                    {[...Array(4)].map((_, i) => (
+                      <div key={i} className="aspect-video bg-[var(--paper-dark)] rounded-lg animate-pulse" />
+                    ))}
+                  </div>
+                ) : (
+                  <ScreenshotGallery screenshots={screenshots} />
+                )}
               </motion.section>
             )}
 
-            {/* Transcript Section (for sessions only) */}
-            {session.type === 'session' && audioChunks.length > 0 && (
+            {/* Transcript Section (for sessions only) - only show if there are actual transcripts */}
+            {session.type === 'session' && audioChunks.some(c => c.transcript) && (
               <motion.section
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}

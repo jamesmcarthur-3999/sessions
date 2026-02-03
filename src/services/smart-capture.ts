@@ -127,12 +127,13 @@ class SmartCaptureService {
 
     console.log('[SMART CAPTURE] Stopping');
 
-    // Capture final screenshot before stopping
+    // Set flag immediately to prevent any new captures during shutdown
+    this.isRunning = false;
+
+    // Capture final screenshot (captureNow only checks sessionId, not isRunning)
     if (this.sessionId) {
       await this.captureNow('session_end');
     }
-
-    this.isRunning = false;
 
     if (this.unlisten) {
       this.unlisten();

@@ -121,6 +121,10 @@ export async function initDatabase(): Promise<void> {
       db = await Database.load('sqlite:sessions.db');
       console.log('[DATABASE] Database connection established');
 
+      // Enable foreign key constraints (required for CASCADE deletes to work)
+      await db.execute('PRAGMA foreign_keys = ON');
+      console.log('[DATABASE] Foreign key constraints enabled');
+
       // Create tables
       const statements = SCHEMA.split(';').filter(s => s.trim());
       for (const statement of statements) {
@@ -189,25 +193,36 @@ export async function createSession(
     analysis_mode: analysisMode,
   };
 
-  await db.execute(
-    `INSERT INTO sessions (id, type, title, created_at, updated_at, status, analysis_mode)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [session.id, session.type, session.title, session.created_at, session.updated_at, session.status, session.analysis_mode]
-  );
+  // Use transaction to ensure all inserts succeed or none do
+  try {
+    await db.execute('BEGIN TRANSACTION');
 
-  // Initialize analysis state
-  await db.execute(
-    `INSERT INTO analysis_state (session_id, mode, updated_at)
-     VALUES ($1, $2, $3)`,
-    [session.id, analysisMode, now]
-  );
+    await db.execute(
+      `INSERT INTO sessions (id, type, title, created_at, updated_at, status, analysis_mode)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [session.id, session.type, session.title, session.created_at, session.updated_at, session.status, session.analysis_mode]
+    );
 
-  // Initialize rolling summary
-  await db.execute(
-    `INSERT INTO rolling_summaries (id, session_id, updated_at, content, version)
-     VALUES ($1, $2, $3, $4, $5)`,
-    [generateId(), session.id, now, '', 1]
-  );
+    // Initialize analysis state
+    await db.execute(
+      `INSERT INTO analysis_state (session_id, mode, updated_at)
+       VALUES ($1, $2, $3)`,
+      [session.id, analysisMode, now]
+    );
+
+    // Initialize rolling summary
+    await db.execute(
+      `INSERT INTO rolling_summaries (id, session_id, updated_at, content, version)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [generateId(), session.id, now, '', 1]
+    );
+
+    await db.execute('COMMIT');
+  } catch (error) {
+    await db.execute('ROLLBACK');
+    console.error('[DATABASE] Failed to create session, rolled back:', error);
+    throw error;
+  }
 
   return session;
 }

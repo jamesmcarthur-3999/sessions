@@ -13,6 +13,13 @@ interface Shortcut {
 export function useKeyboardShortcuts(shortcuts: Shortcut[]) {
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
+      // Don't trigger shortcuts when user is typing in an input field
+      const target = e.target as HTMLElement
+      const isTyping = target.tagName === 'INPUT' ||
+                       target.tagName === 'TEXTAREA' ||
+                       target.isContentEditable
+      if (isTyping) return
+
       for (const shortcut of shortcuts) {
         const metaMatches = shortcut.metaKey ? e.metaKey : !e.metaKey
         const ctrlMatches = shortcut.ctrlKey ? e.ctrlKey : !e.ctrlKey

@@ -32,6 +32,14 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "minimumSystemVersion": "12.3",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Sessions needs access to your microphone to record audio during work sessions.",
+        "NSScreenCaptureUsageDescription": "Sessions needs to capture your screen to record your work session.",
+        "NSAppleEventsUsageDescription": "Sessions monitors app switches to intelligently capture screenshots."
+      }
+    }
   }
 }

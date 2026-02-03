@@ -43,7 +43,6 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
   const [sessionTitle, setSessionTitle] = useState('')
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [screenshotCount, setScreenshotCount] = useState(0)
-  const [_hasPermission, setHasPermission] = useState<boolean | null>(null)
   const [permissionError, setPermissionError] = useState<string | null>(null)
   const [fatalError, setFatalError] = useState<string | null>(null)
   const [showIntelligence, setShowIntelligence] = useState(false)
@@ -102,10 +101,8 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
           const permitted = await checkScreenRecordingPermission()
           if (!permitted) {
             setPermissionError('Screen recording permission was revoked. Please grant permission again.')
-            setHasPermission(false)
             return
           }
-          setHasPermission(true)
 
           // Start recording with config options
           const result = await sessionRecorder.startRecording(sessionIdRef.current, recordingOptions)
@@ -125,11 +122,9 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
         } catch (e) {
           console.error('Failed to start recording:', e)
           setPermissionError(e instanceof Error ? e.message : 'Failed to start recording')
-          setHasPermission(false)
         }
       } else {
         // Not in Tauri - browser only mode
-        setHasPermission(true)
         console.log('Running in browser mode - no native recording')
       }
     }
