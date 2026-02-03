@@ -58,6 +58,9 @@ class SessionCoordinatorService {
     currentApp: string | null;
   }>();
 
+  // Pause state for sessions
+  private pausedSessions = new Set<string>();
+
   // Bot instances (created lazily to avoid loading Node.js dependencies at startup)
   private summarizerBot: Awaited<ReturnType<typeof import('./bots').createSummarizerBot>> | null = null;
   private activityBot: Awaited<ReturnType<typeof import('./bots').createActivityDetectorBot>> | null = null;
@@ -132,25 +135,55 @@ class SessionCoordinatorService {
     }
     this.activeSessions.delete(sessionId);
     this.activityTracking.delete(sessionId);
+    this.pausedSessions.delete(sessionId); // Clean up pause state
     console.log('Session coordinator stopped for ' + sessionId);
+  }
+
+  /**
+   * Pause AI analysis for a session
+   */
+  pauseSession(sessionId: string): void {
+    this.pausedSessions.add(sessionId);
+    console.log('[COORDINATOR] Session paused:', sessionId);
+  }
+
+  /**
+   * Resume AI analysis for a session
+   */
+  resumeSession(sessionId: string): void {
+    this.pausedSessions.delete(sessionId);
+    console.log('[COORDINATOR] Session resumed:', sessionId);
+  }
+
+  /**
+   * Check if session is paused
+   */
+  isSessionPaused(sessionId: string): boolean {
+    return this.pausedSessions.has(sessionId);
   }
 
   /**
    * Process a new screenshot
    */
   async processScreenshot(sessionId: string, screenshot: DbScreenshot): Promise<void> {
-    const context = await this.buildContext(sessionId);
-    const bots = await this.ensureBots();
-
-    // Check if bots are ready (API key configured)
-    if (!bots.isBotsReady()) {
-      console.log('[COORDINATOR] Skipping screenshot analysis - no API key configured');
-      // Still save basic metadata to screenshot
-      await updateScreenshotAnalysis(screenshot.id, 'Analysis unavailable - configure API key in Settings');
-      return;
-    }
-
     try {
+      // Skip analysis if session is paused
+      if (this.pausedSessions.has(sessionId)) {
+        console.log('[COORDINATOR] Skipping screenshot analysis - session paused');
+        return;
+      }
+
+      const context = await this.buildContext(sessionId);
+      const bots = await this.ensureBots();
+
+      // Check if bots are ready (API key configured)
+      if (!bots.isBotsReady()) {
+        console.log('[COORDINATOR] Skipping screenshot analysis - no API key configured');
+        // Still save basic metadata to screenshot
+        await updateScreenshotAnalysis(screenshot.id, 'Analysis unavailable - configure API key in Settings');
+        return;
+      }
+
       // Run activity detection with multimodal input
       // Compare with the most recent previous screenshot (index 0 is the newest in our list)
       const input = bots.buildActivityDetectorInput(
@@ -186,10 +219,10 @@ class SessionCoordinatorService {
         await this.updateSummary(sessionId);
       }
     } catch (error) {
-      console.error('Activity detection error:', error);
+      console.error('Screenshot processing error:', error);
       this.emitter.emit('error', {
         sessionId,
-        error: error instanceof Error ? error.message : 'Activity detection failed',
+        error: error instanceof Error ? error.message : 'Screenshot processing failed',
       });
     }
   }
@@ -198,6 +231,10 @@ class SessionCoordinatorService {
    * Process an audio transcript
    */
   async processTranscript(sessionId: string, _transcript: string): Promise<void> {
+    if (this.pausedSessions.has(sessionId)) {
+      console.log('[COORDINATOR] Skipping transcript processing - session paused');
+      return;
+    }
     // Transcripts trigger summary updates more frequently
     await this.updateSummary(sessionId);
   }
@@ -375,6 +412,10 @@ class SessionCoordinatorService {
    * Run periodic analysis tasks
    */
   private async runPeriodicAnalysis(sessionId: string): Promise<void> {
+    if (this.pausedSessions.has(sessionId)) {
+      return; // Skip periodic analysis when paused
+    }
+
     const session = this.activeSessions.get(sessionId);
     if (!session) return;
 
