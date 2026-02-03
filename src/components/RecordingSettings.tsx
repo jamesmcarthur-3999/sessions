@@ -30,6 +30,39 @@ import {
 import { hasApiKey } from '../services/bots'
 import { getSecureItem } from '../services/secure-storage'
 
+interface ToggleSwitchProps {
+  checked: boolean
+  onChange: (checked: boolean) => void
+  label: string
+  disabled?: boolean
+}
+
+function ToggleSwitch({ checked, onChange, label, disabled }: ToggleSwitchProps) {
+  return (
+    <label className="relative inline-flex items-center cursor-pointer">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        disabled={disabled}
+        className="sr-only peer"
+        aria-label={label}
+      />
+      <div className={`
+        w-11 h-6 rounded-full transition-colors
+        ${checked ? 'bg-[var(--accent)]' : 'bg-[var(--border-medium)]'}
+        ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
+        peer-focus-visible:ring-2 peer-focus-visible:ring-[var(--accent)] peer-focus-visible:ring-offset-2
+      `}>
+        <div className={`
+          absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform
+          ${checked ? 'translate-x-5' : 'translate-x-0'}
+        `} />
+      </div>
+    </label>
+  )
+}
+
 export interface RecordingConfig {
   enableScreenshots: boolean
   enableAudio: boolean
@@ -295,7 +328,7 @@ export function RecordingSettings({
               <h3 className="label-section">Capture Modes</h3>
 
               {/* Screenshots toggle */}
-              <label className="flex items-center justify-between p-4 rounded-xl bg-[var(--paper-warm)] border border-[var(--border-subtle)] cursor-pointer group">
+              <div className="flex items-center justify-between p-4 rounded-xl bg-[var(--paper-warm)] border border-[var(--border-subtle)]">
                 <div className="flex items-center gap-3">
                   <Camera className="w-5 h-5 text-[var(--ink-muted)]" />
                   <div>
@@ -303,21 +336,15 @@ export function RecordingSettings({
                     <p className="text-xs text-[var(--ink-muted)]">Periodic screenshots</p>
                   </div>
                 </div>
-                <div
-                  className={`w-12 h-7 rounded-full transition-colors flex items-center ${
-                    config.enableScreenshots ? 'bg-[var(--session-recording)]' : 'bg-[var(--paper-dark)]'
-                  }`}
-                  onClick={() => onConfigChange({ ...config, enableScreenshots: !config.enableScreenshots })}
-                >
-                  <motion.div
-                    animate={{ x: config.enableScreenshots ? 22 : 2 }}
-                    className="w-5 h-5 rounded-full bg-white shadow-sm"
-                  />
-                </div>
-              </label>
+                <ToggleSwitch
+                  checked={config.enableScreenshots}
+                  onChange={(checked) => onConfigChange({ ...config, enableScreenshots: checked })}
+                  label="Enable screenshots"
+                />
+              </div>
 
               {/* Audio toggle */}
-              <label className="flex items-center justify-between p-4 rounded-xl bg-[var(--paper-warm)] border border-[var(--border-subtle)] cursor-pointer">
+              <div className="flex items-center justify-between p-4 rounded-xl bg-[var(--paper-warm)] border border-[var(--border-subtle)]">
                 <div className="flex items-center gap-3">
                   <Mic className="w-5 h-5 text-[var(--ink-muted)]" />
                   <div>
@@ -325,21 +352,15 @@ export function RecordingSettings({
                     <p className="text-xs text-[var(--ink-muted)]">Audio transcription</p>
                   </div>
                 </div>
-                <div
-                  className={`w-12 h-7 rounded-full transition-colors flex items-center ${
-                    config.enableAudio ? 'bg-[var(--session-recording)]' : 'bg-[var(--paper-dark)]'
-                  }`}
-                  onClick={() => onConfigChange({ ...config, enableAudio: !config.enableAudio })}
-                >
-                  <motion.div
-                    animate={{ x: config.enableAudio ? 22 : 2 }}
-                    className="w-5 h-5 rounded-full bg-white shadow-sm"
-                  />
-                </div>
-              </label>
+                <ToggleSwitch
+                  checked={config.enableAudio}
+                  onChange={(checked) => onConfigChange({ ...config, enableAudio: checked })}
+                  label="Enable audio"
+                />
+              </div>
 
               {/* Video toggle */}
-              <label className="flex items-center justify-between p-4 rounded-xl bg-[var(--paper-warm)] border border-[var(--border-subtle)] cursor-pointer">
+              <div className="flex items-center justify-between p-4 rounded-xl bg-[var(--paper-warm)] border border-[var(--border-subtle)]">
                 <div className="flex items-center gap-3">
                   <Monitor className="w-5 h-5 text-[var(--ink-muted)]" />
                   <div>
@@ -347,18 +368,12 @@ export function RecordingSettings({
                     <p className="text-xs text-[var(--ink-muted)]">Screen recording</p>
                   </div>
                 </div>
-                <div
-                  className={`w-12 h-7 rounded-full transition-colors flex items-center ${
-                    config.enableVideo ? 'bg-[var(--session-recording)]' : 'bg-[var(--paper-dark)]'
-                  }`}
-                  onClick={() => onConfigChange({ ...config, enableVideo: !config.enableVideo })}
-                >
-                  <motion.div
-                    animate={{ x: config.enableVideo ? 22 : 2 }}
-                    className="w-5 h-5 rounded-full bg-white shadow-sm"
-                  />
-                </div>
-              </label>
+                <ToggleSwitch
+                  checked={config.enableVideo}
+                  onChange={(checked) => onConfigChange({ ...config, enableVideo: checked })}
+                  label="Enable video"
+                />
+              </div>
             </div>
 
             {/* Device selection */}
@@ -539,13 +554,7 @@ export function RecordingSettings({
               {/* Smart Capture Toggle */}
               {config.enableScreenshots && (
                 <div className="mt-3 pt-3 border-t border-[var(--border-subtle)]">
-                  <button
-                    onClick={() => onConfigChange({
-                      ...config,
-                      smartCaptureEnabled: !config.smartCaptureEnabled
-                    })}
-                    className="w-full flex items-center justify-between p-4 rounded-xl bg-[var(--paper-warm)] border border-[var(--border-subtle)] hover:border-[var(--border-medium)] transition-colors"
-                  >
+                  <div className="w-full flex items-center justify-between p-4 rounded-xl bg-[var(--paper-warm)] border border-[var(--border-subtle)]">
                     <div className="flex items-center gap-3">
                       <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
                         config.smartCaptureEnabled ? 'bg-emerald-100' : 'bg-[var(--paper-dark)]'
@@ -564,17 +573,12 @@ export function RecordingSettings({
                         </div>
                       </div>
                     </div>
-                    <div
-                      className={`w-12 h-7 rounded-full transition-colors flex items-center ${
-                        config.smartCaptureEnabled ? 'bg-emerald-500' : 'bg-[var(--paper-dark)]'
-                      }`}
-                    >
-                      <motion.div
-                        animate={{ x: config.smartCaptureEnabled ? 22 : 2 }}
-                        className="w-5 h-5 rounded-full bg-white shadow-sm"
-                      />
-                    </div>
-                  </button>
+                    <ToggleSwitch
+                      checked={config.smartCaptureEnabled}
+                      onChange={(checked) => onConfigChange({ ...config, smartCaptureEnabled: checked })}
+                      label="Enable smart capture"
+                    />
+                  </div>
                 </div>
               )}
             </div>
