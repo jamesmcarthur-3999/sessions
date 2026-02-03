@@ -71,6 +71,8 @@ export async function updateApiKeys(config: BotConfig): Promise<void> {
   try {
     const { setDefaultApiKey } = await loadBaleybots();
 
+    let keysRemoved = false;
+
     if (config.claudeApiKey !== undefined) {
       if (config.claudeApiKey) {
         setDefaultApiKey('anthropic', config.claudeApiKey);
@@ -78,6 +80,7 @@ export async function updateApiKeys(config: BotConfig): Promise<void> {
         console.log('[Baleybots] Anthropic API key updated');
       } else {
         localStorage.removeItem('sessions_api_key');
+        keysRemoved = true;
         console.log('[Baleybots] Anthropic API key removed');
       }
     }
@@ -89,8 +92,14 @@ export async function updateApiKeys(config: BotConfig): Promise<void> {
         console.log('[Baleybots] OpenAI API key updated');
       } else {
         localStorage.removeItem('sessions_openai_api_key');
+        keysRemoved = true;
         console.log('[Baleybots] OpenAI API key removed');
       }
+    }
+
+    // Reset bot state if keys were removed to force re-initialization
+    if (keysRemoved) {
+      resetBots();
     }
 
     // Mark as initialized if we have at least Claude key

@@ -663,6 +663,11 @@ export function RecordingSettings({
                 Checking permissions...
               </p>
             )}
+            {!config.enableScreenshots && !config.enableAudio && !config.enableVideo && (
+              <p className="text-xs text-[var(--error)] mb-3 text-center">
+                Enable at least one capture mode to start recording
+              </p>
+            )}
 
             <div className="flex justify-end gap-3">
               <button
@@ -673,9 +678,9 @@ export function RecordingSettings({
               </button>
               <motion.button
                 onClick={onStartRecording}
-                whileHover={{ scale: hasPermission !== false ? 1.02 : 1 }}
-                whileTap={{ scale: hasPermission !== false ? 0.98 : 1 }}
-                disabled={hasPermission === false || isLoadingDevices}
+                whileHover={{ scale: hasPermission !== false && (config.enableScreenshots || config.enableAudio || config.enableVideo) ? 1.02 : 1 }}
+                whileTap={{ scale: hasPermission !== false && (config.enableScreenshots || config.enableAudio || config.enableVideo) ? 0.98 : 1 }}
+                disabled={hasPermission === false || isLoadingDevices || (!config.enableScreenshots && !config.enableAudio && !config.enableVideo)}
                 className="px-5 py-2.5 rounded-lg bg-[var(--session-recording)] text-white font-medium hover:bg-[var(--session-recording)]/80 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed shadow-[var(--shadow-md)]"
               >
                 {isLoadingDevices ? 'Loading...' : 'Start Recording'}

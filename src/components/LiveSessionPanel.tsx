@@ -110,9 +110,11 @@ export function LiveSessionPanel({
         </div>
 
         {/* Analysis Mode Toggle */}
-        <div className="mt-3 flex items-center gap-2">
+        <div className="mt-3 flex items-center gap-2" role="group" aria-label="Analysis mode selection">
           <button
             onClick={() => setAnalysisMode('ambient')}
+            aria-pressed={analysisMode === 'ambient'}
+            aria-label="Set analysis mode to ambient (light analysis, less intrusive)"
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm transition-colors ${
               analysisMode === 'ambient'
                 ? 'bg-amber-100 text-amber-700'
@@ -124,6 +126,8 @@ export function LiveSessionPanel({
           </button>
           <button
             onClick={() => setAnalysisMode('deep')}
+            aria-pressed={analysisMode === 'deep'}
+            aria-label="Set analysis mode to deep (full analysis, real-time insights)"
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm transition-colors ${
               analysisMode === 'deep'
                 ? 'bg-blue-100 text-blue-700'
@@ -272,6 +276,7 @@ export function LiveSessionPanel({
             <button
               onClick={handleSendMessage}
               disabled={isSending || !chatInput.trim()}
+              aria-label={isSending ? 'Sending message...' : 'Send message'}
               className="p-2 rounded-lg bg-[var(--accent)] text-white disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
             >
               {isSending ? (

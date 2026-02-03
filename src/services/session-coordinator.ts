@@ -225,8 +225,15 @@ class SessionCoordinatorService {
       // Baleybots combine() returns the correct format
       const result = await this.activityBot!.process(input);
 
+      // Validate bot response structure
+      if (!result || typeof result !== 'object') {
+        console.error('[COORDINATOR] Invalid activity bot response:', result);
+        await updateScreenshotAnalysis(screenshot.id, 'Analysis failed - invalid response');
+        return;
+      }
+
       // Update screenshot with analysis
-      await updateScreenshotAnalysis(screenshot.id, result.currentContext);
+      await updateScreenshotAnalysis(screenshot.id, result.currentContext || 'Analysis unavailable');
 
       // Emit activity event
       this.emitter.emit('activity-detected', {
@@ -426,15 +433,18 @@ class SessionCoordinatorService {
       const input = bots.buildQAInput(message, context);
       const result = await this.qaBot!.process(input);
 
+      // Validate bot response structure
+      const answer = result?.answer || 'Sorry, I was unable to generate a response. Please try again.';
+
       // Save assistant response
-      await saveChatMessage(sessionId, 'assistant', result.answer);
+      await saveChatMessage(sessionId, 'assistant', answer);
 
       this.emitter.emit('chat-response', {
         sessionId,
-        message: result.answer,
+        message: answer,
       });
 
-      return result.answer;
+      return answer;
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Failed to process question';
       this.emitter.emit('error', { sessionId, error: errorMsg });
@@ -501,11 +511,18 @@ class SessionCoordinatorService {
       const input = bots.buildSummarizerInput(context);
       const result = await this.summarizerBot!.process(input);
 
-      await updateRollingSummary(sessionId, result.summary);
+      // Validate bot response structure
+      const summary = result?.summary;
+      if (!summary) {
+        console.error('[COORDINATOR] Invalid summarizer bot response:', result);
+        return; // Don't overwrite existing summary with empty content
+      }
+
+      await updateRollingSummary(sessionId, summary);
 
       this.emitter.emit('summary-updated', {
         sessionId,
-        summary: result.summary,
+        summary,
       });
     } catch (error) {
       console.error('Summary update error:', error);
@@ -533,13 +550,19 @@ class SessionCoordinatorService {
       const input = bots.buildAnalysisControllerInput(context, metrics);
       const result = await this.analysisControllerBot!.process(input);
 
+      // Validate bot response structure
+      if (!result || typeof result.confidence !== 'number' || !result.recommendedMode) {
+        console.error('[COORDINATOR] Invalid analysis controller bot response:', result);
+        return;
+      }
+
       // Only change if confident and different from current
       if (result.confidence > 0.7 && result.recommendedMode !== context.analysisMode) {
         await updateAnalysisMode(sessionId, result.recommendedMode);
         this.emitter.emit('mode-changed', {
           sessionId,
           mode: result.recommendedMode,
-          reason: result.reason,
+          reason: result.reason || 'Mode adjustment based on activity',
         });
 
         // Log mode change with metrics

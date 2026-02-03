@@ -260,7 +260,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
     setIsPaused(prev => !prev)
   }, [isPaused])
 
-  const handleEndSession = async () => {
+  const handleEndSession = useCallback(async () => {
     setIsEnding(true)
     setProcessingStep('Stopping recording...')
     setProcessingPercent(10)
@@ -417,7 +417,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
       setProcessingStep('')
       setProcessingPercent(0)
     }
-  }
+  }, [duration, sessionTitle, addSession, dispatch, onComplete, showToast])
 
   const handleTitleClick = () => {
     setIsEditingTitle(true)
@@ -474,7 +474,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isEditingTitle, isEnding, showIntelligence, isPaused, duration])
+  }, [isEditingTitle, isEnding, showIntelligence, handlePauseResume, handleEndSession])
 
   return (
     <motion.div
