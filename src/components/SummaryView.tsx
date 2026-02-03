@@ -7,6 +7,7 @@ import {
   Send,
   Video,
   Feather,
+  Paperclip,
   Trash2,
   MoreHorizontal,
   AlertCircle,
@@ -15,15 +16,18 @@ import {
   BookOpen,
   ListChecks,
   StickyNote,
+  FileText,
+  Mic,
   Camera,
   Check,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { createQABot, buildQAInput, initializeBots, isBotsReady, type SessionContext } from '../services/bots'
 import { ScreenshotGallery } from './ScreenshotGallery'
 import { TranscriptViewer } from './TranscriptViewer'
 import { TypingIndicator } from './TypingIndicator'
 import { getScreenshots, getAudioChunks } from '../services/database'
+import { isTauri } from '../services/recording'
+import { useSessionChat } from '../hooks/useSessionChat'
 import type { Session } from '../types'
 import type { DbScreenshot, DbAudioChunk } from '../types/database'
 
@@ -51,10 +55,19 @@ function formatDate(dateString: string): string {
   return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
 }
 
-interface ChatMessage {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1)
+  return `${(bytes / Math.pow(k, i)).toFixed(i === 0 ? 0 : 1)} ${sizes[i]}`
+}
+
+function getAttachmentIcon(type: 'image' | 'audio' | 'video' | 'file') {
+  if (type === 'image') return Camera
+  if (type === 'video') return Video
+  if (type === 'audio') return Mic
+  return FileText
 }
 
 // Typewriter effect component
@@ -91,18 +104,24 @@ function TypewriterText({ text, onComplete }: { text: string; onComplete?: () =>
 export function SummaryView({ session, onBack }: SummaryViewProps) {
   const { updateSession, deleteSession } = useApp()
   const [chatInput, setChatInput] = useState('')
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
-  const [isSending, setIsSending] = useState(false)
-  const [chatError, setChatError] = useState<string | null>(null)
+  const {
+    messages: chatMessages,
+    isSending,
+    error: chatError,
+    sendMessage,
+    clearError,
+  } = useSessionChat(session.id)
   const [showMenu, setShowMenu] = useState(false)
   const [showTypewriter, setShowTypewriter] = useState(true)
   const [screenshots, setScreenshots] = useState<DbScreenshot[]>([])
   const [audioChunks, setAudioChunks] = useState<DbAudioChunk[]>([])
   const [loadingMedia, setLoadingMedia] = useState(true)
+  const [mediaError, setMediaError] = useState<string | null>(null)
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editedTitle, setEditedTitle] = useState(session.title)
   const [showSaved, setShowSaved] = useState(false)
   const titleInputRef = useRef<HTMLInputElement>(null)
+  const [openError, setOpenError] = useState<string | null>(null)
 
   // Show "Saved" indicator briefly when session has summary
   useEffect(() => {
@@ -115,21 +134,31 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
 
   // Load screenshots and audio chunks for sessions
   useEffect(() => {
-    if (session.type === 'session') {
-      Promise.all([
-        getScreenshots(session.id),
-        getAudioChunks(session.id),
-      ]).then(([ss, ac]) => {
+    const loadMedia = async () => {
+      if (session.type !== 'session') {
+        setLoadingMedia(false)
+        return
+      }
+
+      setLoadingMedia(true)
+      setMediaError(null)
+
+      try {
+        const [ss, audio] = await Promise.all([
+          getScreenshots(session.id),
+          getAudioChunks(session.id),
+        ])
         setScreenshots(ss)
-        setAudioChunks(ac)
+        setAudioChunks(audio)
+      } catch (error) {
+        console.error('Failed to load media:', error)
+        setMediaError('Failed to load screenshots and audio. Please try again.')
+      } finally {
         setLoadingMedia(false)
-      }).catch(err => {
-        console.error('Failed to load session media:', err)
-        setLoadingMedia(false)
-      })
-    } else {
-      setLoadingMedia(false)
+      }
     }
+
+    loadMedia()
   }, [session.id, session.type])
 
   const summary = session.summary
@@ -155,65 +184,10 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
   const handleSendMessage = async () => {
     if (!chatInput.trim() || isSending) return
 
-    const userMessage: ChatMessage = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: chatInput,
-    }
-
-    setChatMessages((prev) => [...prev, userMessage])
+    const message = chatInput.trim()
     setChatInput('')
-    setIsSending(true)
-    setChatError(null)
-
-    try {
-      await initializeBots()
-
-      if (!isBotsReady()) {
-        throw new Error('API key not configured. Please add your Claude API key in Settings.')
-      }
-
-      // Build session context for QA Bot
-      const context: SessionContext = {
-        sessionId: session.id,
-        rollingSummary: session.summary?.text || '',
-        recentScreenshots: screenshots.slice(0, 10).map(ss => ({
-          id: ss.id,
-          capturedAt: ss.captured_at,
-          appName: ss.app_name || null,
-          windowTitle: ss.window_title || null,
-          analysis: ss.analysis || null,
-        })),
-        recentTranscripts: audioChunks
-          .filter(c => c.transcript)
-          .slice(-5)
-          .map(c => c.transcript!),
-        recentInsights: session.summary?.notes.map(n => n.content) || [],
-        durationSeconds: session.duration || 0,
-        analysisMode: 'ambient',
-      }
-
-      const qaBot = createQABot()
-      const input = buildQAInput(chatInput, context)
-      const result = await qaBot.process(input)
-
-      const assistantMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: result.answer,
-      }
-
-      setChatMessages((prev) => [...prev, assistantMessage])
-    } catch (error) {
-      console.error('Chat error:', error)
-      setChatError(
-        error instanceof Error
-          ? error.message
-          : 'Failed to get response. Check your API key in Settings.'
-      )
-    } finally {
-      setIsSending(false)
-    }
+    clearError()
+    await sendMessage(message)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -231,60 +205,31 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
   }
 
   const handleSuggestionClick = async (prompt: string) => {
-    const userMessage: ChatMessage = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: prompt,
-    }
-    setChatMessages((prev) => [...prev, userMessage])
-    setIsSending(true)
-    setChatError(null)
+    clearError()
+    await sendMessage(prompt)
+  }
 
+  const handleOpenPath = async (path: string | undefined) => {
+    if (!path || !isTauri()) return
+    setOpenError(null)
     try {
-      await initializeBots()
-
-      if (!isBotsReady()) {
-        throw new Error('API key not configured. Please add your Claude API key in Settings.')
-      }
-
-      // Build session context for QA Bot
-      const context: SessionContext = {
-        sessionId: session.id,
-        rollingSummary: session.summary?.text || '',
-        recentScreenshots: screenshots.slice(0, 10).map(ss => ({
-          id: ss.id,
-          capturedAt: ss.captured_at,
-          appName: ss.app_name || null,
-          windowTitle: ss.window_title || null,
-          analysis: ss.analysis || null,
-        })),
-        recentTranscripts: audioChunks
-          .filter(c => c.transcript)
-          .slice(-5)
-          .map(c => c.transcript!),
-        recentInsights: session.summary?.notes.map(n => n.content) || [],
-        durationSeconds: session.duration || 0,
-        analysisMode: 'ambient',
-      }
-
-      const qaBot = createQABot()
-      const input = buildQAInput(prompt, context)
-      const result = await qaBot.process(input)
-
-      setChatMessages((prev) => [...prev, {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: result.answer,
-      }])
+      const { open } = await import('@tauri-apps/plugin-shell')
+      await open(path)
     } catch (error) {
-      console.error('Chat error:', error)
-      setChatError(
-        error instanceof Error
-          ? error.message
-          : 'Failed to get response. Check your API key in Settings.'
-      )
-    } finally {
-      setIsSending(false)
+      console.error('Failed to open path:', error)
+      setOpenError('Failed to open file. Check permissions in Settings.')
+    }
+  }
+
+  const handleRevealPath = async (path: string | undefined) => {
+    if (!path || !isTauri()) return
+    setOpenError(null)
+    try {
+      const { Command } = await import('@tauri-apps/plugin-shell')
+      await Command.create('reveal-in-finder', ['-R', path]).execute()
+    } catch (error) {
+      console.error('Failed to reveal in Finder:', error)
+      setOpenError('Failed to reveal file in Finder.')
     }
   }
 
@@ -388,6 +333,12 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
                 {formatDuration(session.duration)}
               </span>
             )}
+            {session.status === 'interrupted' && (
+              <span className="text-xs text-[var(--ink-muted)]/70 flex items-center gap-1">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--ink-muted)]/60" />
+                Interrupted
+              </span>
+            )}
             <span className="text-xs text-[var(--ink-muted)]">
               {formatDate(session.createdAt)}
             </span>
@@ -437,6 +388,42 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
         {/* Summary */}
         {summary ? (
           <div className="space-y-10">
+            {/* Recording Video */}
+            {session.videoPath && (
+              <motion.section
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.05, ease: [0.16, 1, 0.3, 1] }}
+              >
+                <div className="p-5 rounded-xl border border-[var(--border-subtle)] bg-[var(--paper)]">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-[var(--session-recording-muted)] flex items-center justify-center">
+                        <Video className="w-5 h-5 text-[var(--session-recording)]" />
+                      </div>
+                      <div>
+                        <h3 className="font-medium text-[var(--ink)]">Recording</h3>
+                        <p className="text-xs text-[var(--ink-muted)]">Open the session video</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleOpenPath(session.videoPath)}
+                      onContextMenu={(e) => {
+                        e.preventDefault()
+                        handleRevealPath(session.videoPath)
+                      }}
+                      className="px-4 py-2 rounded-lg text-sm border border-[var(--border-medium)] hover:bg-[var(--paper-warm)] transition-colors"
+                    >
+                      Open
+                    </button>
+                  </div>
+                  <p className="mt-2 text-[10px] text-[var(--ink-muted)]/70">
+                    Right click to reveal in Finder
+                  </p>
+                </div>
+              </motion.section>
+            )}
+
             {/* AI Summary Card - The Hero */}
             <motion.section
               initial={{ opacity: 0, y: 20 }}
@@ -588,8 +575,42 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
               </motion.section>
             )}
 
+            {/* Media Error Display */}
+            {mediaError && (
+              <motion.section
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.35, ease: [0.16, 1, 0.3, 1] }}
+              >
+                <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700">
+                  <p className="text-sm">{mediaError}</p>
+                  <button
+                    onClick={() => {
+                      setMediaError(null)
+                      setLoadingMedia(true)
+                      Promise.all([
+                        getScreenshots(session.id),
+                        getAudioChunks(session.id),
+                      ]).then(([ss, audio]) => {
+                        setScreenshots(ss)
+                        setAudioChunks(audio)
+                      }).catch((error) => {
+                        console.error('Failed to load media:', error)
+                        setMediaError('Failed to load screenshots and audio. Please try again.')
+                      }).finally(() => {
+                        setLoadingMedia(false)
+                      })
+                    }}
+                    className="text-sm underline mt-2"
+                  >
+                    Retry
+                  </button>
+                </div>
+              </motion.section>
+            )}
+
             {/* Screenshots Section (for sessions only) */}
-            {session.type === 'session' && (loadingMedia || screenshots.length > 0) && (
+            {session.type === 'session' && !mediaError && (loadingMedia || screenshots.length > 0) && (
               <motion.section
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -612,7 +633,7 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
             )}
 
             {/* Transcript Section (for sessions only) - only show if there are actual transcripts */}
-            {session.type === 'session' && audioChunks.some(c => c.transcript) && (
+            {session.type === 'session' && !mediaError && audioChunks.some(c => c.transcript) && (
               <motion.section
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -640,6 +661,49 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
                     </p>
                   </div>
                 </details>
+              </motion.section>
+            )}
+
+            {/* Attachments */}
+            {session.attachments && session.attachments.length > 0 && (
+              <motion.section
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.45, ease: [0.16, 1, 0.3, 1] }}
+              >
+                <div className="flex items-center gap-3 mb-4">
+                  <Paperclip className="w-5 h-5 text-[var(--ink-muted)]" />
+                  <h2 className="label-section">Attachments</h2>
+                </div>
+                <div className="space-y-2">
+                  {session.attachments.map((attachment) => {
+                    const Icon = getAttachmentIcon(attachment.type)
+                    return (
+                      <button
+                        key={attachment.id}
+                        onClick={() => handleOpenPath(attachment.path)}
+                        onContextMenu={(e) => {
+                          e.preventDefault()
+                          handleRevealPath(attachment.path)
+                        }}
+                        className="w-full flex items-center gap-4 p-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--paper)] hover:bg-[var(--paper-warm)] transition-colors text-left"
+                      >
+                        <div className="w-9 h-9 rounded-lg bg-[var(--paper-warm)] flex items-center justify-center">
+                          <Icon className="w-4 h-4 text-[var(--ink-muted)]" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm text-[var(--ink)] truncate">{attachment.name}</div>
+                          <div className="text-xs text-[var(--ink-muted)]">
+                            {attachment.mimeType || attachment.type} · {formatBytes(attachment.size)}
+                          </div>
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+                <p className="mt-2 text-[10px] text-[var(--ink-muted)]/70">
+                  Right click an item to reveal in Finder
+                </p>
               </motion.section>
             )}
 
@@ -729,7 +793,7 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
 
               {/* Error message */}
               <AnimatePresence>
-                {chatError && (
+                {(chatError || openError) && (
                   <motion.div
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -738,10 +802,13 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
                   >
                     <AlertCircle className="w-5 h-5 text-[var(--error)] flex-shrink-0" />
                     <span className="flex-1 text-sm text-[var(--error)]">
-                      {chatError}
+                      {chatError || openError}
                     </span>
                     <button
-                      onClick={() => setChatError(null)}
+                      onClick={() => {
+                        clearError()
+                        setOpenError(null)
+                      }}
                       className="p-1 rounded hover:bg-[var(--error)]/10 transition-colors"
                     >
                       <X className="w-4 h-4 text-[var(--error)]" />
