@@ -201,21 +201,31 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
       return
     }
 
+    let cancelled = false
     let unlisten: (() => void) | null = null
 
     const setupListener = async () => {
-      const { listen } = await import('@tauri-apps/api/event')
-      unlisten = await listen<{ level: number }>('audio-level', (event) => {
-        // Check pause state via ref to avoid effect remount on pause toggle
-        if (!isPausedRef.current) {
-          setAudioLevel(event.payload.level)
-        }
-      })
+      try {
+        const { listen } = await import('@tauri-apps/api/event')
+
+        // Check if we were cancelled during the import
+        if (cancelled) return
+
+        unlisten = await listen<{ level: number }>('audio-level', (event) => {
+          // Check pause state via ref to avoid effect remount on pause toggle
+          if (!isPausedRef.current && !cancelled) {
+            setAudioLevel(event.payload.level)
+          }
+        })
+      } catch (error) {
+        console.error('Failed to setup audio level listener:', error)
+      }
     }
 
     setupListener()
 
     return () => {
+      cancelled = true
       unlisten?.()
       setAudioLevel(0)
     }
