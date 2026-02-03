@@ -18,6 +18,7 @@ import type {
 } from '../types/database';
 
 let db: Database | null = null;
+let initPromise: Promise<void> | null = null;
 
 const SCHEMA = `
 -- Sessions table
@@ -103,32 +104,62 @@ CREATE TABLE IF NOT EXISTS analysis_state (
 
 /**
  * Initialize the database connection and create schema
+ * Uses a promise lock to prevent concurrent initialization
  */
 export async function initDatabase(): Promise<void> {
+  // Already initialized
   if (db) return;
 
-  try {
-    console.log('[DATABASE] Initializing SQLite database...');
-    db = await Database.load('sqlite:sessions.db');
-    console.log('[DATABASE] Database connection established');
-
-    // Create tables
-    const statements = SCHEMA.split(';').filter(s => s.trim());
-    for (const statement of statements) {
-      await db.execute(statement);
-    }
-
-    console.log('[DATABASE] Schema initialized successfully');
-  } catch (error) {
-    console.error('[DATABASE] Failed to initialize database:', error);
-    // Re-throw with more context
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Database initialization failed: ${message}. Make sure you're running the app with 'npm run tauri dev'.`);
+  // Use existing promise if initialization in progress (prevents race condition)
+  if (initPromise) {
+    return initPromise;
   }
+
+  initPromise = (async () => {
+    try {
+      console.log('[DATABASE] Initializing SQLite database...');
+      db = await Database.load('sqlite:sessions.db');
+      console.log('[DATABASE] Database connection established');
+
+      // Create tables
+      const statements = SCHEMA.split(';').filter(s => s.trim());
+      for (const statement of statements) {
+        await db.execute(statement);
+      }
+
+      console.log('[DATABASE] Schema initialized successfully');
+    } catch (error) {
+      console.error('[DATABASE] Failed to initialize database:', error);
+      db = null;
+      // Re-throw with more context
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Database initialization failed: ${message}. Make sure you're running the app with 'npm run tauri dev'.`);
+    } finally {
+      initPromise = null;
+    }
+  })();
+
+  return initPromise;
 }
 
 /**
- * Get the database instance (must call initDatabase first)
+ * Ensure database is initialized and return it
+ * This is the preferred method to get the database instance
+ */
+export async function ensureDb(): Promise<Database> {
+  if (!db) {
+    await initDatabase();
+  }
+  if (!db) {
+    throw new Error('Database initialization failed');
+  }
+  return db;
+}
+
+/**
+ * Get the database instance synchronously
+ * Only use this when you're certain the database is initialized
+ * Prefer ensureDb() for new code
  */
 export function getDb(): Database {
   if (!db) throw new Error('Database not initialized. Call initDatabase() first.');
@@ -145,6 +176,7 @@ export async function createSession(
   title: string,
   analysisMode: 'ambient' | 'deep' = 'ambient'
 ): Promise<DbSession> {
+  const db = await ensureDb();
   const now = new Date().toISOString();
   const session: DbSession = {
     id,
@@ -157,21 +189,21 @@ export async function createSession(
     analysis_mode: analysisMode,
   };
 
-  await getDb().execute(
+  await db.execute(
     `INSERT INTO sessions (id, type, title, created_at, updated_at, status, analysis_mode)
      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
     [session.id, session.type, session.title, session.created_at, session.updated_at, session.status, session.analysis_mode]
   );
 
   // Initialize analysis state
-  await getDb().execute(
+  await db.execute(
     `INSERT INTO analysis_state (session_id, mode, updated_at)
      VALUES ($1, $2, $3)`,
     [session.id, analysisMode, now]
   );
 
   // Initialize rolling summary
-  await getDb().execute(
+  await db.execute(
     `INSERT INTO rolling_summaries (id, session_id, updated_at, content, version)
      VALUES ($1, $2, $3, $4, $5)`,
     [generateId(), session.id, now, '', 1]
@@ -181,7 +213,8 @@ export async function createSession(
 }
 
 export async function getSession(id: string): Promise<DbSession | null> {
-  const result = await getDb().select<DbSession[]>(
+  const db = await ensureDb();
+  const result = await db.select<DbSession[]>(
     'SELECT * FROM sessions WHERE id = $1',
     [id]
   );
@@ -193,8 +226,9 @@ export async function updateSessionStatus(
   status: DbSession['status'],
   durationSeconds?: number
 ): Promise<void> {
+  const db = await ensureDb();
   const now = new Date().toISOString();
-  await getDb().execute(
+  await db.execute(
     `UPDATE sessions SET status = $1, duration_seconds = $2, updated_at = $3 WHERE id = $4`,
     [status, durationSeconds ?? null, now, id]
   );
@@ -211,6 +245,7 @@ export async function saveScreenshot(
   appName?: string,
   windowTitle?: string
 ): Promise<DbScreenshot> {
+  const db = await ensureDb();
   const screenshot: DbScreenshot = {
     id: generateId(),
     session_id: sessionId,
@@ -222,7 +257,7 @@ export async function saveScreenshot(
     analysis: null,
   };
 
-  await getDb().execute(
+  await db.execute(
     `INSERT INTO screenshots (id, session_id, captured_at, trigger, app_name, window_title, data_base64)
      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
     [screenshot.id, screenshot.session_id, screenshot.captured_at, screenshot.trigger, screenshot.app_name, screenshot.window_title, screenshot.data_base64]
@@ -235,18 +270,20 @@ export async function getScreenshots(
   sessionId: string,
   limit?: number
 ): Promise<DbScreenshot[]> {
+  const db = await ensureDb();
   const query = limit
     ? 'SELECT * FROM screenshots WHERE session_id = $1 ORDER BY captured_at ASC LIMIT $2'
     : 'SELECT * FROM screenshots WHERE session_id = $1 ORDER BY captured_at ASC';
   const params = limit ? [sessionId, limit] : [sessionId];
-  return getDb().select<DbScreenshot[]>(query, params);
+  return db.select<DbScreenshot[]>(query, params);
 }
 
 export async function updateScreenshotAnalysis(
   id: string,
   analysis: string
 ): Promise<void> {
-  await getDb().execute(
+  const db = await ensureDb();
+  await db.execute(
     'UPDATE screenshots SET analysis = $1 WHERE id = $2',
     [analysis, id]
   );
@@ -263,6 +300,7 @@ export async function saveAudioChunk(
   durationSeconds: number,
   dataBase64: string
 ): Promise<DbAudioChunk> {
+  const db = await ensureDb();
   const chunk: DbAudioChunk = {
     id: generateId(),
     session_id: sessionId,
@@ -273,7 +311,7 @@ export async function saveAudioChunk(
     transcript: null,
   };
 
-  await getDb().execute(
+  await db.execute(
     `INSERT INTO audio_chunks (id, session_id, start_time, end_time, duration_seconds, data_base64)
      VALUES ($1, $2, $3, $4, $5, $6)`,
     [chunk.id, chunk.session_id, chunk.start_time, chunk.end_time, chunk.duration_seconds, chunk.data_base64]
@@ -286,14 +324,16 @@ export async function updateAudioTranscript(
   id: string,
   transcript: string
 ): Promise<void> {
-  await getDb().execute(
+  const db = await ensureDb();
+  await db.execute(
     'UPDATE audio_chunks SET transcript = $1 WHERE id = $2',
     [transcript, id]
   );
 }
 
 export async function getAudioChunks(sessionId: string): Promise<DbAudioChunk[]> {
-  return getDb().select<DbAudioChunk[]>(
+  const db = await ensureDb();
+  return db.select<DbAudioChunk[]>(
     'SELECT * FROM audio_chunks WHERE session_id = $1 ORDER BY start_time',
     [sessionId]
   );
@@ -309,6 +349,7 @@ export async function createInsight(
   content: string,
   metadata?: Record<string, unknown>
 ): Promise<DbInsight> {
+  const db = await ensureDb();
   const insight: DbInsight = {
     id: generateId(),
     session_id: sessionId,
@@ -319,7 +360,7 @@ export async function createInsight(
     pinned: false,
   };
 
-  await getDb().execute(
+  await db.execute(
     `INSERT INTO insights (id, session_id, created_at, type, content, metadata, pinned)
      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
     [insight.id, insight.session_id, insight.created_at, insight.type, insight.content, insight.metadata, 0]
@@ -332,20 +373,22 @@ export async function getInsights(
   sessionId: string,
   type?: DbInsight['type']
 ): Promise<DbInsight[]> {
+  const db = await ensureDb();
   if (type) {
-    return getDb().select<DbInsight[]>(
+    return db.select<DbInsight[]>(
       'SELECT * FROM insights WHERE session_id = $1 AND type = $2 ORDER BY created_at DESC',
       [sessionId, type]
     );
   }
-  return getDb().select<DbInsight[]>(
+  return db.select<DbInsight[]>(
     'SELECT * FROM insights WHERE session_id = $1 ORDER BY created_at DESC',
     [sessionId]
   );
 }
 
 export async function pinInsight(id: string, pinned: boolean): Promise<void> {
-  await getDb().execute(
+  const db = await ensureDb();
+  await db.execute(
     'UPDATE insights SET pinned = $1 WHERE id = $2',
     [pinned ? 1 : 0, id]
   );
@@ -356,7 +399,8 @@ export async function pinInsight(id: string, pinned: boolean): Promise<void> {
 // ============================================================================
 
 export async function getRollingSummary(sessionId: string): Promise<DbRollingSummary | null> {
-  const result = await getDb().select<DbRollingSummary[]>(
+  const db = await ensureDb();
+  const result = await db.select<DbRollingSummary[]>(
     'SELECT * FROM rolling_summaries WHERE session_id = $1',
     [sessionId]
   );
@@ -367,11 +411,12 @@ export async function updateRollingSummary(
   sessionId: string,
   content: string
 ): Promise<void> {
+  const db = await ensureDb();
   const now = new Date().toISOString();
 
   // Use INSERT OR REPLACE to handle race condition where
   // rolling_summary may not exist yet
-  await getDb().execute(
+  await db.execute(
     `INSERT INTO rolling_summaries (id, session_id, updated_at, content, version)
      VALUES ($1, $2, $3, $4, 1)
      ON CONFLICT(session_id) DO UPDATE SET
@@ -392,6 +437,7 @@ export async function saveChatMessage(
   content: string,
   metadata?: Record<string, unknown>
 ): Promise<DbChatMessage> {
+  const db = await ensureDb();
   const message: DbChatMessage = {
     id: generateId(),
     session_id: sessionId,
@@ -401,7 +447,7 @@ export async function saveChatMessage(
     metadata: metadata ? JSON.stringify(metadata) : null,
   };
 
-  await getDb().execute(
+  await db.execute(
     `INSERT INTO chat_messages (id, session_id, created_at, role, content, metadata)
      VALUES ($1, $2, $3, $4, $5, $6)`,
     [message.id, message.session_id, message.created_at, message.role, message.content, message.metadata]
@@ -411,7 +457,8 @@ export async function saveChatMessage(
 }
 
 export async function getChatHistory(sessionId: string): Promise<DbChatMessage[]> {
-  return getDb().select<DbChatMessage[]>(
+  const db = await ensureDb();
+  return db.select<DbChatMessage[]>(
     'SELECT * FROM chat_messages WHERE session_id = $1 ORDER BY created_at',
     [sessionId]
   );
@@ -422,7 +469,8 @@ export async function getChatHistory(sessionId: string): Promise<DbChatMessage[]
 // ============================================================================
 
 export async function getAnalysisState(sessionId: string): Promise<DbAnalysisState | null> {
-  const result = await getDb().select<DbAnalysisState[]>(
+  const db = await ensureDb();
+  const result = await db.select<DbAnalysisState[]>(
     'SELECT * FROM analysis_state WHERE session_id = $1',
     [sessionId]
   );
@@ -433,12 +481,13 @@ export async function updateAnalysisMode(
   sessionId: string,
   mode: 'ambient' | 'deep'
 ): Promise<void> {
+  const db = await ensureDb();
   const now = new Date().toISOString();
-  await getDb().execute(
+  await db.execute(
     'UPDATE analysis_state SET mode = $1, updated_at = $2 WHERE session_id = $3',
     [mode, now, sessionId]
   );
-  await getDb().execute(
+  await db.execute(
     'UPDATE sessions SET analysis_mode = $1, updated_at = $2 WHERE id = $3',
     [mode, now, sessionId]
   );
@@ -453,7 +502,7 @@ export async function updateAnalysisMode(
  * Cascades to: screenshots, audio_chunks, insights, rolling_summaries, chat_messages
  */
 export async function deleteSessionData(sessionId: string): Promise<void> {
-  const db = getDb();
+  const db = await ensureDb();
 
   // Delete in order to respect foreign key constraints (if not using CASCADE)
   await db.execute('DELETE FROM chat_messages WHERE session_id = $1', [sessionId]);
