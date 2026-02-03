@@ -68,13 +68,17 @@ const AppContext = createContext<AppContextValue | null>(null)
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(appReducer, initialState)
   const [dbReady, setDbReady] = useState(false)
+  const [dbError, setDbError] = useState<string | null>(null)
 
   // Initialize database on mount (only in Tauri)
   useEffect(() => {
     if (isTauri()) {
       initDatabase()
         .then(() => setDbReady(true))
-        .catch(err => console.error('Database init failed:', err))
+        .catch(err => {
+          console.error('Database init failed:', err)
+          setDbError(err instanceof Error ? err.message : 'Database initialization failed')
+        })
     } else {
       // In browser mode, skip database initialization
       setDbReady(true)
@@ -119,6 +123,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     // Then delete from localStorage
     await storage.deleteSession(id)
+  }
+
+  if (dbError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-neutral-950 p-8">
+        <div className="text-center max-w-md">
+          <div className="text-red-400 text-lg mb-4">Database Error</div>
+          <div className="text-neutral-400 text-sm mb-6">{dbError}</div>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-neutral-800 text-neutral-200 rounded-lg hover:bg-neutral-700 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    )
   }
 
   if (!dbReady) {

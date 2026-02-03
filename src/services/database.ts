@@ -107,15 +107,24 @@ CREATE TABLE IF NOT EXISTS analysis_state (
 export async function initDatabase(): Promise<void> {
   if (db) return;
 
-  db = await Database.load('sqlite:sessions.db');
+  try {
+    console.log('[DATABASE] Initializing SQLite database...');
+    db = await Database.load('sqlite:sessions.db');
+    console.log('[DATABASE] Database connection established');
 
-  // Create tables
-  const statements = SCHEMA.split(';').filter(s => s.trim());
-  for (const statement of statements) {
-    await db.execute(statement);
+    // Create tables
+    const statements = SCHEMA.split(';').filter(s => s.trim());
+    for (const statement of statements) {
+      await db.execute(statement);
+    }
+
+    console.log('[DATABASE] Schema initialized successfully');
+  } catch (error) {
+    console.error('[DATABASE] Failed to initialize database:', error);
+    // Re-throw with more context
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Database initialization failed: ${message}. Make sure you're running the app with 'npm run tauri dev'.`);
   }
-
-  console.log('Database initialized');
 }
 
 /**
