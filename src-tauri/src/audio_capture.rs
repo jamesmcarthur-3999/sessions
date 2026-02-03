@@ -547,4 +547,22 @@ impl AudioRecorder {
     }
 }
 
+impl Drop for AudioRecorder {
+    fn drop(&mut self) {
+        // Ensure recording is stopped and thread is cleaned up
+        if let Ok(mut state) = self.state.lock() {
+            if *state != RecordingState::Stopped {
+                *state = RecordingState::Stopped;
+            }
+        }
+
+        // Drop the stream to stop audio capture
+        if let Ok(mut stream) = self.stream.lock() {
+            *stream = None;
+        }
+
+        println!("AudioRecorder dropped, resources cleaned up");
+    }
+}
+
 // No global static - we'll use Tauri's managed state instead
