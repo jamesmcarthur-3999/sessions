@@ -54,8 +54,10 @@ export function Settings({ onBack }: SettingsProps) {
 
       setSaveStatus('success')
       setTimeout(() => setSaveStatus('idle'), 2000)
-    } catch {
+    } catch (error) {
+      console.error('Failed to save API keys:', error)
       setSaveStatus('error')
+      setTimeout(() => setSaveStatus('idle'), 3000)
     } finally {
       setIsSaving(false)
     }
@@ -174,15 +176,21 @@ export function Settings({ onBack }: SettingsProps) {
               <button
                 onClick={handleSave}
                 disabled={isSaving}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl
-                           bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900
-                           hover:bg-neutral-800 dark:hover:bg-neutral-200 transition-colors
-                           disabled:opacity-50"
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl transition-colors disabled:opacity-50 ${
+                  saveStatus === 'error'
+                    ? 'bg-red-600 text-white'
+                    : 'bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 hover:bg-neutral-800 dark:hover:bg-neutral-200'
+                }`}
               >
                 {saveStatus === 'success' ? (
                   <>
                     <Check className="w-4 h-4" />
                     <span>Saved!</span>
+                  </>
+                ) : saveStatus === 'error' ? (
+                  <>
+                    <AlertCircle className="w-4 h-4" />
+                    <span>Save Failed</span>
                   </>
                 ) : (
                   <span>{isSaving ? 'Saving...' : 'Save Keys'}</span>
