@@ -8,6 +8,7 @@ import { QuickCapture } from './components/QuickCapture'
 import { SessionRecording } from './components/SessionRecording'
 import { CommandPalette } from './components/CommandPalette'
 import { Settings } from './components/Settings'
+import { WelcomeModal } from './components/WelcomeModal'
 import { ToastProvider } from './components/Toast'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { useGlobalShortcuts } from './hooks/useKeyboardShortcuts'
@@ -21,6 +22,9 @@ function AppContent() {
   const [view, setView] = useState<View>('home')
   const [selectedSession, setSelectedSession] = useState<Session | null>(null)
   const [showCommandPalette, setShowCommandPalette] = useState(false)
+  const [showWelcome, setShowWelcome] = useState(() => {
+    return !localStorage.getItem('sessions_onboarding_complete')
+  })
 
   const handleSessionSelect = useCallback((session: Session) => {
     setSelectedSession(session)
@@ -53,6 +57,17 @@ function AppContent() {
     setView('recording')
     setShowCommandPalette(false)
   }, [dispatch])
+
+  const handleWelcomeAddApiKey = useCallback(() => {
+    localStorage.setItem('sessions_onboarding_complete', 'true')
+    setShowWelcome(false)
+    setView('settings')
+  }, [])
+
+  const handleWelcomeGetStarted = useCallback(() => {
+    localStorage.setItem('sessions_onboarding_complete', 'true')
+    setShowWelcome(false)
+  }, [])
 
   // Keyboard shortcuts
   useGlobalShortcuts({
@@ -157,6 +172,13 @@ function AppContent() {
           setView('history')
           setShowCommandPalette(false)
         }}
+      />
+
+      {/* Welcome Modal (first-run) */}
+      <WelcomeModal
+        isOpen={showWelcome}
+        onAddApiKey={handleWelcomeAddApiKey}
+        onGetStarted={handleWelcomeGetStarted}
       />
     </div>
   )

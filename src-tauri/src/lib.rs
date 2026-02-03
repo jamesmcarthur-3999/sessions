@@ -301,6 +301,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_sql::Builder::new().build())
+        .plugin(tauri_plugin_store::Builder::new().build())
         .manage(audio_recorder.clone())
         .manage(video_recorder)
         .manage(activity_monitor)

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { AudioLevelMeter } from './AudioLevelMeter'
 import { ScreenPreview } from './ScreenPreview'
+import { Tooltip } from './Tooltip'
 import {
   getAudioDevices,
   getScreens,
@@ -547,7 +548,10 @@ export function RecordingSettings({
                         }`} />
                       </div>
                       <div className="text-left">
-                        <div className="font-medium text-[var(--ink)]">Smart Capture</div>
+                        <div className="font-medium text-[var(--ink)] flex items-center">
+                          Smart Capture
+                          <Tooltip content="Automatically captures when you switch apps or after periods of activity" />
+                        </div>
                         <div className="text-xs text-[var(--ink-muted)]">
                           Capture on app switches & activity
                         </div>
@@ -589,7 +593,10 @@ export function RecordingSettings({
                     }`} />
                   </div>
                   <div className="text-left flex-1">
-                    <div className="font-medium text-[var(--ink)]">Adaptive</div>
+                    <div className="font-medium text-[var(--ink)] flex items-center">
+                      Adaptive
+                      <Tooltip content="AI adjusts analysis depth based on your activity" />
+                    </div>
                     <div className="text-xs text-[var(--ink-muted)]">AI adjusts based on activity</div>
                   </div>
                   {config.analysisMode === 'adaptive' && (
@@ -613,7 +620,10 @@ export function RecordingSettings({
                     }`} />
                   </div>
                   <div className="text-left flex-1">
-                    <div className="font-medium text-[var(--ink)]">Ambient</div>
+                    <div className="font-medium text-[var(--ink)] flex items-center">
+                      Ambient
+                      <Tooltip content="Light analysis, minimal resource usage" />
+                    </div>
                     <div className="text-xs text-[var(--ink-muted)]">Light analysis, less intrusive</div>
                   </div>
                   {config.analysisMode === 'ambient' && (
@@ -637,7 +647,10 @@ export function RecordingSettings({
                     }`} />
                   </div>
                   <div className="text-left flex-1">
-                    <div className="font-medium text-[var(--ink)]">Deep</div>
+                    <div className="font-medium text-[var(--ink)] flex items-center">
+                      Deep
+                      <Tooltip content="Continuous analysis, real-time insights" />
+                    </div>
                     <div className="text-xs text-[var(--ink-muted)]">Full analysis, real-time insights</div>
                   </div>
                   {config.analysisMode === 'deep' && (

@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { ArrowLeft, Key, Sparkles, Check, Eye, EyeOff, Zap, AlertCircle, Brain, CheckSquare, MessageCircle, Link, Mic } from 'lucide-react'
 import { updateApiKeys, testApiKey } from '../services/bots'
+import { getSecureItem } from '../services/secure-storage'
+import { Tooltip } from './Tooltip'
 
 interface SettingsProps {
   onBack: () => void
@@ -32,14 +34,17 @@ export function Settings({ onBack }: SettingsProps) {
 
   // Load saved API keys on mount
   useEffect(() => {
-    const savedKey = localStorage.getItem('sessions_api_key')
-    const savedOpenaiKey = localStorage.getItem('sessions_openai_api_key')
-    if (savedKey) {
-      setApiKey(savedKey)
+    async function loadKeys() {
+      const savedKey = await getSecureItem('sessions_api_key')
+      const savedOpenaiKey = await getSecureItem('sessions_openai_api_key')
+      if (savedKey) {
+        setApiKey(savedKey)
+      }
+      if (savedOpenaiKey) {
+        setOpenaiKey(savedOpenaiKey)
+      }
     }
-    if (savedOpenaiKey) {
-      setOpenaiKey(savedOpenaiKey)
-    }
+    loadKeys()
   }, [])
 
   const handleSave = async () => {
@@ -144,8 +149,9 @@ export function Settings({ onBack }: SettingsProps) {
                 <Key className="w-5 h-5 text-[var(--accent)]" />
               </div>
               <div>
-                <h3 className="font-medium text-[var(--ink)]">
+                <h3 className="font-medium text-[var(--ink)] flex items-center">
                   Claude API Key
+                  <Tooltip content="Stored locally. Never sent to our servers." />
                 </h3>
                 <p className="text-sm text-[var(--ink-muted)]">
                   Get yours at{' '}
@@ -262,8 +268,9 @@ export function Settings({ onBack }: SettingsProps) {
                 <Mic className="w-5 h-5 text-[var(--success)]" />
               </div>
               <div>
-                <h3 className="font-medium text-[var(--ink)]">
+                <h3 className="font-medium text-[var(--ink)] flex items-center">
                   OpenAI API Key
+                  <Tooltip content="Stored locally. Used only for audio transcription." />
                 </h3>
                 <p className="text-sm text-[var(--ink-muted)]">
                   For audio transcription (Whisper).{' '}
