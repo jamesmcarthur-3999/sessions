@@ -16,11 +16,13 @@ import {
   ListChecks,
   StickyNote,
   Camera,
+  Check,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { createQABot, buildQAInput, initializeBots, isBotsReady, type SessionContext } from '../services/bots'
 import { ScreenshotGallery } from './ScreenshotGallery'
 import { TranscriptViewer } from './TranscriptViewer'
+import { TypingIndicator } from './TypingIndicator'
 import { getScreenshots, getAudioChunks } from '../services/database'
 import type { Session } from '../types'
 import type { DbScreenshot, DbAudioChunk } from '../types/database'
@@ -99,7 +101,17 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
   const [loadingMedia, setLoadingMedia] = useState(true)
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editedTitle, setEditedTitle] = useState(session.title)
+  const [showSaved, setShowSaved] = useState(false)
   const titleInputRef = useRef<HTMLInputElement>(null)
+
+  // Show "Saved" indicator briefly when session has summary
+  useEffect(() => {
+    if (session?.id && session.summary) {
+      setShowSaved(true)
+      const timer = setTimeout(() => setShowSaved(false), 2000)
+      return () => clearTimeout(timer)
+    }
+  }, [session?.id, session?.summary])
 
   // Load screenshots and audio chunks for sessions
   useEffect(() => {
@@ -293,6 +305,21 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
             <ArrowLeft className="w-4 h-4" />
             <span className="text-sm">Back</span>
           </button>
+
+          {/* Saved indicator */}
+          <AnimatePresence>
+            {showSaved && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="flex items-center gap-1.5 text-sm text-[var(--success)]"
+              >
+                <Check className="w-4 h-4" />
+                <span>Saved</span>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <div className="relative">
             <button
@@ -663,22 +690,15 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
                       </motion.div>
                     ))}
 
-                    {/* Thinking indicator */}
+                    {/* Typing indicator */}
                     {isSending && (
                       <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         className="flex justify-start"
                       >
-                        <div className="px-5 py-3 rounded-2xl bg-[var(--paper-warm)] border border-[var(--border-subtle)]">
-                          <div className="flex items-center gap-2">
-                            <motion.div
-                              animate={{ rotate: 360 }}
-                              transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
-                              className="w-4 h-4 rounded-full border-2 border-[var(--accent)]/30 border-t-[var(--accent)]"
-                            />
-                            <span className="text-sm text-[var(--ink-muted)] italic">Thinking...</span>
-                          </div>
+                        <div className="px-3 py-2 rounded-2xl bg-[var(--paper-warm)] border border-[var(--border-subtle)]">
+                          <TypingIndicator />
                         </div>
                       </motion.div>
                     )}

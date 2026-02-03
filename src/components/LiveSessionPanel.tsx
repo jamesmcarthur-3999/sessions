@@ -58,7 +58,10 @@ export function LiveSessionPanel({
   const recentInsights = insights.filter(i => !i.pinned).slice(0, 3);
 
   // Check if AI is configured
-  const aiConfigured = hasApiKey();
+  const [aiConfigured, setAiConfigured] = useState(false);
+  useEffect(() => {
+    hasApiKey().then(setAiConfigured);
+  }, []);
 
   // Focus chat input when panel is expanded with keyboard shortcut
   useEffect(() => {

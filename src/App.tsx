@@ -13,6 +13,7 @@ import { ToastProvider } from './components/Toast'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { useGlobalShortcuts } from './hooks/useKeyboardShortcuts'
 import { generateId } from './utils/id'
+import { migrateToSecureStorage } from './services/secure-storage'
 import type { Session } from './types'
 
 type View = 'home' | 'summary' | 'history' | 'capture' | 'recording' | 'settings'
@@ -109,6 +110,11 @@ function AppContent() {
     return () => {
       window.removeEventListener('navigate-to-settings', handleNavigateToSettings)
     }
+  }, [])
+
+  // Migrate API keys from localStorage to secure storage on startup
+  useEffect(() => {
+    migrateToSecureStorage().catch(console.error)
   }, [])
 
   return (

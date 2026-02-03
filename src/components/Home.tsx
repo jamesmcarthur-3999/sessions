@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Video, Feather, ChevronRight, Settings, Sparkles } from 'lucide-react'
 import { useApp } from '../context/AppContext'
@@ -67,9 +67,14 @@ const itemVariants = {
 export function Home({ onNavigate, onSessionSelect }: HomeProps) {
   const { state, dispatch } = useApp()
   const recentSessions = state.sessions.slice(0, 5)
-  const apiKeyConfigured = hasApiKey()
+  const [apiKeyConfigured, setApiKeyConfigured] = useState(false)
   const [showRecordingSettings, setShowRecordingSettings] = useState(false)
   const [recordingConfig, setRecordingConfig] = useState<RecordingConfig>(defaultRecordingConfig)
+
+  // Check API key status on mount
+  useEffect(() => {
+    hasApiKey().then(setApiKeyConfigured)
+  }, [])
 
   const handleOpenRecordingSettings = () => {
     setShowRecordingSettings(true)

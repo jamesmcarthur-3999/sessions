@@ -28,6 +28,7 @@ import {
   type ScreenInfo,
 } from '../services/recording'
 import { hasApiKey } from '../services/bots'
+import { getSecureItem } from '../services/secure-storage'
 
 export interface RecordingConfig {
   enableScreenshots: boolean
@@ -73,8 +74,14 @@ export function RecordingSettings({
   const [showScreenPreview, setShowScreenPreview] = useState(false)
 
   // Check for API keys
-  const hasClaudeKey = hasApiKey()
-  const hasOpenaiKey = !!localStorage.getItem('sessions_openai_api_key')
+  const [hasClaudeKey, setHasClaudeKey] = useState(false)
+  const [hasOpenaiKey, setHasOpenaiKey] = useState(false)
+
+  // Load API key status on mount
+  useEffect(() => {
+    hasApiKey().then(setHasClaudeKey)
+    getSecureItem('sessions_openai_api_key').then(key => setHasOpenaiKey(!!key))
+  }, [])
 
   // Load devices function (also used for refresh)
   const loadDevices = useCallback(async () => {
