@@ -168,9 +168,9 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
         recentScreenshots: screenshots.slice(0, 10).map(ss => ({
           id: ss.id,
           capturedAt: ss.captured_at,
-          appName: ss.app_name || undefined,
-          windowTitle: ss.window_title || undefined,
-          analysis: ss.analysis || undefined,
+          appName: ss.app_name || null,
+          windowTitle: ss.window_title || null,
+          analysis: ss.analysis || null,
         })),
         recentTranscripts: audioChunks
           .filter(c => c.transcript)
@@ -242,9 +242,9 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
         recentScreenshots: screenshots.slice(0, 10).map(ss => ({
           id: ss.id,
           capturedAt: ss.captured_at,
-          appName: ss.app_name || undefined,
-          windowTitle: ss.window_title || undefined,
-          analysis: ss.analysis || undefined,
+          appName: ss.app_name || null,
+          windowTitle: ss.window_title || null,
+          analysis: ss.analysis || null,
         })),
         recentTranscripts: audioChunks
           .filter(c => c.transcript)
