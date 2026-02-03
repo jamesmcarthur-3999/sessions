@@ -35,6 +35,10 @@ export async function captureScreenshot(screenId?: string | null): Promise<strin
   return invoke<string>('capture_screenshot', { screenId: screenId ?? null })
 }
 
+export async function testCaptureScreenshot(screenId?: string | null): Promise<string> {
+  return invoke<string>('test_capture_screenshot', { screenId: screenId ?? null })
+}
+
 // ============================================================================
 // Device Enumeration
 // ============================================================================
