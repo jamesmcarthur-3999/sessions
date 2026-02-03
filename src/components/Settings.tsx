@@ -28,6 +28,7 @@ export function Settings({ onBack }: SettingsProps) {
   const [isSaving, setIsSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
+  const [testError, setTestError] = useState<string | null>(null)
 
   // Load saved API keys on mount
   useEffect(() => {
@@ -67,6 +68,7 @@ export function Settings({ onBack }: SettingsProps) {
     if (!apiKey.trim()) return
 
     setTestStatus('testing')
+    setTestError(null)
     try {
       // Make a real API call to validate the key
       const result = await testApiKey(apiKey.trim())
@@ -76,13 +78,18 @@ export function Settings({ onBack }: SettingsProps) {
         setTestStatus('success')
       } else {
         console.error('[Settings] API key test failed:', result.error)
+        setTestError(result.error || 'Invalid API key')
         setTestStatus('error')
       }
     } catch (error) {
       console.error('[Settings] API key test error:', error)
+      setTestError(error instanceof Error ? error.message : 'Connection failed')
       setTestStatus('error')
     }
-    setTimeout(() => setTestStatus('idle'), 3000)
+    setTimeout(() => {
+      setTestStatus('idle')
+      setTestError(null)
+    }, 5000)
   }
 
   const maskApiKey = (key: string) => {
@@ -237,6 +244,13 @@ export function Settings({ onBack }: SettingsProps) {
                 )}
               </button>
             </div>
+
+            {/* Test error message */}
+            {testError && (
+              <p className="text-sm text-red-600 dark:text-red-400 mt-3">
+                {testError}
+              </p>
+            )}
           </div>
         </motion.section>
 

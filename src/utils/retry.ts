@@ -65,7 +65,7 @@ export async function withRetry<T>(
       }
 
       // Check if error is retryable
-      if (!isRetryableError(error, opts.retryableErrors!)) {
+      if (!isRetryableError(error, opts.retryableErrors ?? defaultOptions.retryableErrors ?? [])) {
         console.log('[RETRY] Non-retryable error, failing immediately:', error);
         break;
       }
