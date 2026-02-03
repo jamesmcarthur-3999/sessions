@@ -359,24 +359,32 @@ class SessionRecordingController {
     }
 
     const { options } = this.state
+    const errors: string[] = []
 
     // Stop screenshot capture
     if (options.enableScreenshots) {
       if (options.smartCaptureEnabled) {
-        // Smart capture handles final screenshot internally
-        await smartCapture.stop()
-        console.log('Smart capture stopped')
+        try {
+          await smartCapture.stop()
+          console.log('Smart capture stopped')
+        } catch (e) {
+          console.error('Failed to stop smart capture:', e)
+          errors.push('Screenshot capture failed to stop properly')
+        }
       } else if (this.screenshotInterval) {
         clearInterval(this.screenshotInterval)
         this.screenshotInterval = null
-        // Capture final screenshot
-        await this.captureAndStoreScreenshot()
+        try {
+          await this.captureAndStoreScreenshot()
+        } catch (e) {
+          console.error('Failed to capture final screenshot:', e)
+          // Don't add to errors - final screenshot is nice-to-have
+        }
       }
     }
 
     // Stop audio recording if it was enabled
     if (isTauri() && options.enableAudio) {
-      // Clean up audio chunk listener
       if (this.audioChunkListener) {
         this.audioChunkListener()
         this.audioChunkListener = null
@@ -387,6 +395,7 @@ class SessionRecordingController {
         console.log('🎤 Audio recording stopped')
       } catch (e) {
         console.error('Failed to stop audio:', e)
+        errors.push('Audio recording may still be active')
       }
     }
 
@@ -397,6 +406,7 @@ class SessionRecordingController {
         console.log('🎬 Video recording stopped')
       } catch (e) {
         console.error('Failed to stop video:', e)
+        errors.push('Video recording may still be active')
       }
     }
 
@@ -406,6 +416,14 @@ class SessionRecordingController {
     console.log(`📹 Session recording stopped: ${result.screenshots.length} screenshots`)
 
     this.state = null
+
+    // If there were errors, include them in result for caller to handle
+    if (errors.length > 0) {
+      console.warn('Recording stopped with errors:', errors)
+      // Attach errors to result for caller to handle
+      ;(result as any).stopErrors = errors
+    }
+
     return result
   }
 

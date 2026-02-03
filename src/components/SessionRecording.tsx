@@ -269,10 +269,19 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
 
       // Stop recording and get captured data
       let screenshots: string[] = []
+      let stopWarnings: string[] = []
       if (sessionRecorder.isRecording()) {
         const recordingState = await sessionRecorder.stopRecording()
         screenshots = recordingState.screenshots
+        stopWarnings = (recordingState as any).stopErrors || []
         console.log('Captured ' + screenshots.length + ' screenshots')
+
+        // Show warnings for stop errors (but continue processing)
+        if (stopWarnings.length > 0) {
+          for (const warning of stopWarnings) {
+            showToast(warning, 'error', 5000)
+          }
+        }
       }
 
       // Update database session status
