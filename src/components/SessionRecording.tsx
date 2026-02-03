@@ -41,7 +41,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
   const [_hasPermission, setHasPermission] = useState<boolean | null>(null)
   const [permissionError, setPermissionError] = useState<string | null>(null)
   const [showIntelligence, setShowIntelligence] = useState(false)
-  const [audioLevel, _setAudioLevel] = useState(0)
+  const [audioLevel, setAudioLevel] = useState(0)
   const [captureFlash, setCaptureFlash] = useState(false)
   const startTimeRef = useRef(Date.now())
   const pausedTimeRef = useRef(0)
@@ -172,6 +172,29 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
       unsubActivity()
     }
   }, [])
+
+  // Listen for real-time audio level events from Rust
+  useEffect(() => {
+    if (!isTauri() || !recordingConfig?.enableAudio) return
+
+    let unlisten: (() => void) | null = null
+
+    const setupListener = async () => {
+      const { listen } = await import('@tauri-apps/api/event')
+      unlisten = await listen<{ level: number }>('audio-level', (event) => {
+        if (!isPaused) {
+          setAudioLevel(event.payload.level)
+        }
+      })
+    }
+
+    setupListener()
+
+    return () => {
+      unlisten?.()
+      setAudioLevel(0)
+    }
+  }, [recordingConfig?.enableAudio, isPaused])
 
   const handlePauseResume = useCallback(async () => {
     if (isPaused) {
