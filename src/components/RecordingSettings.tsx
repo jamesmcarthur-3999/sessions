@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   X,
@@ -71,7 +71,7 @@ export function RecordingSettings({
   const [showScreenPreview, setShowScreenPreview] = useState(false)
 
   // Load devices function (also used for refresh)
-  const loadDevices = async () => {
+  const loadDevices = useCallback(async () => {
     setIsLoadingDevices(true)
     setHasPermission(null)
 
@@ -119,13 +119,13 @@ export function RecordingSettings({
     }
 
     setIsLoadingDevices(false)
-  }
+  }, [config, onConfigChange])
 
   // Load devices on mount
   useEffect(() => {
     if (!isOpen) return
     loadDevices()
-  }, [isOpen])
+  }, [isOpen, loadDevices])
 
   const handleRequestPermission = async () => {
     const granted = await requestScreenRecordingPermission()

@@ -4,7 +4,7 @@
  * Shows a live preview of what will be captured from the selected screen.
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { Monitor, RefreshCw, Check, X, Loader2 } from 'lucide-react'
 import { testCaptureScreenshot, isTauri } from '../services/recording'
@@ -20,7 +20,7 @@ export function ScreenPreview({ screenId, screenName, onClose }: ScreenPreviewPr
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const capturePreview = async () => {
+  const capturePreview = useCallback(async () => {
     if (!isTauri()) {
       setError('Preview only available in desktop app')
       setIsLoading(false)
@@ -39,11 +39,11 @@ export function ScreenPreview({ screenId, screenName, onClose }: ScreenPreviewPr
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [screenId])
 
   useEffect(() => {
     capturePreview()
-  }, [screenId])
+  }, [capturePreview])
 
   return (
     <motion.div

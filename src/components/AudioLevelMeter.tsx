@@ -29,6 +29,8 @@ export function AudioLevelMeter({ deviceId, isActive }: AudioLevelMeterProps) {
       return
     }
 
+    let isMounted = true
+
     async function startListening() {
       try {
         setError(null)
@@ -41,6 +43,13 @@ export function AudioLevelMeter({ deviceId, isActive }: AudioLevelMeterProps) {
         }
 
         const stream = await navigator.mediaDevices.getUserMedia(constraints)
+
+        // Check if still mounted after async operation
+        if (!isMounted) {
+          stream.getTracks().forEach(track => track.stop())
+          return
+        }
+
         streamRef.current = stream
 
         // Create audio context and analyser
@@ -60,7 +69,7 @@ export function AudioLevelMeter({ deviceId, isActive }: AudioLevelMeterProps) {
         const dataArray = new Uint8Array(analyser.frequencyBinCount)
 
         function updateLevel() {
-          if (!analyserRef.current) return
+          if (!isMounted || !analyserRef.current) return
 
           analyserRef.current.getByteFrequencyData(dataArray)
 
@@ -78,6 +87,7 @@ export function AudioLevelMeter({ deviceId, isActive }: AudioLevelMeterProps) {
 
         updateLevel()
       } catch (err) {
+        if (!isMounted) return
         console.error('Failed to access microphone:', err)
         setError(err instanceof Error ? err.message : 'Microphone access denied')
         setIsListening(false)
@@ -86,7 +96,10 @@ export function AudioLevelMeter({ deviceId, isActive }: AudioLevelMeterProps) {
 
     startListening()
 
-    return cleanup
+    return () => {
+      isMounted = false
+      cleanup()
+    }
   }, [isActive, deviceId])
 
   function cleanup() {
