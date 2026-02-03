@@ -45,6 +45,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
   const [screenshotCount, setScreenshotCount] = useState(0)
   const [_hasPermission, setHasPermission] = useState<boolean | null>(null)
   const [permissionError, setPermissionError] = useState<string | null>(null)
+  const [fatalError, setFatalError] = useState<string | null>(null)
   const [showIntelligence, setShowIntelligence] = useState(false)
   const [audioLevel, setAudioLevel] = useState(0)
   const [transcriptionStatus, setTranscriptionStatus] = useState<'idle' | 'transcribing' | 'success' | 'error'>('idle')
@@ -395,14 +396,28 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
       onComplete(session)
     } catch (error) {
       console.error('Failed to end session:', error)
+
       // Update database status to error state
       try {
         await updateSessionStatus(sessionIdRef.current, 'error', duration)
       } catch (dbError) {
         console.error('Failed to update session status:', dbError)
       }
-      // Show user-facing error
-      showToast('Failed to process session. Please try again.', 'error', 5000)
+
+      // Determine specific error message
+      let errorMessage = 'Failed to process session.'
+      if (error instanceof Error) {
+        if (error.message.includes('API key')) {
+          errorMessage = 'AI summary failed. Please check your API key in Settings.'
+        } else if (error.message.includes('database') || error.message.includes('SQL')) {
+          errorMessage = 'Failed to save session data. Please try again.'
+        } else {
+          errorMessage = error.message
+        }
+      }
+
+      // Show error state instead of returning to recording
+      setFatalError(errorMessage)
       setIsEnding(false)
       setProcessingStep('')
       setProcessingPercent(0)
@@ -593,6 +608,58 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
               className="px-6 py-3 rounded-xl bg-[var(--accent)] text-white hover:bg-[var(--accent-light)] transition-colors"
             >
               Grant Permission
+            </button>
+          </div>
+        </motion.div>
+      ) : fatalError ? (
+        /* Fatal error state */
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="text-center max-w-md px-6"
+        >
+          <div className="w-16 h-16 mx-auto mb-8 rounded-2xl bg-[var(--error)]/20 flex items-center justify-center">
+            <AlertCircle className="w-8 h-8 text-[var(--error)]" />
+          </div>
+          <h2 className="font-display text-2xl text-[var(--paper)] mb-3">
+            Processing Failed
+          </h2>
+          <p className="text-[var(--paper)]/60 mb-8">
+            {fatalError}
+          </p>
+          <div className="flex gap-4 justify-center">
+            <button
+              onClick={() => {
+                setFatalError(null)
+                handleEndSession()
+              }}
+              className="px-6 py-3 rounded-xl bg-[var(--accent)] text-white hover:bg-[var(--accent)]/80 transition-colors"
+            >
+              Try Again
+            </button>
+            <button
+              onClick={() => {
+                // Save session with fallback summary
+                const fallbackSession: Session = {
+                  id: sessionIdRef.current,
+                  type: 'session',
+                  title: sessionTitle || 'Untitled Session',
+                  createdAt: new Date().toISOString(),
+                  duration,
+                  summary: {
+                    text: `Session recorded for ${Math.floor(duration / 60)} minutes. AI processing failed - please try regenerating the summary.`,
+                    tasks: [],
+                    notes: [],
+                    generatedAt: new Date().toISOString(),
+                  },
+                }
+                addSession(fallbackSession)
+                dispatch({ type: 'STOP_RECORDING' })
+                onComplete(fallbackSession)
+              }}
+              className="px-6 py-3 rounded-xl border border-[var(--paper)]/20 text-[var(--paper)]/80 hover:bg-[var(--paper)]/10 transition-colors"
+            >
+              Save Without AI Summary
             </button>
           </div>
         </motion.div>
