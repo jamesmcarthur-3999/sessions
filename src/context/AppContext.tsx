@@ -133,21 +133,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   const deleteSession = async (id: string) => {
-    // Delete from both storage systems BEFORE updating UI state
-    // This ensures we don't show stale state if deletions fail
     const errors: string[] = []
 
-    // Delete from database first (includes all related data) - only in Tauri mode
-    if (isTauri()) {
-      try {
-        await deleteSessionData(id)
-      } catch (err) {
-        console.error('Failed to delete session from database:', err)
-        errors.push('database')
-      }
+    // Try database deletion first (has the bulk of the data)
+    try {
+      await deleteSessionData(id)
+    } catch (err) {
+      console.error('Failed to delete session from database:', err)
+      errors.push('database')
     }
 
-    // Then delete from localStorage
+    // Then try localStorage
     try {
       await storage.deleteSession(id)
     } catch (err) {
@@ -155,15 +151,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
       errors.push('localStorage')
     }
 
-    // Only update UI if at least one deletion succeeded
-    // (orphaned data in one system is better than leaving stale UI)
-    if (errors.length < 2) {
+    // Only update UI if BOTH succeeded
+    if (errors.length === 0) {
       dispatch({ type: 'DELETE_SESSION', payload: id })
-    }
-
-    // If any deletion failed, throw so caller can handle
-    if (errors.length > 0) {
-      throw new Error(`Failed to delete from: ${errors.join(', ')}`)
+    } else if (errors.length === 1) {
+      // Partial failure - try to rollback or warn user
+      console.error(`Partial delete failure: ${errors.join(', ')}`)
+      // Still update UI but warn user
+      dispatch({ type: 'DELETE_SESSION', payload: id })
+      // Could show a toast warning here
+    } else {
+      // Both failed - don't update UI
+      console.error('Delete completely failed')
+      throw new Error('Failed to delete session')
     }
   }
 
