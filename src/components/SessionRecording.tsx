@@ -96,7 +96,14 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
           setHasPermission(true)
 
           // Start recording with config options
-          await sessionRecorder.startRecording(sessionIdRef.current, recordingOptions)
+          const result = await sessionRecorder.startRecording(sessionIdRef.current, recordingOptions)
+
+          // Show warnings for partial failures
+          if (result.errors.length > 0) {
+            for (const error of result.errors) {
+              showToast(error, 'error', 5000)
+            }
+          }
 
           // Create database session with the same ID as the recording
           await createSession(sessionIdRef.current, 'session', sessionTitle, initialAnalysisMode)

@@ -157,6 +157,14 @@ export interface SessionRecordingState {
   options: RecordingOptions
 }
 
+export interface RecordingStartResult {
+  success: boolean
+  screenshotsEnabled: boolean
+  audioEnabled: boolean
+  videoEnabled: boolean
+  errors: string[]
+}
+
 const defaultOptions: RecordingOptions = {
   enableScreenshots: true,
   enableAudio: false,
@@ -172,12 +180,16 @@ class SessionRecordingController {
   private screenshotInterval: ReturnType<typeof setInterval> | null = null
   private audioChunkListener: UnlistenFn | null = null
 
-  async startRecording(sessionId: string, options: Partial<RecordingOptions> = {}): Promise<void> {
+  async startRecording(sessionId: string, options: Partial<RecordingOptions> = {}): Promise<RecordingStartResult> {
     if (this.state?.isRecording) {
       throw new Error('Already recording')
     }
 
     const mergedOptions = { ...defaultOptions, ...options }
+    const errors: string[] = []
+    let audioStarted = false
+    let screenshotsStarted = false
+    let videoStarted = false
 
     // Initialize state
     this.state = {
@@ -220,22 +232,30 @@ class SessionRecordingController {
             );
           });
           console.log('🎤 Audio chunk listener started')
+          audioStarted = true
         } catch (e) {
           console.error('Failed to start audio recording:', e)
+          errors.push(`Audio recording failed: ${e instanceof Error ? e.message : 'Unknown error'}`)
         }
       }
 
       // Start screenshot capture if enabled
       if (mergedOptions.enableScreenshots) {
-        if (mergedOptions.smartCaptureEnabled) {
-          // Use smart capture (event-driven)
-          await smartCapture.start(sessionId, mergedOptions.selectedScreen, {
-            maxIntervalMs: mergedOptions.screenshotIntervalMs,
-          })
-          console.log('Smart capture started')
-        } else {
-          // Use interval-based capture
-          this.startScreenshotCapture()
+        try {
+          if (mergedOptions.smartCaptureEnabled) {
+            // Use smart capture (event-driven)
+            await smartCapture.start(sessionId, mergedOptions.selectedScreen, {
+              maxIntervalMs: mergedOptions.screenshotIntervalMs,
+            })
+            console.log('Smart capture started')
+          } else {
+            // Use interval-based capture
+            this.startScreenshotCapture()
+          }
+          screenshotsStarted = true
+        } catch (e) {
+          console.error('Failed to start screenshot capture:', e)
+          errors.push(`Screenshot capture failed: ${e instanceof Error ? e.message : 'Unknown error'}`)
         }
       }
 
@@ -246,13 +266,23 @@ class SessionRecordingController {
           const outputPath = `session_${sessionId}.mp4`
           await startVideoRecording(sessionId, outputPath)
           console.log('🎬 Video recording started')
+          videoStarted = true
         } catch (e) {
           console.error('Failed to start video recording:', e)
+          errors.push(`Video recording failed: ${e instanceof Error ? e.message : 'Unknown error'}`)
         }
       }
     }
 
     console.log('📹 Session recording started:', sessionId, mergedOptions)
+
+    return {
+      success: errors.length === 0,
+      screenshotsEnabled: screenshotsStarted,
+      audioEnabled: audioStarted,
+      videoEnabled: videoStarted,
+      errors,
+    }
   }
 
   private startScreenshotCapture(): void {
