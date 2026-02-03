@@ -6,6 +6,8 @@
  * - Local Whisper (future)
  */
 
+const MAX_WHISPER_SIZE = 25 * 1024 * 1024; // 25MB
+
 interface TranscriptionResult {
   text: string;
   segments?: Array<{
@@ -32,12 +34,9 @@ class TranscriptionService {
   /**
    * Get OpenAI API key from localStorage
    */
-  private getOpenAIApiKey(): string | null {
-    try {
-      return localStorage.getItem('sessions_openai_api_key');
-    } catch {
-      return null;
-    }
+  private async getOpenAIApiKey(): Promise<string | null> {
+    const { getSecureItem } = await import('./secure-storage')
+    return await getSecureItem('sessions_openai_api_key')
   }
 
   /**
@@ -45,7 +44,7 @@ class TranscriptionService {
    * Includes retry logic for transient failures
    */
   async transcribe(audioBase64: string, maxRetries = 2): Promise<TranscriptionResult> {
-    const apiKey = this.getOpenAIApiKey();
+    const apiKey = await this.getOpenAIApiKey();
 
     if (!apiKey) {
       console.warn('[TRANSCRIPTION] No OpenAI API key configured, skipping transcription');
@@ -91,6 +90,13 @@ class TranscriptionService {
 
     // Convert base64 to blob
     const binaryString = atob(base64Data);
+
+    // Check size before processing
+    if (binaryString.length > MAX_WHISPER_SIZE) {
+      console.error(`[TRANSCRIPTION] Audio too large: ${(binaryString.length / 1024 / 1024).toFixed(1)}MB`);
+      throw new Error(`Audio chunk too large (${(binaryString.length / 1024 / 1024).toFixed(1)}MB). Maximum is 25MB.`);
+    }
+
     const bytes = new Uint8Array(binaryString.length);
     for (let i = 0; i < binaryString.length; i++) {
       bytes[i] = binaryString.charCodeAt(i);
@@ -144,8 +150,8 @@ class TranscriptionService {
   /**
    * Check if transcription is available (OpenAI API key set)
    */
-  isAvailable(): boolean {
-    return !!this.getOpenAIApiKey();
+  async isAvailable(): Promise<boolean> {
+    return !!(await this.getOpenAIApiKey());
   }
 }
 
