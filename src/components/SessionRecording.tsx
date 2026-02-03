@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Square, Pause, Play, Camera, Mic, AlertCircle, Video, Monitor, Sparkles } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { sessionRecorder, isTauri, checkScreenRecordingPermission, requestScreenRecordingPermission, type RecordingOptions } from '../services/recording'
-import { createSession, updateSessionStatus, getRollingSummary, getInsights, getAudioChunks, getScreenshots } from '../services/database'
+import { createSession, updateSessionStatus, updateSessionTitle, updateSessionVideoPath, saveSessionSummary, getRollingSummary, getInsights, getAudioChunks, getScreenshots } from '../services/database'
 import { sessionCoordinator } from '../services/session-coordinator'
 import { smartCapture } from '../services/smart-capture'
 import { createFinalSummaryBot, buildFinalSummaryInput, initializeBots, isBotsReady } from '../services/bots'
@@ -53,7 +53,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
   const pausedTimeRef = useRef(0)
   const pauseStartRef = useRef(0)
   const inputRef = useRef<HTMLInputElement>(null)
-  const sessionIdRef = useRef(generateId())
+  const sessionIdRef = useRef(state.activeSession?.id ?? generateId())
   const isPausedRef = useRef(false)
 
   // Get session intelligence state
@@ -73,7 +73,8 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
       // Generate default title
       const now = new Date()
       const timeStr = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-      setSessionTitle(`Session at ${timeStr}`)
+      const defaultTitle = `Session at ${timeStr}`
+      setSessionTitle(defaultTitle)
 
       // Convert RecordingConfig to RecordingOptions
       const recordingOptions: Partial<RecordingOptions> = recordingConfig ? {
@@ -104,7 +105,13 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
             return
           }
 
-          // Start recording with config options
+          // Create database session with the same ID as the recording
+          await createSession(sessionIdRef.current, 'session', defaultTitle, initialAnalysisMode)
+
+          // Start session coordinator for AI analysis
+          await sessionCoordinator.startSession(sessionIdRef.current)
+
+          // Start recording with config options (after session exists)
           const result = await sessionRecorder.startRecording(sessionIdRef.current, recordingOptions)
 
           // Show warnings for partial failures
@@ -114,13 +121,18 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
             }
           }
 
-          // Create database session with the same ID as the recording
-          await createSession(sessionIdRef.current, 'session', sessionTitle, initialAnalysisMode)
-
-          // Start session coordinator for AI analysis
-          await sessionCoordinator.startSession(sessionIdRef.current)
         } catch (e) {
           console.error('Failed to start recording:', e)
+          try {
+            await updateSessionStatus(sessionIdRef.current, 'error')
+          } catch (statusError) {
+            console.error('Failed to update session status after start error:', statusError)
+          }
+          try {
+            await sessionCoordinator.stopSession(sessionIdRef.current)
+          } catch (stopError) {
+            console.error('Failed to stop coordinator after start error:', stopError)
+          }
           setPermissionError(e instanceof Error ? e.message : 'Failed to start recording')
         }
       } else {
@@ -280,10 +292,12 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
       setProcessingStep('Finalizing captures...')
       setProcessingPercent(30)
       let screenshots: string[] = []
+      let videoPath: string | undefined
       let stopWarnings: string[] = []
       if (sessionRecorder.isRecording()) {
         const recordingState = await sessionRecorder.stopRecording()
         screenshots = recordingState.screenshots
+        videoPath = recordingState.videoPath
         stopWarnings = (recordingState as any).stopErrors || []
         console.log('Captured ' + screenshots.length + ' screenshots')
 
@@ -306,6 +320,14 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
         setProcessingStep('Gathering session data...')
         setProcessingPercent(40)
         await updateSessionStatus(sessionIdRef.current, 'processing', duration)
+
+        if (videoPath) {
+          try {
+            await updateSessionVideoPath(sessionIdRef.current, videoPath)
+          } catch (error) {
+            console.error('[DATABASE] Failed to save video path:', error)
+          }
+        }
 
         // Gather all Baleybots intelligence from the database
         setProcessingPercent(50)
@@ -379,6 +401,15 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
         }
       }
 
+      // Persist final summary to database (only in Tauri mode)
+      if (inTauri) {
+        try {
+          await saveSessionSummary(sessionIdRef.current, summary)
+        } catch (error) {
+          console.error('[DATABASE] Failed to save session summary:', error)
+        }
+      }
+
       // Update database session status to complete (only in Tauri mode)
       setProcessingStep('Saving session...')
       setProcessingPercent(90)
@@ -393,7 +424,9 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
         title: sessionTitle || 'Untitled Session',
         createdAt: new Date().toISOString(),
         duration,
+        videoPath,
         summary,
+        status: 'complete',
       }
 
       // Save and navigate
@@ -443,11 +476,21 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
 
   const handleTitleBlur = () => {
     setIsEditingTitle(false)
+    if (isTauri() && sessionTitle.trim()) {
+      updateSessionTitle(sessionIdRef.current, sessionTitle.trim()).catch((error) => {
+        console.error('[DATABASE] Failed to update session title:', error)
+      })
+    }
   }
 
   const handleTitleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       setIsEditingTitle(false)
+      if (isTauri() && sessionTitle.trim()) {
+        updateSessionTitle(sessionIdRef.current, sessionTitle.trim()).catch((error) => {
+          console.error('[DATABASE] Failed to update session title:', error)
+        })
+      }
     }
   }
 
@@ -664,6 +707,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
                     notes: [],
                     generatedAt: new Date().toISOString(),
                   },
+                  status: 'complete',
                 }
                 addSession(fallbackSession)
                 dispatch({ type: 'STOP_RECORDING' })
@@ -758,7 +802,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
           </div>
 
           {/* Title */}
-          <div className="mb-4">
+          <div className="mb-4 px-4">
             {isEditingTitle ? (
               <input
                 ref={inputRef}
@@ -767,7 +811,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
                 onChange={(e) => setSessionTitle(e.target.value)}
                 onBlur={handleTitleBlur}
                 onKeyDown={handleTitleKeyDown}
-                className="font-display text-2xl bg-transparent border-b border-[var(--paper)]/30 focus:border-[var(--paper)]/60 outline-none text-center w-80 text-[var(--paper)]"
+                className="w-full max-w-xs sm:max-w-sm md:max-w-md bg-transparent text-center text-lg text-[var(--paper)]/80 placeholder:text-[var(--paper)]/40 outline-none border-b border-[var(--paper)]/20 focus:border-[var(--paper)]/40 pb-1 font-display"
               />
             ) : (
               <button
@@ -784,7 +828,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
             key={duration}
             initial={{ scale: 1.02 }}
             animate={{ scale: 1 }}
-            className="font-display text-8xl font-light tracking-tight mb-14 tabular-nums text-[var(--paper)]"
+            className="font-mono text-6xl sm:text-7xl md:text-8xl text-[var(--paper)] tracking-tight mb-14 tabular-nums"
           >
             {formatTime(duration)}
           </motion.div>
