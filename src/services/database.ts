@@ -253,6 +253,10 @@ export async function updateSessionStatus(
 // Screenshots
 // ============================================================================
 
+// Maximum sizes for base64 data (in bytes)
+const MAX_SCREENSHOT_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_AUDIO_CHUNK_SIZE = 50 * 1024 * 1024; // 50MB
+
 export async function saveScreenshot(
   sessionId: string,
   dataBase64: string,
@@ -260,6 +264,12 @@ export async function saveScreenshot(
   appName?: string,
   windowTitle?: string
 ): Promise<DbScreenshot> {
+  // Validate base64 data size
+  if (dataBase64.length > MAX_SCREENSHOT_SIZE) {
+    console.error(`[DATABASE] Screenshot too large: ${dataBase64.length} bytes (max: ${MAX_SCREENSHOT_SIZE})`);
+    throw new Error(`Screenshot too large (${Math.round(dataBase64.length / 1024 / 1024)}MB). Max size is 10MB.`);
+  }
+
   const db = await ensureDb();
   const screenshot: DbScreenshot = {
     id: generateId(),
@@ -315,6 +325,12 @@ export async function saveAudioChunk(
   durationSeconds: number,
   dataBase64: string
 ): Promise<DbAudioChunk> {
+  // Validate base64 data size
+  if (dataBase64.length > MAX_AUDIO_CHUNK_SIZE) {
+    console.error(`[DATABASE] Audio chunk too large: ${dataBase64.length} bytes (max: ${MAX_AUDIO_CHUNK_SIZE})`);
+    throw new Error(`Audio chunk too large (${Math.round(dataBase64.length / 1024 / 1024)}MB). Max size is 50MB.`);
+  }
+
   const db = await ensureDb();
   const chunk: DbAudioChunk = {
     id: generateId(),

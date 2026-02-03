@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { ArrowLeft, Key, Sparkles, Check, Eye, EyeOff, Zap, AlertCircle, Brain, CheckSquare, MessageCircle, Link, Mic } from 'lucide-react'
-import { updateApiKeys, initializeBots, isBotsReady } from '../services/bots'
+import { updateApiKeys, testApiKey } from '../services/bots'
 
 interface SettingsProps {
   onBack: () => void
@@ -68,12 +68,18 @@ export function Settings({ onBack }: SettingsProps) {
 
     setTestStatus('testing')
     try {
-      // Test by initializing bots with the current key
-      await updateApiKeys({ claudeApiKey: apiKey.trim() })
-      await initializeBots()
-      const result = isBotsReady()
-      setTestStatus(result ? 'success' : 'error')
-    } catch {
+      // Make a real API call to validate the key
+      const result = await testApiKey(apiKey.trim())
+      if (result.valid) {
+        // Key is valid, save it
+        await updateApiKeys({ claudeApiKey: apiKey.trim() })
+        setTestStatus('success')
+      } else {
+        console.error('[Settings] API key test failed:', result.error)
+        setTestStatus('error')
+      }
+    } catch (error) {
+      console.error('[Settings] API key test error:', error)
       setTestStatus('error')
     }
     setTimeout(() => setTestStatus('idle'), 3000)

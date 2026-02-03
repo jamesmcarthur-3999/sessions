@@ -17,5 +17,6 @@ export {
   isBotsReady,
   hasApiKey,
   resetBots,
+  testApiKey,
   type BotConfig,
 } from './config';

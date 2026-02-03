@@ -130,3 +130,50 @@ export function hasApiKey(): boolean {
 export function resetBots(): void {
   isInitialized = false;
 }
+
+/**
+ * Test API key by making a lightweight API call
+ * Returns true if the key is valid, false otherwise
+ */
+export async function testApiKey(apiKey: string): Promise<{ valid: boolean; error?: string }> {
+  try {
+    // Make a minimal API call to verify the key works
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-3-haiku-20240307', // Use cheapest model for test
+        max_tokens: 1,
+        messages: [{ role: 'user', content: 'test' }],
+      }),
+    });
+
+    if (response.ok) {
+      return { valid: true };
+    }
+
+    const errorData = await response.json().catch(() => ({}));
+    const errorMessage = errorData?.error?.message || `API returned ${response.status}`;
+
+    // Check for specific error types
+    if (response.status === 401) {
+      return { valid: false, error: 'Invalid API key' };
+    }
+    if (response.status === 403) {
+      return { valid: false, error: 'API key does not have permission' };
+    }
+    if (response.status === 429) {
+      // Rate limited but key is valid
+      return { valid: true };
+    }
+
+    return { valid: false, error: errorMessage };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Network error';
+    return { valid: false, error: message };
+  }
+}

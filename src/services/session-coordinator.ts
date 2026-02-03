@@ -27,6 +27,7 @@ import {
 } from './database';
 import type { DbScreenshot } from '../types/database';
 import { transcriptionService } from './transcription';
+import { withBotRetry } from '../utils/retry';
 
 // Re-export for use by other modules
 export type { ActivityMetrics };
@@ -223,7 +224,8 @@ class SessionCoordinatorService {
 
       // Pass multimodal content to the activity bot
       // Baleybots combine() returns the correct format
-      const result = await this.activityBot!.process(input);
+      // Use retry wrapper to handle rate limits
+      const result = await withBotRetry(() => this.activityBot!.process(input));
 
       // Validate bot response structure
       if (!result || typeof result !== 'object') {
@@ -431,7 +433,8 @@ class SessionCoordinatorService {
 
     try {
       const input = bots.buildQAInput(message, context);
-      const result = await this.qaBot!.process(input);
+      // Use retry wrapper to handle rate limits
+      const result = await withBotRetry(() => this.qaBot!.process(input));
 
       // Validate bot response structure
       const answer = result?.answer || 'Sorry, I was unable to generate a response. Please try again.';
@@ -509,7 +512,8 @@ class SessionCoordinatorService {
 
     try {
       const input = bots.buildSummarizerInput(context);
-      const result = await this.summarizerBot!.process(input);
+      // Use retry wrapper to handle rate limits
+      const result = await withBotRetry(() => this.summarizerBot!.process(input));
 
       // Validate bot response structure
       const summary = result?.summary;
@@ -548,7 +552,8 @@ class SessionCoordinatorService {
 
     try {
       const input = bots.buildAnalysisControllerInput(context, metrics);
-      const result = await this.analysisControllerBot!.process(input);
+      // Use retry wrapper to handle rate limits
+      const result = await withBotRetry(() => this.analysisControllerBot!.process(input));
 
       // Validate bot response structure
       if (!result || typeof result.confidence !== 'number' || !result.recommendedMode) {
