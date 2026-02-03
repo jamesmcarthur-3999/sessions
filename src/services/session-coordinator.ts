@@ -280,6 +280,10 @@ class SessionCoordinatorService {
       }
     } catch (error) {
       console.error('[COORDINATOR] Transcription failed:', error);
+      this.emitter.emit('error', {
+        sessionId,
+        error: 'Audio transcription failed. Check your OpenAI API key in Settings.',
+      });
     }
   }
 
@@ -458,6 +462,10 @@ class SessionCoordinatorService {
       });
     } catch (error) {
       console.error('Summary update error:', error);
+      this.emitter.emit('error', {
+        sessionId,
+        error: 'AI summary update failed. Check your Claude API key in Settings.',
+      });
     }
   }
 
