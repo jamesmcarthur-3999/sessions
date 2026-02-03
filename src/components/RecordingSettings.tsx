@@ -607,22 +607,36 @@ export function RecordingSettings({
           </div>
 
           {/* Footer */}
-          <div className="px-6 py-5 border-t border-[var(--border-subtle)] flex justify-end gap-3">
-            <button
-              onClick={onClose}
-              className="px-5 py-2.5 rounded-lg border border-[var(--border-medium)] text-[var(--ink)] hover:bg-[var(--paper-warm)] transition-colors text-sm"
-            >
-              Cancel
-            </button>
-            <motion.button
-              onClick={onStartRecording}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              disabled={hasPermission === false}
-              className="px-5 py-2.5 rounded-lg bg-[var(--session-recording)] text-white font-medium hover:bg-[var(--session-recording)]/80 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed shadow-[var(--shadow-md)]"
-            >
-              Start Recording
-            </motion.button>
+          <div className="px-6 py-5 border-t border-[var(--border-subtle)]">
+            {/* Permission status message */}
+            {hasPermission === false && (
+              <p className="text-xs text-[var(--error)] mb-3 text-center">
+                Grant screen recording permission above to start
+              </p>
+            )}
+            {hasPermission === null && isLoadingDevices && (
+              <p className="text-xs text-[var(--ink-muted)] mb-3 text-center">
+                Checking permissions...
+              </p>
+            )}
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={onClose}
+                className="px-5 py-2.5 rounded-lg border border-[var(--border-medium)] text-[var(--ink)] hover:bg-[var(--paper-warm)] transition-colors text-sm"
+              >
+                Cancel
+              </button>
+              <motion.button
+                onClick={onStartRecording}
+                whileHover={{ scale: hasPermission !== false ? 1.02 : 1 }}
+                whileTap={{ scale: hasPermission !== false ? 0.98 : 1 }}
+                disabled={hasPermission === false || isLoadingDevices}
+                className="px-5 py-2.5 rounded-lg bg-[var(--session-recording)] text-white font-medium hover:bg-[var(--session-recording)]/80 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed shadow-[var(--shadow-md)]"
+              >
+                {isLoadingDevices ? 'Loading...' : 'Start Recording'}
+              </motion.button>
+            </div>
           </div>
         </motion.div>
       </motion.div>
