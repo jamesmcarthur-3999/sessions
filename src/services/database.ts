@@ -227,8 +227,8 @@ export async function getScreenshots(
   limit?: number
 ): Promise<DbScreenshot[]> {
   const query = limit
-    ? 'SELECT * FROM screenshots WHERE session_id = $1 ORDER BY captured_at DESC LIMIT $2'
-    : 'SELECT * FROM screenshots WHERE session_id = $1 ORDER BY captured_at DESC';
+    ? 'SELECT * FROM screenshots WHERE session_id = $1 ORDER BY captured_at ASC LIMIT $2'
+    : 'SELECT * FROM screenshots WHERE session_id = $1 ORDER BY captured_at ASC';
   const params = limit ? [sessionId, limit] : [sessionId];
   return getDb().select<DbScreenshot[]>(query, params);
 }
