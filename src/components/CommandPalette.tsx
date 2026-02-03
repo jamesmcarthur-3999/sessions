@@ -115,9 +115,9 @@ export function CommandPalette({
       type: 'session',
       icon:
         session.type === 'session' ? (
-          <Video className="w-4 h-4 text-[var(--session-red)]" />
+          <Video className="w-4 h-4 text-[var(--session-recording)]" />
         ) : (
-          <MessageSquare className="w-4 h-4 text-[var(--capture-blue)]" />
+          <MessageSquare className="w-4 h-4 text-[var(--session-capture)]" />
         ),
       title: session.title,
       subtitle: session.summary?.text?.substring(0, 60) + '...' || undefined,

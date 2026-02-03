@@ -340,8 +340,8 @@ export function Settings({ onBack }: SettingsProps) {
               },
               {
                 icon: MessageCircle,
-                iconColor: 'text-[var(--capture-blue)]',
-                bgColor: 'bg-[var(--capture-blue)]/10',
+                iconColor: 'text-[var(--session-capture)]',
+                bgColor: 'bg-[var(--session-capture)]/10',
                 title: 'Interactive Chat',
                 desc: 'Ask questions about your sessions',
               },

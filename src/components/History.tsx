@@ -162,14 +162,14 @@ export function History({ onBack, onSessionSelect }: HistoryProps) {
                     >
                       <div className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors
                         ${session.type === 'session'
-                          ? 'bg-[var(--session-red)]/10 group-hover:bg-[var(--session-red)]/20'
-                          : 'bg-[var(--capture-blue)]/10 group-hover:bg-[var(--capture-blue)]/20'
+                          ? 'bg-[var(--session-recording)]/10 group-hover:bg-[var(--session-recording)]/20'
+                          : 'bg-[var(--session-capture)]/10 group-hover:bg-[var(--session-capture)]/20'
                         }`}
                       >
                         {session.type === 'session' ? (
-                          <Video className="w-5 h-5 text-[var(--session-red)]" />
+                          <Video className="w-5 h-5 text-[var(--session-recording)]" />
                         ) : (
-                          <MessageSquare className="w-5 h-5 text-[var(--capture-blue)]" />
+                          <MessageSquare className="w-5 h-5 text-[var(--session-capture)]" />
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
