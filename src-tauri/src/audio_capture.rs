@@ -122,14 +122,17 @@ impl AudioRecorder {
         *self.buffer.lock()
             .map_err(|e| format!("Failed to lock buffer: {}", e))? = AudioBuffer::new(chunk_duration_secs);
 
-        // Get input device - either by ID or default
+        // Get input device - either by name (stable ID) or default
         let host = cpal::default_host();
-        let device = if let Some(id) = device_id {
-            // Find device by index (ID is the index as string)
-            let idx: usize = id.parse().map_err(|_| format!("Invalid device ID: {}", id))?;
-            let mut devices = host.input_devices()
+        let device = if let Some(device_name) = device_id {
+            // Find device by name (stable ID that survives enumeration changes)
+            let devices = host.input_devices()
                 .map_err(|e| format!("Failed to enumerate input devices: {}", e))?;
-            devices.nth(idx).ok_or_else(|| format!("Device not found: {}", id))?
+            devices
+                .filter_map(|d| d.name().ok().map(|n| (d, n)))
+                .find(|(_, name)| name == &device_name)
+                .map(|(d, _)| d)
+                .ok_or_else(|| format!("Device not found: {}", device_name))?
         } else {
             host.default_input_device()
                 .ok_or_else(|| "No input device available".to_string())?
@@ -489,7 +492,6 @@ impl AudioRecorder {
     }
 
     /// Resume recording
-    #[allow(dead_code)]
     pub fn resume_recording(&self) -> Result<(), String> {
         println!("▶️  [AUDIO CAPTURE] Resuming recording");
         let current_state = self.state.lock()

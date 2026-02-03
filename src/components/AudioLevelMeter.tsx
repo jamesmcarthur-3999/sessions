@@ -36,9 +36,36 @@ export function AudioLevelMeter({ deviceId, isActive }: AudioLevelMeterProps) {
         setError(null)
         setIsListening(false)
 
+        // The deviceId prop comes from Tauri (device name as stable ID)
+        // We need to find the matching Web API device by label
+        let webDeviceId: string | undefined
+
+        if (deviceId) {
+          try {
+            // Request permission first to get device labels
+            await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+              .then(s => s.getTracks().forEach(t => t.stop()))
+
+            const webDevices = await navigator.mediaDevices.enumerateDevices()
+            const audioInputs = webDevices.filter(d => d.kind === 'audioinput')
+
+            // Try to find matching device by label (Tauri uses device name as ID)
+            const matchingDevice = audioInputs.find(d =>
+              d.label === deviceId || d.label.includes(deviceId) || deviceId.includes(d.label)
+            )
+
+            if (matchingDevice) {
+              webDeviceId = matchingDevice.deviceId
+            }
+          } catch {
+            // If enumeration fails, fall back to default device
+            console.warn('[AudioLevelMeter] Could not enumerate devices, using default')
+          }
+        }
+
         // Get audio stream
         const constraints: MediaStreamConstraints = {
-          audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+          audio: webDeviceId ? { deviceId: { exact: webDeviceId } } : true,
           video: false,
         }
 

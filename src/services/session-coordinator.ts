@@ -69,33 +69,54 @@ class SessionCoordinatorService {
   private analysisControllerBot: Awaited<ReturnType<typeof import('./bots').createAnalysisControllerBot>> | null = null;
   private qaBot: Awaited<ReturnType<typeof import('./bots').createQABot>> | null = null;
   private botsModule: typeof import('./bots') | null = null;
+  private botInitPromise: Promise<typeof import('./bots')> | null = null;
 
   /**
    * Lazily load bots module and create bot instances
+   * Uses promise lock to prevent concurrent initialization
    */
   private async ensureBots() {
-    if (!this.botsModule) {
-      this.botsModule = await import('./bots');
+    // Use existing promise if initialization in progress (prevents race condition)
+    if (this.botInitPromise) {
+      return this.botInitPromise;
+    }
+
+    // Return cached module if already loaded
+    if (this.botsModule) {
+      return this.botsModule;
+    }
+
+    // Create and store promise to prevent concurrent init
+    this.botInitPromise = (async () => {
+      const module = await import('./bots');
 
       // Initialize bots with API keys before first use
-      const initialized = await this.botsModule.initializeBots();
+      const initialized = await module.initializeBots();
       if (!initialized) {
         console.warn('[COORDINATOR] Bots not initialized - no API key configured');
       }
-    }
+
+      this.botsModule = module;
+      this.botInitPromise = null;
+      return module;
+    })();
+
+    const module = await this.botInitPromise;
+
+    // Create bot instances after module is loaded
     if (!this.summarizerBot) {
-      this.summarizerBot = this.botsModule.createSummarizerBot();
+      this.summarizerBot = module.createSummarizerBot();
     }
     if (!this.activityBot) {
-      this.activityBot = this.botsModule.createActivityDetectorBot();
+      this.activityBot = module.createActivityDetectorBot();
     }
     if (!this.analysisControllerBot) {
-      this.analysisControllerBot = this.botsModule.createAnalysisControllerBot();
+      this.analysisControllerBot = module.createAnalysisControllerBot();
     }
     if (!this.qaBot) {
-      this.qaBot = this.botsModule.createQABot();
+      this.qaBot = module.createQABot();
     }
-    return this.botsModule;
+    return module;
   }
 
   /**
@@ -132,12 +153,18 @@ class SessionCoordinatorService {
    */
   async stopSession(sessionId: string): Promise<void> {
     const session = this.activeSessions.get(sessionId);
+
+    // Clear interval first to prevent new runs
     if (session?.intervalId) {
       clearInterval(session.intervalId);
     }
+
+    // Remove from active sessions BEFORE any async work
+    // This ensures runPeriodicAnalysis checks will fail immediately
     this.activeSessions.delete(sessionId);
     this.activityTracking.delete(sessionId);
-    this.pausedSessions.delete(sessionId); // Clean up pause state
+    this.pausedSessions.delete(sessionId);
+
     console.log('Session coordinator stopped for ' + sessionId);
   }
 
@@ -430,6 +457,11 @@ class SessionCoordinatorService {
    * Run periodic analysis tasks
    */
   private async runPeriodicAnalysis(sessionId: string): Promise<void> {
+    // Check if session still active (might have been stopped between interval ticks)
+    if (!this.activeSessions.has(sessionId)) {
+      return;
+    }
+
     if (this.pausedSessions.has(sessionId)) {
       return; // Skip periodic analysis when paused
     }

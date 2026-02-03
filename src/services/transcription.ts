@@ -42,8 +42,9 @@ class TranscriptionService {
 
   /**
    * Transcribe audio from base64 data
+   * Includes retry logic for transient failures
    */
-  async transcribe(audioBase64: string): Promise<TranscriptionResult> {
+  async transcribe(audioBase64: string, maxRetries = 2): Promise<TranscriptionResult> {
     const apiKey = this.getOpenAIApiKey();
 
     if (!apiKey) {
@@ -51,11 +52,31 @@ class TranscriptionService {
       return { text: '' };
     }
 
-    if (this.config.provider === 'openai') {
-      return this.transcribeWithOpenAI(audioBase64, apiKey);
+    if (this.config.provider !== 'openai') {
+      throw new Error(`Unsupported transcription provider: ${this.config.provider}`);
     }
 
-    throw new Error(`Unsupported transcription provider: ${this.config.provider}`);
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        if (attempt > 0) {
+          // Exponential backoff: 1s, 2s, 4s
+          const delay = Math.pow(2, attempt - 1) * 1000;
+          console.log(`[TRANSCRIPTION] Retry ${attempt}/${maxRetries} after ${delay}ms`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+
+        return await this.transcribeWithOpenAI(audioBase64, apiKey);
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        console.error(`[TRANSCRIPTION] Attempt ${attempt + 1} failed:`, lastError.message);
+      }
+    }
+
+    // All retries failed - throw to allow caller to handle
+    console.error('[TRANSCRIPTION] All retries exhausted');
+    throw lastError || new Error('Transcription failed after retries');
   }
 
   /**
@@ -82,40 +103,35 @@ class TranscriptionService {
     formData.append('model', this.config.model);
     formData.append('response_format', 'verbose_json');
 
-    try {
-      console.log('[TRANSCRIPTION] Sending audio to Whisper API...');
+    console.log('[TRANSCRIPTION] Sending audio to Whisper API...');
 
-      const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: formData,
-      });
+    const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: formData,
+    });
 
-      if (!response.ok) {
-        const error = await response.text();
-        console.error('[TRANSCRIPTION] API error:', response.status, error);
-        throw new Error(`Transcription failed: ${error}`);
-      }
-
-      const result = await response.json();
-
-      console.log('[TRANSCRIPTION] Received transcript:', result.text?.substring(0, 100) + '...');
-
-      return {
-        text: result.text || '',
-        segments: result.segments?.map((s: { start: number; end: number; text: string }) => ({
-          start: s.start,
-          end: s.end,
-          text: s.text,
-        })),
-        language: result.language,
-      };
-    } catch (error) {
-      console.error('[TRANSCRIPTION] Error:', error);
-      return { text: '' };
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('[TRANSCRIPTION] API error:', response.status, error);
+      throw new Error(`Transcription API error ${response.status}: ${error}`);
     }
+
+    const result = await response.json();
+
+    console.log('[TRANSCRIPTION] Received transcript:', result.text?.substring(0, 100) + '...');
+
+    return {
+      text: result.text || '',
+      segments: result.segments?.map((s: { start: number; end: number; text: string }) => ({
+        start: s.start,
+        end: s.end,
+        text: s.text,
+      })),
+      language: result.language,
+    };
   }
 
   /**

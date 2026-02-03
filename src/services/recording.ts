@@ -99,6 +99,10 @@ export async function pauseAudioRecording(): Promise<void> {
   return invoke('pause_audio_recording')
 }
 
+export async function resumeAudioRecording(): Promise<void> {
+  return invoke('resume_audio_recording')
+}
+
 export async function stopAudioRecording(): Promise<void> {
   return invoke('stop_audio_recording')
 }
@@ -243,13 +247,20 @@ class SessionRecordingController {
       if (mergedOptions.enableScreenshots) {
         try {
           if (mergedOptions.smartCaptureEnabled) {
-            // Use smart capture (event-driven)
+            // Use smart capture (event-driven) - activity monitor started inside
             await smartCapture.start(sessionId, mergedOptions.selectedScreen, {
               maxIntervalMs: mergedOptions.screenshotIntervalMs,
             })
             console.log('Smart capture started')
           } else {
-            // Use interval-based capture
+            // Use interval-based capture - still start activity monitor for app tracking
+            try {
+              const { invoke: tauriInvoke } = await import('@tauri-apps/api/core')
+              await tauriInvoke('start_activity_monitor')
+              console.log('Activity monitor started (interval mode)')
+            } catch (e) {
+              console.warn('Failed to start activity monitor:', e)
+            }
             this.startScreenshotCapture()
           }
           screenshotsStarted = true
@@ -349,6 +360,17 @@ class SessionRecordingController {
       throw new Error('Not paused')
     }
 
+    // Resume audio recording if it was enabled
+    if (isTauri() && this.state.options.enableAudio) {
+      try {
+        await resumeAudioRecording()
+        console.log('🎤 Audio recording resumed')
+      } catch (e) {
+        console.error('Failed to resume audio:', e)
+        // Continue anyway - audio might have been stopped
+      }
+    }
+
     this.state.isPaused = false
     console.log('▶️ Recording resumed')
   }
@@ -371,9 +393,23 @@ class SessionRecordingController {
           console.error('Failed to stop smart capture:', e)
           errors.push('Screenshot capture failed to stop properly')
         }
-      } else if (this.screenshotInterval) {
-        clearInterval(this.screenshotInterval)
-        this.screenshotInterval = null
+      } else {
+        // Stop interval-based capture
+        if (this.screenshotInterval) {
+          clearInterval(this.screenshotInterval)
+          this.screenshotInterval = null
+        }
+        // Stop activity monitor (started in interval mode)
+        if (isTauri()) {
+          try {
+            const { invoke: tauriInvoke } = await import('@tauri-apps/api/core')
+            await tauriInvoke('stop_activity_monitor')
+            console.log('Activity monitor stopped')
+          } catch (e) {
+            console.warn('Failed to stop activity monitor:', e)
+          }
+        }
+        // Capture final screenshot
         try {
           await this.captureAndStoreScreenshot()
         } catch (e) {

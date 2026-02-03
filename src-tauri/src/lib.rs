@@ -43,6 +43,7 @@ where
 // ============================================================================
 
 /// Get list of available audio input devices
+/// Uses device name as stable ID (index-based IDs change between enumerations)
 #[tauri::command]
 fn get_audio_devices() -> Result<Vec<serde_json::Value>, String> {
     use cpal::traits::{DeviceTrait, HostTrait};
@@ -63,8 +64,9 @@ fn get_audio_devices() -> Result<Vec<serde_json::Value>, String> {
         let name = device.name().unwrap_or_else(|_| format!("Device {}", index));
         let is_default = default_device_name.as_ref() == Some(&name);
 
+        // Use device name as stable ID (survives device enumeration changes)
         devices.push(serde_json::json!({
-            "id": index.to_string(),
+            "id": name.clone(),
             "name": name,
             "isDefault": is_default,
         }));
@@ -243,6 +245,15 @@ fn pause_audio_recording(
 }
 
 #[tauri::command]
+fn resume_audio_recording(
+    recorder: tauri::State<'_, Arc<Mutex<AudioRecorder>>>,
+) -> Result<(), String> {
+    let recorder = recorder.lock()
+        .map_err(|e| format!("Failed to lock audio recorder: {}", e))?;
+    recorder.resume_recording()
+}
+
+#[tauri::command]
 fn stop_audio_recording(
     recorder: tauri::State<'_, Arc<Mutex<AudioRecorder>>>,
 ) -> Result<(), String> {
@@ -323,6 +334,7 @@ pub fn run() {
             // Audio
             start_audio_recording,
             pause_audio_recording,
+            resume_audio_recording,
             stop_audio_recording,
             // Video (from video_recording module)
             video_recording::start_video_recording,
