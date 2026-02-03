@@ -40,6 +40,24 @@ export function createFinalSummaryBot() {
   });
 }
 
+/**
+ * Sample items evenly distributed across an array
+ * E.g., for 100 items sampled to 20, takes items at indices 0, 5, 10, 15, ...
+ */
+function sampleEvenly<T>(items: T[], count: number): T[] {
+  if (items.length <= count) return items;
+
+  const result: T[] = [];
+  const step = (items.length - 1) / (count - 1);
+
+  for (let i = 0; i < count; i++) {
+    const index = Math.round(i * step);
+    result.push(items[index]);
+  }
+
+  return result;
+}
+
 export interface FinalSummaryInput {
   rollingSummary: DbRollingSummary | null;
   insights: DbInsight[];
@@ -80,14 +98,25 @@ export function buildFinalSummaryInput(input: FinalSummaryInput): string {
     parts.push(transcripts.join('\n\n'));
   }
 
-  // Screenshot analyses
+  // Screenshot analyses - sample evenly across session timeline
   const analyzedScreenshots = input.screenshots.filter(s => s.analysis);
   if (analyzedScreenshots.length > 0) {
     parts.push('\n## Activity Log (from screenshots):');
-    for (const ss of analyzedScreenshots.slice(0, 20)) { // Limit to avoid token overflow
+
+    // Smart sampling: take up to 20 screenshots evenly distributed across session
+    const maxScreenshots = 20;
+    const sampled = analyzedScreenshots.length <= maxScreenshots
+      ? analyzedScreenshots
+      : sampleEvenly(analyzedScreenshots, maxScreenshots);
+
+    for (const ss of sampled) {
       const time = new Date(ss.captured_at).toLocaleTimeString();
       const app = ss.app_name || 'Unknown app';
       parts.push(`- [${time}] ${app}: ${ss.analysis}`);
+    }
+
+    if (analyzedScreenshots.length > maxScreenshots) {
+      parts.push(`\n(Sampled ${maxScreenshots} of ${analyzedScreenshots.length} screenshots)`);
     }
   }
 

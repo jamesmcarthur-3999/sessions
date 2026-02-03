@@ -41,8 +41,8 @@ export function TranscriptViewer({ audioChunks }: TranscriptViewerProps) {
           <div className="text-left">
             <h3 className="font-medium text-[var(--ink)]">Audio Transcript</h3>
             <p className="text-xs text-[var(--ink-muted)]">
-              {transcribedChunks.length} segment{transcribedChunks.length !== 1 ? 's' : ''} •
-              {Math.round(fullTranscript.split(/\s+/).length)} words
+              {transcribedChunks.length} segment{transcribedChunks.length !== 1 ? 's' : ''} •{' '}
+              {fullTranscript.trim() ? fullTranscript.trim().split(/\s+/).length : 0} words
             </p>
           </div>
         </div>

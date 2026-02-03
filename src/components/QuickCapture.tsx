@@ -4,6 +4,7 @@ import { ArrowLeft, Sparkles, Paperclip, X, Image as ImageIcon, FileText, Feathe
 import { useApp } from '../context/AppContext'
 import { createCaptureBot, buildCaptureInput, initializeBots, isBotsReady } from '../services/bots'
 import { generateId } from '../utils/id'
+import { useToast } from './Toast'
 import type { Session, Summary } from '../types'
 
 interface QuickCaptureProps {
@@ -13,6 +14,7 @@ interface QuickCaptureProps {
 
 export function QuickCapture({ onBack, onComplete }: QuickCaptureProps) {
   const { addSession } = useApp()
+  const { showToast } = useToast()
   const [text, setText] = useState('')
   const [attachments, setAttachments] = useState<File[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
@@ -62,17 +64,17 @@ export function QuickCapture({ onBack, onComplete }: QuickCaptureProps) {
         const input = buildCaptureInput(text, attachmentDescriptions)
         const result = await captureBot.process(input)
 
-        title = result.title
+        title = result?.title || 'Quick Note'
         summary = {
-          text: result.summary,
-          tasks: result.tasks.map(t => ({
+          text: result?.summary || 'Content captured.',
+          tasks: (result?.tasks || []).map(t => ({
             id: generateId(),
-            title: t.title,
+            title: t?.title || 'Untitled task',
             completed: false,
           })),
-          notes: result.notes.map(n => ({
+          notes: (result?.notes || []).map(n => ({
             id: generateId(),
-            content: n.content,
+            content: n?.content || '',
           })),
           generatedAt: new Date().toISOString(),
         }
@@ -106,6 +108,7 @@ export function QuickCapture({ onBack, onComplete }: QuickCaptureProps) {
       onComplete(session)
     } catch (error) {
       console.error('Failed to process capture:', error)
+      showToast('Failed to process capture. Please try again.', 'error', 5000)
       setIsProcessing(false)
       setProcessingStage('')
     }

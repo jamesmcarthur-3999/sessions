@@ -207,11 +207,17 @@ impl AudioRecorder {
                             }
 
                             // Calculate and emit audio level every ~4800 samples (~100ms at 48kHz)
-                            let count = level_sample_count_clone.fetch_add(data.len() as u32, Ordering::Relaxed);
-                            if count % 4800 < data.len() as u32 {
+                            // Use boundary-crossing detection for consistent timing
+                            const LEVEL_INTERVAL: u32 = 4800;
+                            let prev_count = level_sample_count_clone.fetch_add(data.len() as u32, Ordering::Relaxed);
+                            let new_count = prev_count + data.len() as u32;
+
+                            // Emit when we cross a boundary (every ~100ms)
+                            if prev_count / LEVEL_INTERVAL != new_count / LEVEL_INTERVAL {
                                 let sum: f32 = data.iter().map(|&s| s * s).sum();
                                 let rms = (sum / data.len() as f32).sqrt();
-                                let normalized_level = (rms * 3.0).min(1.0); // Scale and clamp to 0-1
+                                // Scale factor of 3.0 normalizes typical speech RMS (~0.33) to full range
+                                let normalized_level = (rms * 3.0).min(1.0);
 
                                 if let Some(handle) = &app_handle {
                                     let _ = handle.emit("audio-level", AudioLevelEvent { level: normalized_level });
@@ -255,8 +261,12 @@ impl AudioRecorder {
                             }
 
                             // Emit audio level every ~4800 samples (~100ms at 48kHz)
-                            let count = level_sample_count_clone.fetch_add(data.len() as u32, Ordering::Relaxed);
-                            if count % 4800 < data.len() as u32 {
+                            // Use boundary-crossing detection for consistent timing
+                            const LEVEL_INTERVAL: u32 = 4800;
+                            let prev_count = level_sample_count_clone.fetch_add(data.len() as u32, Ordering::Relaxed);
+                            let new_count = prev_count + data.len() as u32;
+
+                            if prev_count / LEVEL_INTERVAL != new_count / LEVEL_INTERVAL {
                                 let rms = (sum_sq / data.len() as f32).sqrt();
                                 let normalized_level = (rms * 3.0).min(1.0);
 
@@ -302,8 +312,12 @@ impl AudioRecorder {
                             }
 
                             // Emit audio level every ~4800 samples (~100ms at 48kHz)
-                            let count = level_sample_count_clone.fetch_add(data.len() as u32, Ordering::Relaxed);
-                            if count % 4800 < data.len() as u32 {
+                            // Use boundary-crossing detection for consistent timing
+                            const LEVEL_INTERVAL: u32 = 4800;
+                            let prev_count = level_sample_count_clone.fetch_add(data.len() as u32, Ordering::Relaxed);
+                            let new_count = prev_count + data.len() as u32;
+
+                            if prev_count / LEVEL_INTERVAL != new_count / LEVEL_INTERVAL {
                                 let rms = (sum_sq / data.len() as f32).sqrt();
                                 let normalized_level = (rms * 3.0).min(1.0);
 

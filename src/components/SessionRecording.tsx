@@ -50,12 +50,18 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
   const pauseStartRef = useRef(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const sessionIdRef = useRef(generateId())
+  const isPausedRef = useRef(false)
 
   // Get session intelligence state
   const { analysisMode } = useSessionIntelligence(sessionIdRef.current)
 
   // Get recording config from active session
   const recordingConfig = state.activeSession?.recordingConfig
+
+  // Keep isPausedRef in sync with state for use in event listeners
+  useEffect(() => {
+    isPausedRef.current = isPaused
+  }, [isPaused])
 
   // Check permissions and start recording on mount
   useEffect(() => {
@@ -176,15 +182,20 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
   }, [])
 
   // Listen for real-time audio level events from Rust
+  // Note: isPaused is checked via ref inside callback to avoid listener remounting
   useEffect(() => {
-    if (!isTauri() || !recordingConfig?.enableAudio) return
+    if (!isTauri() || !recordingConfig?.enableAudio) {
+      setAudioLevel(0) // Immediately reset when audio disabled
+      return
+    }
 
     let unlisten: (() => void) | null = null
 
     const setupListener = async () => {
       const { listen } = await import('@tauri-apps/api/event')
       unlisten = await listen<{ level: number }>('audio-level', (event) => {
-        if (!isPaused) {
+        // Check pause state via ref to avoid effect remount on pause toggle
+        if (!isPausedRef.current) {
           setAudioLevel(event.payload.level)
         }
       })
@@ -196,9 +207,9 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
       unlisten?.()
       setAudioLevel(0)
     }
-  }, [recordingConfig?.enableAudio, isPaused])
+  }, [recordingConfig?.enableAudio]) // isPaused intentionally excluded - uses ref
 
-  // Listen for coordinator error events
+  // Listen for coordinator events (errors and transcription status)
   useEffect(() => {
     const unsubError = sessionCoordinator.on('error', ({ error }) => {
       showToast(error, 'error', 5000)
@@ -209,8 +220,20 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
       }
     })
 
+    const unsubTranscriptionStart = sessionCoordinator.on('transcription-start', () => {
+      setTranscriptionStatus('transcribing')
+    })
+
+    const unsubTranscriptionComplete = sessionCoordinator.on('transcription-complete', () => {
+      setTranscriptionStatus('success')
+      // Reset to idle after showing success briefly
+      setTimeout(() => setTranscriptionStatus('idle'), 2000)
+    })
+
     return () => {
       unsubError()
+      unsubTranscriptionStart()
+      unsubTranscriptionComplete()
     }
   }, [showToast])
 
@@ -558,11 +581,23 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
                   <Mic className={`w-4 h-4 ${
                     transcriptionStatus === 'error'
                       ? 'text-[var(--error)]'
-                      : audioLevel > 0.1
-                        ? 'text-[var(--success)]'
-                        : 'text-[var(--ink-muted)]'
+                      : transcriptionStatus === 'transcribing'
+                        ? 'text-[var(--accent)] animate-pulse'
+                        : transcriptionStatus === 'success'
+                          ? 'text-[var(--success)]'
+                          : audioLevel > 0.1
+                            ? 'text-[var(--success)]'
+                            : 'text-[var(--ink-muted)]'
                   }`} />
-                  <span>{transcriptionStatus === 'error' ? 'Transcription failed' : 'Audio'}</span>
+                  <span>
+                    {transcriptionStatus === 'error'
+                      ? 'Transcription failed'
+                      : transcriptionStatus === 'transcribing'
+                        ? 'Transcribing...'
+                        : transcriptionStatus === 'success'
+                          ? 'Transcribed'
+                          : 'Audio'}
+                  </span>
                   {/* Audio level indicator */}
                   {audioLevel > 0 && (
                     <div className="flex items-center gap-0.5">

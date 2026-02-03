@@ -39,6 +39,8 @@ export type CoordinatorEvents = {
   'activity-detected': { sessionId: string; activity: ActivityDetection };
   'chat-response': { sessionId: string; message: string };
   'error': { sessionId: string; error: string };
+  'transcription-start': { sessionId: string };
+  'transcription-complete': { sessionId: string; text: string };
 };
 
 type EventCallback<K extends keyof CoordinatorEvents> = (data: CoordinatorEvents[K]) => void;
@@ -247,6 +249,12 @@ class SessionCoordinatorService {
     audioBase64: string,
     durationSeconds: number
   ): Promise<void> {
+    // Skip processing if session is paused (saves API credits)
+    if (this.pausedSessions.has(sessionId)) {
+      console.log('[COORDINATOR] Skipping audio chunk processing - session paused');
+      return;
+    }
+
     const now = new Date();
     const startTime = new Date(now.getTime() - durationSeconds * 1000).toISOString();
     const endTime = now.toISOString();
@@ -264,6 +272,9 @@ class SessionCoordinatorService {
 
     // Transcribe audio
     try {
+      // Notify UI that transcription is starting
+      this.emitter.emit('transcription-start', { sessionId });
+
       const result = await transcriptionService.transcribe(audioBase64);
 
       if (result.text) {
@@ -275,6 +286,9 @@ class SessionCoordinatorService {
 
         // Trigger summary update with new transcript
         await this.processTranscript(sessionId, result.text);
+
+        // Notify UI that transcription completed
+        this.emitter.emit('transcription-complete', { sessionId, text: result.text });
 
         console.log('[COORDINATOR] Audio transcribed:', result.text.substring(0, 100) + '...');
       }
