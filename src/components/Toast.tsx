@@ -87,6 +87,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           {toasts.map((toast) => (
             <motion.div
               key={toast.id}
+              role={toast.type === 'error' ? 'alert' : 'status'}
+              aria-live={toast.type === 'error' ? 'assertive' : 'polite'}
+              aria-atomic="true"
               initial={{ opacity: 0, y: 20, scale: 0.9 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -20, scale: 0.9 }}
@@ -98,9 +101,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               </span>
               <button
                 onClick={() => dismissToast(toast.id)}
-                className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+                className="p-2 rounded-lg hover:bg-black/10 dark:hover:bg-white/10 transition-colors text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+                aria-label="Dismiss notification"
               >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" />
               </button>
             </motion.div>
           ))}
