@@ -240,6 +240,7 @@ export function RecordingSettings({
 
             {/* Capture toggles */}
             {!isLoadingDevices && (
+            <>
             <div className="space-y-3">
               <h3 className="label-section">Capture Modes</h3>
 
@@ -603,6 +604,7 @@ export function RecordingSettings({
                 </button>
               </div>
             </div>
+            </>
             )}
           </div>
 
