@@ -341,6 +341,9 @@ pub fn run() {
             video_recording::start_video_recording,
             video_recording::stop_video_recording,
             video_recording::is_recording,
+            video_recording::get_current_recording_session,
+            video_recording::get_video_duration,
+            video_recording::generate_video_thumbnail,
             // Activity monitoring
             start_activity_monitor,
             stop_activity_monitor,
