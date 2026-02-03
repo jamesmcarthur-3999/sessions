@@ -194,6 +194,9 @@ export function CommandPalette({
 
           {/* Palette */}
           <motion.div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Command palette"
             initial={{ opacity: 0, scale: 0.95, y: -20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: -20 }}
@@ -213,6 +216,8 @@ export function CommandPalette({
                     setSelectedIndex(0)
                   }}
                   placeholder="Search commands and sessions..."
+                  aria-label="Command palette search"
+                  aria-activedescendant={selectedIndex >= 0 ? `command-${selectedIndex}` : undefined}
                   className="flex-1 bg-transparent text-[var(--ink)] placeholder:text-[var(--ink-muted)] focus:outline-none"
                 />
                 <div className="flex items-center gap-1 px-2 py-1 rounded bg-[var(--paper-warm)]">

@@ -103,6 +103,7 @@ export function History({ onBack, onSessionSelect }: HistoryProps) {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search sessions..."
+              aria-label="Search sessions"
               className="w-full pl-10 pr-4 py-2 rounded-lg border border-[var(--border-subtle)]
                          bg-[var(--paper)] text-[var(--ink)]
                          placeholder:text-[var(--ink-muted)]
