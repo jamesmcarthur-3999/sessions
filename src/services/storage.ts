@@ -6,6 +6,7 @@
  */
 
 import type { Session } from '../types'
+import { getAllCompleteSessions } from './database'
 
 const STORAGE_KEY = 'sessions'
 
@@ -141,6 +142,55 @@ class StorageService {
       return { used, available }
     } catch {
       return { used: 0, available: 5 * 1024 * 1024 }
+    }
+  }
+
+  /**
+   * Rebuild localStorage from database
+   * Use when localStorage is corrupted or cleared
+   */
+  async syncFromDatabase(): Promise<Session[]> {
+    const dbSessions = await getAllCompleteSessions()
+
+    // Convert DbSession to Session format
+    const sessions: Session[] = dbSessions.map(db => ({
+      id: db.id,
+      type: db.type as 'session' | 'capture',
+      title: db.title,
+      createdAt: db.created_at,
+      duration: db.duration_seconds ?? undefined,
+      // Note: summary data is stored separately in rolling_summaries table
+      // and would need to be fetched separately if needed
+    }))
+
+    // Save to localStorage using the write lock
+    return this.withLock(async () => {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions))
+        console.log(`[STORAGE] Synced ${sessions.length} sessions from database`)
+        return sessions
+      } catch (error) {
+        console.error('[STORAGE] Failed to sync from database:', error)
+        throw error
+      }
+    })
+  }
+
+  /**
+   * Verify localStorage and database are in sync
+   */
+  async verifyStorageSync(): Promise<{
+    inSync: boolean
+    localCount: number
+    dbCount: number
+  }> {
+    const local = await this.loadSessions()
+    const dbSessions = await getAllCompleteSessions()
+
+    return {
+      inSync: local.length === dbSessions.length,
+      localCount: local.length,
+      dbCount: dbSessions.length,
     }
   }
 }

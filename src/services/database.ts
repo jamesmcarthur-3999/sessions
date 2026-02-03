@@ -588,3 +588,17 @@ export async function markSessionsAsInterrupted(sessionIds: string[]): Promise<v
   );
   console.log(`[DATABASE] Marked ${sessionIds.length} sessions as interrupted`);
 }
+
+// ============================================================================
+// localStorage Sync
+// ============================================================================
+
+/**
+ * Get all complete sessions from database for localStorage sync
+ */
+export async function getAllCompleteSessions(): Promise<DbSession[]> {
+  const db = await ensureDb();
+  return await db.select<DbSession[]>(
+    "SELECT * FROM sessions WHERE status = 'complete' ORDER BY created_at DESC"
+  );
+}
