@@ -45,12 +45,12 @@ export async function initializeBots(): Promise<boolean> {
     if (claudeKey) {
       setDefaultApiKey('anthropic', claudeKey);
       hasAnyKey = true;
-      console.log('[Baleybots] Anthropic API key configured');
+      console.log('[Baleybots] AI service configured');
     }
 
     if (openaiKey) {
       setDefaultApiKey('openai', openaiKey);
-      console.log('[Baleybots] OpenAI API key configured');
+      console.log('[Baleybots] Transcription service configured');
     }
 
     isInitialized = hasAnyKey;
@@ -79,11 +79,11 @@ export async function updateApiKeys(config: BotConfig): Promise<void> {
       if (config.claudeApiKey) {
         setDefaultApiKey('anthropic', config.claudeApiKey);
         await setSecureItem('sessions_api_key', config.claudeApiKey);
-        console.log('[Baleybots] Anthropic API key updated');
+        console.log('[Baleybots] AI service updated');
       } else {
         await removeSecureItem('sessions_api_key');
         keysRemoved = true;
-        console.log('[Baleybots] Anthropic API key removed');
+        console.log('[Baleybots] AI service removed');
       }
     }
 
@@ -91,11 +91,11 @@ export async function updateApiKeys(config: BotConfig): Promise<void> {
       if (config.openaiApiKey) {
         setDefaultApiKey('openai', config.openaiApiKey);
         await setSecureItem('sessions_openai_api_key', config.openaiApiKey);
-        console.log('[Baleybots] OpenAI API key updated');
+        console.log('[Baleybots] Transcription service updated');
       } else {
         await removeSecureItem('sessions_openai_api_key');
         keysRemoved = true;
-        console.log('[Baleybots] OpenAI API key removed');
+        console.log('[Baleybots] Transcription service removed');
       }
     }
 

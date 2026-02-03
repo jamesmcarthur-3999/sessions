@@ -61,7 +61,7 @@ export function Settings({ onBack }: SettingsProps) {
       setSaveStatus('success')
       setTimeout(() => setSaveStatus('idle'), 2000)
     } catch (error) {
-      console.error('Failed to save API keys:', error)
+      console.error('[Settings] Failed to save configuration')
       setSaveStatus('error')
       setTimeout(() => setSaveStatus('idle'), 3000)
     } finally {
@@ -82,12 +82,12 @@ export function Settings({ onBack }: SettingsProps) {
         await updateApiKeys({ claudeApiKey: apiKey.trim() })
         setTestStatus('success')
       } else {
-        console.error('[Settings] API key test failed:', result.error)
+        console.error('[Settings] Connection test failed')
         setTestError(result.error || 'Invalid API key')
         setTestStatus('error')
       }
     } catch (error) {
-      console.error('[Settings] API key test error:', error)
+      console.error('[Settings] Connection test error')
       setTestError(error instanceof Error ? error.message : 'Connection failed')
       setTestStatus('error')
     }
