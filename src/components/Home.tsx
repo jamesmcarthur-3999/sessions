@@ -82,9 +82,8 @@ export function Home({ onNavigate, onSessionSelect }: HomeProps) {
       type: 'session',
       title: 'New Session',
       createdAt: new Date().toISOString(),
+      recordingConfig,
     }
-    // Store recording config in session for use by SessionRecording
-    ;(session as any).recordingConfig = recordingConfig
     dispatch({ type: 'START_RECORDING', payload: session })
     onNavigate('recording')
   }

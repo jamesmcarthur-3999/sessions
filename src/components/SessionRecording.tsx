@@ -12,7 +12,6 @@ import { LiveSessionPanel } from './LiveSessionPanel'
 import { PeripheralGlow } from './PeripheralGlow'
 import { useToast } from './Toast'
 import type { Session, Summary } from '../types'
-import type { RecordingConfig } from './RecordingSettings'
 
 interface SessionRecordingProps {
   onComplete: (session: Session) => void
@@ -54,7 +53,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
   const { analysisMode } = useSessionIntelligence(sessionIdRef.current)
 
   // Get recording config from active session
-  const recordingConfig: RecordingConfig | undefined = (state.activeSession as any)?.recordingConfig
+  const recordingConfig = state.activeSession?.recordingConfig
 
   // Check permissions and start recording on mount
   useEffect(() => {

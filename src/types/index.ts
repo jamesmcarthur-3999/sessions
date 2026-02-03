@@ -4,6 +4,8 @@
  * Simple, flat types. No over-engineering.
  */
 
+import type { RecordingConfig } from '../components/RecordingSettings';
+
 export interface Session {
   id: string;
   type: 'session' | 'capture';
@@ -17,6 +19,9 @@ export interface Session {
 
   // AI output
   summary?: Summary;
+
+  // Recording configuration (for session type)
+  recordingConfig?: RecordingConfig;
 }
 
 export interface Summary {
