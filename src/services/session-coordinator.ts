@@ -389,7 +389,7 @@ class SessionCoordinatorService {
       uniqueAppsCount: uniqueApps.size,
       screenshotCount: context.recentScreenshots.length,
       audioWordCount: wordCount,
-      averageScreenshotChangeMagnitude: 0.5, // TODO: compute from analysis
+      averageScreenshotChangeMagnitude: 0.5, // Placeholder - activity detection returns boolean, not magnitude
       timeSinceLastActivity: tracking
         ? Math.floor((now - tracking.lastActivityTime) / 1000)
         : 0,

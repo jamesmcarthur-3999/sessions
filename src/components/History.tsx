@@ -114,7 +114,20 @@ export function History({ onBack, onSessionSelect }: HistoryProps) {
 
       {/* Content */}
       <main className="max-w-3xl mx-auto px-6 py-8">
-        {state.sessions.length === 0 ? (
+        {state.isLoading ? (
+          <motion.div variants={itemVariants} className="space-y-4">
+            {/* Loading skeleton */}
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="animate-pulse flex items-center gap-4 p-4 rounded-xl border border-neutral-200 dark:border-neutral-800">
+                <div className="w-10 h-10 rounded-lg bg-neutral-200 dark:bg-neutral-800" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 w-1/3 bg-neutral-200 dark:bg-neutral-800 rounded" />
+                  <div className="h-3 w-1/2 bg-neutral-100 dark:bg-neutral-900 rounded" />
+                </div>
+              </div>
+            ))}
+          </motion.div>
+        ) : state.sessions.length === 0 ? (
           <motion.div variants={itemVariants} className="text-center py-16">
             <p className="text-neutral-400">No sessions yet</p>
             <p className="text-sm text-neutral-400 mt-1">

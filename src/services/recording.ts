@@ -323,7 +323,7 @@ class SessionRecordingController {
         const dbScreenshot = await saveScreenshot(
           this.state.sessionId,
           screenshot,
-          'interval' // TODO: detect actual trigger
+          'interval' // This method is only used for interval-based capture; smart capture handles its own triggers
         )
         // Notify coordinator for analysis (fire and forget)
         sessionCoordinator.processScreenshot(this.state.sessionId, dbScreenshot).catch(console.error)

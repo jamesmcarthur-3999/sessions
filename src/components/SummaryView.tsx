@@ -724,7 +724,9 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
 
               {/* Input */}
               <div className="flex items-center gap-3">
+                <label htmlFor="chat-input" className="sr-only">Ask a question about this session</label>
                 <input
+                  id="chat-input"
                   type="text"
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
@@ -737,6 +739,7 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
                   disabled={!chatInput.trim() || isSending}
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
+                  aria-label="Send message"
                   className="p-3.5 rounded-xl bg-[var(--accent)] text-white hover:bg-[var(--accent-light)] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-[var(--shadow-md)]"
                 >
                   <Send className="w-5 h-5" />

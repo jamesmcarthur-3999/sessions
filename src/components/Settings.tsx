@@ -150,7 +150,9 @@ export function Settings({ onBack }: SettingsProps) {
 
             {/* Input */}
             <div className="relative mb-4">
+              <label htmlFor="claude-api-key" className="sr-only">Claude API Key</label>
               <input
+                id="claude-api-key"
                 type={showKey ? 'text' : 'password'}
                 value={showKey ? apiKey : (apiKey ? maskApiKey(apiKey) : '')}
                 onChange={(e) => setApiKey(e.target.value)}
@@ -163,6 +165,7 @@ export function Settings({ onBack }: SettingsProps) {
               />
               <button
                 onClick={() => setShowKey(!showKey)}
+                aria-label={showKey ? 'Hide API key' : 'Show API key'}
                 className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg
                            text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300
                            hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors"
@@ -258,7 +261,9 @@ export function Settings({ onBack }: SettingsProps) {
 
             {/* Input */}
             <div className="relative">
+              <label htmlFor="openai-api-key" className="sr-only">OpenAI API Key</label>
               <input
+                id="openai-api-key"
                 type={showOpenaiKey ? 'text' : 'password'}
                 value={showOpenaiKey ? openaiKey : (openaiKey ? maskApiKey(openaiKey) : '')}
                 onChange={(e) => setOpenaiKey(e.target.value)}
@@ -271,6 +276,7 @@ export function Settings({ onBack }: SettingsProps) {
               />
               <button
                 onClick={() => setShowOpenaiKey(!showOpenaiKey)}
+                aria-label={showOpenaiKey ? 'Hide API key' : 'Show API key'}
                 className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg
                            text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300
                            hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors"

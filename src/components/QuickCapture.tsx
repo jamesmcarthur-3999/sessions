@@ -254,7 +254,9 @@ export function QuickCapture({ onBack, onComplete }: QuickCaptureProps) {
                 </div>
               </div>
 
+              <label htmlFor="quick-capture-input" className="sr-only">Enter your notes, ideas, or content to capture</label>
               <textarea
+                id="quick-capture-input"
                 ref={textareaRef}
                 value={text}
                 onChange={(e) => setText(e.target.value)}

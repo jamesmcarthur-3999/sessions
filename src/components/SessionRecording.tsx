@@ -778,11 +778,12 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
           </motion.div>
 
           {/* Controls */}
-          <div className="flex items-center justify-center gap-6">
+          <div className="flex items-center justify-center gap-6" role="group" aria-label="Recording controls">
             <motion.button
               onClick={handlePauseResume}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
+              aria-label={isPaused ? 'Resume recording' : 'Pause recording'}
               className="w-16 h-16 rounded-2xl bg-[var(--paper)]/10 hover:bg-[var(--paper)]/20 flex items-center justify-center transition-colors border border-[var(--paper)]/10"
             >
               {isPaused ? (
@@ -796,6 +797,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
               onClick={() => setShowEndConfirm(true)}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
+              aria-label="End recording"
               className="w-16 h-16 rounded-2xl bg-[var(--session-recording)] hover:bg-[var(--session-recording)]/80 flex items-center justify-center transition-colors shadow-lg shadow-[var(--session-recording)]/30"
             >
               <Square className="w-5 h-5 text-white" />

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
+import { createContext, useContext, useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { CheckCircle2, AlertCircle, X, Info } from 'lucide-react'
 import { generateId } from '../utils/id'
@@ -28,6 +28,15 @@ export function useToast() {
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([])
+  const timeoutRefs = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+
+  // Clean up all timeouts on unmount
+  useEffect(() => {
+    return () => {
+      timeoutRefs.current.forEach(clearTimeout)
+      timeoutRefs.current.clear()
+    }
+  }, [])
 
   const showToast = useCallback(
     (message: string, type: ToastType = 'info', duration = 3000) => {
@@ -37,15 +46,23 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       setToasts((prev) => [...prev, toast])
 
       if (duration > 0) {
-        setTimeout(() => {
+        const timeoutId = setTimeout(() => {
           setToasts((prev) => prev.filter((t) => t.id !== id))
+          timeoutRefs.current.delete(id)
         }, duration)
+        timeoutRefs.current.set(id, timeoutId)
       }
     },
     []
   )
 
   const dismissToast = useCallback((id: string) => {
+    // Clear any pending timeout for this toast
+    const timeoutId = timeoutRefs.current.get(id)
+    if (timeoutId) {
+      clearTimeout(timeoutId)
+      timeoutRefs.current.delete(id)
+    }
     setToasts((prev) => prev.filter((t) => t.id !== id))
   }, [])
 
