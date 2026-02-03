@@ -12,10 +12,12 @@ export interface Session {
   title: string;
   createdAt: string;
   duration?: number; // seconds, for recorded sessions
+  status?: 'recording' | 'processing' | 'complete' | 'error' | 'interrupted';
 
   // Raw data
   captureText?: string;
   attachments?: Attachment[];
+  videoPath?: string;
 
   // AI output
   summary?: Summary;
@@ -64,4 +66,25 @@ export interface AudioSegment {
   startTime: number;
   endTime: number;
   attachmentId: string;
+}
+
+// Result from stopping a recording session
+export interface RecordingStopResult {
+  sessionId: string;
+  isRecording: boolean;
+  isPaused: boolean;
+  screenshots: string[];
+  audioChunks: string[];
+  videoPath?: string;
+  startTime: number;
+  options: {
+    enableScreenshots: boolean;
+    enableAudio: boolean;
+    enableVideo: boolean;
+    screenshotIntervalMs: number;
+    selectedMicrophone: string | null;
+    selectedScreen: string | null;
+    smartCaptureEnabled: boolean;
+  };
+  stopErrors?: string[];
 }

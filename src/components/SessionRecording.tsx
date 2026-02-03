@@ -308,7 +308,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
         const recordingState = await sessionRecorder.stopRecording()
         screenshots = recordingState.screenshots
         videoPath = recordingState.videoPath
-        stopWarnings = (recordingState as any).stopErrors || []
+        stopWarnings = recordingState.stopErrors || []
         console.log('Captured ' + screenshots.length + ' screenshots')
 
         // Show warnings for stop errors (but continue processing)

@@ -11,6 +11,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { saveScreenshot } from './database'
 import { sessionCoordinator } from './session-coordinator'
 import { smartCapture } from './smart-capture'
+import type { RecordingStopResult } from '../types'
 
 // Type-safe invoke wrapper
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -412,7 +413,7 @@ class SessionRecordingController {
     console.log('▶️ Recording resumed')
   }
 
-  async stopRecording(): Promise<SessionRecordingState> {
+  async stopRecording(): Promise<RecordingStopResult> {
     if (!this.state) {
       throw new Error('Not recording')
     }
@@ -484,18 +485,20 @@ class SessionRecordingController {
       }
     }
 
-    const result = { ...this.state, videoPath: videoPath ?? this.state.videoPath }
-    result.isRecording = false
+    const result: RecordingStopResult = {
+      ...this.state,
+      isRecording: false,
+      videoPath: videoPath ?? this.state.videoPath,
+      stopErrors: errors.length > 0 ? errors : undefined
+    }
 
     console.log(`📹 Session recording stopped: ${result.screenshots.length} screenshots`)
 
     this.state = null
 
-    // If there were errors, include them in result for caller to handle
+    // Log warnings if there were errors
     if (errors.length > 0) {
       console.warn('Recording stopped with errors:', errors)
-      // Attach errors to result for caller to handle
-      ;(result as any).stopErrors = errors
     }
 
     return result
