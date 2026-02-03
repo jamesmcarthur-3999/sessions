@@ -514,19 +514,30 @@ export async function updateAnalysisMode(
 
 /**
  * Delete all session data from database
- * Cascades to: screenshots, audio_chunks, insights, rolling_summaries, chat_messages
+ * Uses a transaction to ensure all deletes succeed or none do
+ * Note: With foreign_keys=ON and CASCADE, deleting the session should cascade to related tables,
+ * but we explicitly delete to ensure cleanup even if CASCADE fails
  */
 export async function deleteSessionData(sessionId: string): Promise<void> {
   const db = await ensureDb();
 
-  // Delete in order to respect foreign key constraints (if not using CASCADE)
-  await db.execute('DELETE FROM chat_messages WHERE session_id = $1', [sessionId]);
-  await db.execute('DELETE FROM insights WHERE session_id = $1', [sessionId]);
-  await db.execute('DELETE FROM rolling_summaries WHERE session_id = $1', [sessionId]);
-  await db.execute('DELETE FROM analysis_state WHERE session_id = $1', [sessionId]);
-  await db.execute('DELETE FROM audio_chunks WHERE session_id = $1', [sessionId]);
-  await db.execute('DELETE FROM screenshots WHERE session_id = $1', [sessionId]);
-  await db.execute('DELETE FROM sessions WHERE id = $1', [sessionId]);
+  try {
+    await db.execute('BEGIN TRANSACTION');
 
-  console.log('[DATABASE] Deleted session data:', sessionId);
+    // Delete in order to respect foreign key constraints (if CASCADE isn't working)
+    await db.execute('DELETE FROM chat_messages WHERE session_id = $1', [sessionId]);
+    await db.execute('DELETE FROM insights WHERE session_id = $1', [sessionId]);
+    await db.execute('DELETE FROM rolling_summaries WHERE session_id = $1', [sessionId]);
+    await db.execute('DELETE FROM analysis_state WHERE session_id = $1', [sessionId]);
+    await db.execute('DELETE FROM audio_chunks WHERE session_id = $1', [sessionId]);
+    await db.execute('DELETE FROM screenshots WHERE session_id = $1', [sessionId]);
+    await db.execute('DELETE FROM sessions WHERE id = $1', [sessionId]);
+
+    await db.execute('COMMIT');
+    console.log('[DATABASE] Deleted session data:', sessionId);
+  } catch (error) {
+    await db.execute('ROLLBACK');
+    console.error('[DATABASE] Failed to delete session, rolled back:', error);
+    throw error;
+  }
 }

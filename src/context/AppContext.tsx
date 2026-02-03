@@ -112,17 +112,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   const deleteSession = async (id: string) => {
-    dispatch({ type: 'DELETE_SESSION', payload: id })
+    // Delete from both storage systems BEFORE updating UI state
+    // This ensures we don't show stale state if deletions fail
+    const errors: string[] = []
 
     // Delete from database first (includes all related data)
     try {
       await deleteSessionData(id)
     } catch (err) {
       console.error('Failed to delete session from database:', err)
+      errors.push('database')
     }
 
     // Then delete from localStorage
-    await storage.deleteSession(id)
+    try {
+      await storage.deleteSession(id)
+    } catch (err) {
+      console.error('Failed to delete session from localStorage:', err)
+      errors.push('localStorage')
+    }
+
+    // Only update UI if at least one deletion succeeded
+    // (orphaned data in one system is better than leaving stale UI)
+    if (errors.length < 2) {
+      dispatch({ type: 'DELETE_SESSION', payload: id })
+    }
+
+    // If any deletion failed, throw so caller can handle
+    if (errors.length > 0) {
+      throw new Error(`Failed to delete from: ${errors.join(', ')}`)
+    }
   }
 
   if (dbError) {
