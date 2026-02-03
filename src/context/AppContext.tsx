@@ -116,12 +116,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // This ensures we don't show stale state if deletions fail
     const errors: string[] = []
 
-    // Delete from database first (includes all related data)
-    try {
-      await deleteSessionData(id)
-    } catch (err) {
-      console.error('Failed to delete session from database:', err)
-      errors.push('database')
+    // Delete from database first (includes all related data) - only in Tauri mode
+    if (isTauri()) {
+      try {
+        await deleteSessionData(id)
+      } catch (err) {
+        console.error('Failed to delete session from database:', err)
+        errors.push('database')
+      }
     }
 
     // Then delete from localStorage

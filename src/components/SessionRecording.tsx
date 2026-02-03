@@ -265,11 +265,16 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
     setProcessingStep('Stopping recording...')
     setProcessingPercent(10)
 
+    // Check if we're in Tauri mode (where actual recording happens)
+    const inTauri = isTauri()
+
     try {
-      // Stop session coordinator
-      setProcessingStep('Stopping AI analysis...')
-      setProcessingPercent(20)
-      await sessionCoordinator.stopSession(sessionIdRef.current)
+      // Stop session coordinator (only in Tauri mode)
+      if (inTauri) {
+        setProcessingStep('Stopping AI analysis...')
+        setProcessingPercent(20)
+        await sessionCoordinator.stopSession(sessionIdRef.current)
+      }
 
       // Stop recording and get captured data
       setProcessingStep('Finalizing captures...')
@@ -290,19 +295,27 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
         }
       }
 
-      // Update database session status
-      setProcessingStep('Gathering session data...')
-      setProcessingPercent(40)
-      await updateSessionStatus(sessionIdRef.current, 'processing', duration)
+      // Database operations only in Tauri mode
+      let rollingSummary = null
+      let insights: Awaited<ReturnType<typeof getInsights>> = []
+      let audioChunks: Awaited<ReturnType<typeof getAudioChunks>> = []
+      let dbScreenshots: Awaited<ReturnType<typeof getScreenshots>> = []
 
-      // Gather all Baleybots intelligence from the database
-      setProcessingPercent(50)
-      const [rollingSummary, insights, audioChunks, dbScreenshots] = await Promise.all([
-        getRollingSummary(sessionIdRef.current),
-        getInsights(sessionIdRef.current),
-        getAudioChunks(sessionIdRef.current),
-        getScreenshots(sessionIdRef.current),
-      ])
+      if (inTauri) {
+        // Update database session status
+        setProcessingStep('Gathering session data...')
+        setProcessingPercent(40)
+        await updateSessionStatus(sessionIdRef.current, 'processing', duration)
+
+        // Gather all Baleybots intelligence from the database
+        setProcessingPercent(50)
+        ;[rollingSummary, insights, audioChunks, dbScreenshots] = await Promise.all([
+          getRollingSummary(sessionIdRef.current),
+          getInsights(sessionIdRef.current),
+          getAudioChunks(sessionIdRef.current),
+          getScreenshots(sessionIdRef.current),
+        ])
+      }
 
       // Generate final summary using Baleybots
       setProcessingStep('Generating AI summary...')
@@ -366,10 +379,12 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
         }
       }
 
-      // Update database session status to complete
+      // Update database session status to complete (only in Tauri mode)
       setProcessingStep('Saving session...')
       setProcessingPercent(90)
-      await updateSessionStatus(sessionIdRef.current, 'complete', duration)
+      if (inTauri) {
+        await updateSessionStatus(sessionIdRef.current, 'complete', duration)
+      }
 
       // Create session
       const session: Session = {
@@ -392,11 +407,13 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
     } catch (error) {
       console.error('Failed to end session:', error)
 
-      // Update database status to error state
-      try {
-        await updateSessionStatus(sessionIdRef.current, 'error', duration)
-      } catch (dbError) {
-        console.error('Failed to update session status:', dbError)
+      // Update database status to error state (only in Tauri mode)
+      if (inTauri) {
+        try {
+          await updateSessionStatus(sessionIdRef.current, 'error', duration)
+        } catch (dbError) {
+          console.error('Failed to update session status:', dbError)
+        }
       }
 
       // Determine specific error message
