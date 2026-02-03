@@ -4,7 +4,7 @@
  * Displays captured screenshots from a session in a grid/carousel.
  */
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, ChevronLeft, ChevronRight } from 'lucide-react'
 import type { DbScreenshot } from '../types/database'
@@ -16,6 +16,31 @@ interface ScreenshotGalleryProps {
 export function ScreenshotGallery({ screenshots }: ScreenshotGalleryProps) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
   const [showAll, setShowAll] = useState(false)
+
+  // Keyboard navigation for lightbox
+  useEffect(() => {
+    if (selectedIndex === null) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      switch (e.key) {
+        case 'ArrowLeft':
+          e.preventDefault()
+          setSelectedIndex(prev => prev !== null && prev > 0 ? prev - 1 : prev)
+          break
+        case 'ArrowRight':
+          e.preventDefault()
+          setSelectedIndex(prev => prev !== null && prev < screenshots.length - 1 ? prev + 1 : prev)
+          break
+        case 'Escape':
+          e.preventDefault()
+          setSelectedIndex(null)
+          break
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [selectedIndex, screenshots.length])
 
   if (screenshots.length === 0) {
     return null
@@ -118,6 +143,12 @@ export function ScreenshotGallery({ screenshots }: ScreenshotGalleryProps) {
                   </p>
                 )}
               </div>
+            </div>
+
+            {/* Keyboard hints */}
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-4 text-xs text-white/40">
+              <span>← → Navigate</span>
+              <span>ESC Close</span>
             </div>
           </motion.div>
         )}
