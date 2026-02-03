@@ -74,5 +74,24 @@ export function combine(...contents: ContentBlock[]): ContentBlock[] {
   return contents
 }
 
+// API key storage for the shim (keys stored in localStorage, this just tracks in-memory)
+const apiKeys: Record<string, string> = {}
+
+/**
+ * Set default API key for a provider
+ * In the shim, this just stores in memory - localStorage is handled by config.ts
+ */
+export function setDefaultApiKey(provider: 'anthropic' | 'openai', key: string): void {
+  apiKeys[provider] = key
+  console.log(`@baleybots/core shim: API key set for ${provider}`)
+}
+
+/**
+ * Get API key for a provider (used internally)
+ */
+export function getApiKey(provider: 'anthropic' | 'openai'): string | undefined {
+  return apiKeys[provider]
+}
+
 // Re-export common types that might be imported
 export type { BaleybotConfig, ContentBlock, TextContent, ImageContent }
