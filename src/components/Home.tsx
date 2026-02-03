@@ -88,6 +88,7 @@ export function Home({ onNavigate, onSessionSelect }: HomeProps) {
       title: 'New Session',
       createdAt: new Date().toISOString(),
       recordingConfig,
+      status: 'recording',
     }
     dispatch({ type: 'START_RECORDING', payload: session })
     onNavigate('recording')
@@ -139,6 +140,13 @@ export function Home({ onNavigate, onSessionSelect }: HomeProps) {
             </button>
           )}
         </motion.div>
+
+        {/* Error display */}
+        {state.error && (
+          <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-center mb-8 w-full max-w-lg">
+            <p>{state.error}</p>
+          </div>
+        )}
 
         {/* Action cards */}
         <motion.div variants={itemVariants} className="w-full max-w-lg space-y-4">

@@ -115,6 +115,13 @@ export function History({ onBack, onSessionSelect }: HistoryProps) {
 
       {/* Content */}
       <main className="max-w-3xl mx-auto px-6 py-8">
+        {/* Error display */}
+        {state.error && (
+          <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-center mb-4">
+            <p>{state.error}</p>
+          </div>
+        )}
+
         {state.isLoading ? (
           <motion.div variants={itemVariants} className="space-y-4">
             {/* Loading skeleton */}
@@ -185,6 +192,12 @@ export function History({ onBack, onSessionSelect }: HistoryProps) {
                         {session.duration && (
                           <span className="text-sm text-[var(--ink-muted)] block">
                             {formatDuration(session.duration)}
+                          </span>
+                        )}
+                        {session.status === 'interrupted' && (
+                          <span className="text-[10px] text-[var(--ink-muted)]/70 flex items-center justify-end gap-1 mt-1">
+                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--ink-muted)]/60" />
+                            Interrupted
                           </span>
                         )}
                         {session.summary && (
