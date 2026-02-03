@@ -214,10 +214,11 @@ class SessionCoordinatorService {
       }
 
       // Run activity detection with multimodal input
-      // Compare with the most recent previous screenshot (index 0 is the newest in our list)
+      // Compare with the most recent previous screenshot (last element since sorted ASC)
+      const mostRecentPrevious = context.recentScreenshots[context.recentScreenshots.length - 1];
       const input = bots.buildActivityDetectorInput(
         screenshot.data_base64,
-        context.recentScreenshots[0]?.analysis || undefined
+        mostRecentPrevious?.analysis || undefined
       );
 
       // Pass multimodal content to the activity bot

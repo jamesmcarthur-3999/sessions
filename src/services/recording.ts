@@ -229,11 +229,17 @@ class SessionRecordingController {
             const { sessionId: sid, audioBase64, duration } = event.payload;
 
             // Process through coordinator for transcription
-            await sessionCoordinator.processAudioChunk(
-              sid,
-              audioBase64,
-              duration
-            );
+            try {
+              await sessionCoordinator.processAudioChunk(
+                sid,
+                audioBase64,
+                duration
+              );
+            } catch (e) {
+              // Error is already handled/emitted by coordinator
+              // Just log here to prevent unhandled rejection
+              console.error('Audio chunk processing error:', e);
+            }
           });
           console.log('🎤 Audio chunk listener started')
           audioStarted = true
