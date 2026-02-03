@@ -10,7 +10,7 @@ export interface DbSession {
   created_at: string;
   updated_at: string;
   duration_seconds: number | null;
-  status: 'recording' | 'processing' | 'complete' | 'error';
+  status: 'recording' | 'processing' | 'complete' | 'error' | 'interrupted';
   analysis_mode: 'ambient' | 'deep';
 }
 

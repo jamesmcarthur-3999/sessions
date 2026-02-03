@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   duration_seconds INTEGER,
-  status TEXT NOT NULL DEFAULT 'recording' CHECK (status IN ('recording', 'processing', 'complete', 'error')),
+  status TEXT NOT NULL DEFAULT 'recording' CHECK (status IN ('recording', 'processing', 'complete', 'error', 'interrupted')),
   analysis_mode TEXT NOT NULL DEFAULT 'ambient' CHECK (analysis_mode IN ('ambient', 'deep'))
 );
 
@@ -556,4 +556,35 @@ export async function deleteSessionData(sessionId: string): Promise<void> {
     console.error('[DATABASE] Failed to delete session, rolled back:', error);
     throw error;
   }
+}
+
+// ============================================================================
+// Crash Recovery
+// ============================================================================
+
+/**
+ * Find sessions that were interrupted (recording/processing status)
+ * These need recovery or cleanup
+ */
+export async function findOrphanedSessions(): Promise<DbSession[]> {
+  const db = await ensureDb();
+  const result = await db.select<DbSession[]>(
+    "SELECT * FROM sessions WHERE status IN ('recording', 'processing') ORDER BY created_at DESC"
+  );
+  return result;
+}
+
+/**
+ * Mark orphaned sessions as needing recovery
+ */
+export async function markSessionsAsInterrupted(sessionIds: string[]): Promise<void> {
+  if (sessionIds.length === 0) return;
+
+  const db = await ensureDb();
+  const placeholders = sessionIds.map((_, i) => `$${i + 1}`).join(', ');
+  await db.execute(
+    `UPDATE sessions SET status = 'interrupted' WHERE id IN (${placeholders})`,
+    sessionIds
+  );
+  console.log(`[DATABASE] Marked ${sessionIds.length} sessions as interrupted`);
 }

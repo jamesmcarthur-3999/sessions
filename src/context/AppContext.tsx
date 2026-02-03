@@ -1,13 +1,14 @@
 import { createContext, useContext, useReducer, useEffect, useState, type ReactNode } from 'react'
 import type { Session } from '../types'
 import { storage } from '../services/storage'
-import { initDatabase, deleteSessionData } from '../services/database'
+import { initDatabase, deleteSessionData, findOrphanedSessions, markSessionsAsInterrupted } from '../services/database'
 import { isTauri } from '../services/recording'
 
 interface AppState {
   sessions: Session[]
   isLoading: boolean
   activeSession: Session | null // For recording
+  error: string | null
 }
 
 type AppAction =
@@ -18,11 +19,13 @@ type AppAction =
   | { type: 'SET_LOADING'; payload: boolean }
   | { type: 'START_RECORDING'; payload: Session }
   | { type: 'STOP_RECORDING' }
+  | { type: 'SET_ERROR'; payload: string | null }
 
 const initialState: AppState = {
   sessions: [],
   isLoading: true,
   activeSession: null,
+  error: null,
 }
 
 function appReducer(state: AppState, action: AppAction): AppState {
@@ -49,6 +52,8 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, activeSession: action.payload }
     case 'STOP_RECORDING':
       return { ...state, activeSession: null }
+    case 'SET_ERROR':
+      return { ...state, error: action.payload }
     default:
       return state
   }
@@ -91,10 +96,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     async function load() {
       try {
+        // Crash recovery: mark orphaned sessions as interrupted
+        if (isTauri()) {
+          try {
+            const orphanedSessions = await findOrphanedSessions()
+            if (orphanedSessions.length > 0) {
+              const sessionIds = orphanedSessions.map(s => s.id)
+              await markSessionsAsInterrupted(sessionIds)
+              console.log(`[CRASH RECOVERY] Recovered ${sessionIds.length} interrupted sessions`)
+            }
+          } catch (recoveryError) {
+            console.error('[CRASH RECOVERY] Failed to recover sessions:', recoveryError)
+            // Continue loading even if recovery fails
+          }
+        }
+
         const sessions = await storage.loadSessions()
         dispatch({ type: 'SET_SESSIONS', payload: sessions })
       } catch (error) {
         console.error('Failed to load sessions:', error)
+        dispatch({ type: 'SET_ERROR', payload: error instanceof Error ? error.message : 'Failed to load sessions' })
         dispatch({ type: 'SET_LOADING', payload: false })
       }
     }
