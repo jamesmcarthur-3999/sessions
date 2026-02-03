@@ -71,9 +71,13 @@ function getAttachmentIcon(type: 'image' | 'audio' | 'video' | 'file') {
 }
 
 // Typewriter effect component
-function TypewriterText({ text, onComplete }: { text: string; onComplete?: () => void }) {
+function TypewriterText({ text, onComplete, speed = 20 }: { text: string; onComplete?: () => void; speed?: number }) {
   const [displayText, setDisplayText] = useState('')
   const [isComplete, setIsComplete] = useState(false)
+
+  // Use ref for onComplete to avoid dependency issues (stale closure fix)
+  const onCompleteRef = useRef(onComplete)
+  onCompleteRef.current = onComplete
 
   useEffect(() => {
     if (isComplete) return
@@ -86,12 +90,12 @@ function TypewriterText({ text, onComplete }: { text: string; onComplete?: () =>
       } else {
         clearInterval(interval)
         setIsComplete(true)
-        onComplete?.()
+        onCompleteRef.current?.()
       }
-    }, 20)
+    }, speed)
 
     return () => clearInterval(interval)
-  }, [text, isComplete, onComplete])
+  }, [text, speed, isComplete]) // Remove onComplete from deps
 
   return (
     <span>
