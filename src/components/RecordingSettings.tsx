@@ -26,6 +26,7 @@ import {
   type AudioDevice,
   type ScreenInfo,
 } from '../services/recording'
+import { hasApiKey } from '../services/bots'
 
 export interface RecordingConfig {
   enableScreenshots: boolean
@@ -69,6 +70,10 @@ export function RecordingSettings({
   const [showScreenDropdown, setShowScreenDropdown] = useState(false)
   const [showIntervalDropdown, setShowIntervalDropdown] = useState(false)
   const [showScreenPreview, setShowScreenPreview] = useState(false)
+
+  // Check for API keys
+  const hasClaudeKey = hasApiKey()
+  const hasOpenaiKey = !!localStorage.getItem('sessions_openai_api_key')
 
   // Load devices function (also used for refresh)
   const loadDevices = useCallback(async () => {
@@ -216,6 +221,43 @@ export function RecordingSettings({
                   >
                     Grant Permission
                   </button>
+                </div>
+              </motion.div>
+            )}
+
+            {/* API key warnings */}
+            {!hasClaudeKey && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200"
+              >
+                <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-amber-800">
+                    AI features require Claude API key
+                  </p>
+                  <p className="text-xs text-amber-600 mt-1">
+                    Without it, you'll get basic recording but no intelligent summaries or insights.
+                  </p>
+                </div>
+              </motion.div>
+            )}
+
+            {config.enableAudio && !hasOpenaiKey && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200"
+              >
+                <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-amber-800">
+                    Audio transcription requires OpenAI API key
+                  </p>
+                  <p className="text-xs text-amber-600 mt-1">
+                    Audio will be recorded but not transcribed. Add your key in Settings.
+                  </p>
                 </div>
               </motion.div>
             )}
