@@ -162,8 +162,17 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
       const context: SessionContext = {
         sessionId: session.id,
         rollingSummary: session.summary?.text || '',
-        recentScreenshots: [],
-        recentTranscripts: [],
+        recentScreenshots: screenshots.slice(0, 10).map(ss => ({
+          id: ss.id,
+          capturedAt: ss.captured_at,
+          appName: ss.app_name || undefined,
+          windowTitle: ss.window_title || undefined,
+          analysis: ss.analysis || undefined,
+        })),
+        recentTranscripts: audioChunks
+          .filter(c => c.transcript)
+          .slice(-5)
+          .map(c => c.transcript!),
         recentInsights: session.summary?.notes.map(n => n.content) || [],
         durationSeconds: session.duration || 0,
         analysisMode: 'ambient',
@@ -227,8 +236,17 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
       const context: SessionContext = {
         sessionId: session.id,
         rollingSummary: session.summary?.text || '',
-        recentScreenshots: [],
-        recentTranscripts: [],
+        recentScreenshots: screenshots.slice(0, 10).map(ss => ({
+          id: ss.id,
+          capturedAt: ss.captured_at,
+          appName: ss.app_name || undefined,
+          windowTitle: ss.window_title || undefined,
+          analysis: ss.analysis || undefined,
+        })),
+        recentTranscripts: audioChunks
+          .filter(c => c.transcript)
+          .slice(-5)
+          .map(c => c.transcript!),
         recentInsights: session.summary?.notes.map(n => n.content) || [],
         durationSeconds: session.duration || 0,
         analysisMode: 'ambient',
