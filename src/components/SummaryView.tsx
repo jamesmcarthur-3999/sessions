@@ -390,7 +390,11 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
                 </div>
 
                 {/* Summary text - editorial style */}
-                <div className="font-display text-xl md:text-2xl leading-relaxed text-[var(--ink)] drop-cap">
+                <div
+                  className={`font-display text-xl md:text-2xl leading-relaxed text-[var(--ink)] drop-cap ${showTypewriter ? 'cursor-pointer' : ''}`}
+                  onClick={() => showTypewriter && setShowTypewriter(false)}
+                  title={showTypewriter ? 'Click to skip animation' : undefined}
+                >
                   {showTypewriter ? (
                     <TypewriterText
                       text={summary.text}
