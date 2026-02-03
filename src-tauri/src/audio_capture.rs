@@ -12,9 +12,16 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, SampleFormat, Stream, StreamConfig};
 use hound::{WavSpec, WavWriter};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
+
+/// Audio level event payload for frontend visualization
+#[derive(Clone, serde::Serialize)]
+struct AudioLevelEvent {
+    level: f32,
+}
 
 /// Audio recording state
 #[derive(Debug, Clone, PartialEq)]
@@ -141,11 +148,16 @@ impl AudioRecorder {
         // Store sample rate (device's native rate, e.g., 44100)
         let sample_rate = config.sample_rate().0;
 
+        // Get app handle for audio level emission
+        let app_handle = self.app_handle.lock()
+            .map_err(|e| format!("Failed to lock app_handle: {}", e))?
+            .clone();
+
         // Build stream based on sample format
         let stream = match config.sample_format() {
-            SampleFormat::F32 => self.build_stream_f32(&device, config.into())?,
-            SampleFormat::I16 => self.build_stream_i16(&device, config.into())?,
-            SampleFormat::U16 => self.build_stream_u16(&device, config.into())?,
+            SampleFormat::F32 => self.build_stream_f32(&device, config.into(), app_handle)?,
+            SampleFormat::I16 => self.build_stream_i16(&device, config.into(), app_handle)?,
+            SampleFormat::U16 => self.build_stream_u16(&device, config.into(), app_handle)?,
             _ => return Err(format!("Unsupported sample format: {:?}", config.sample_format())),
         };
 
@@ -174,9 +186,13 @@ impl AudioRecorder {
     }
 
     /// Build audio stream for f32 samples
-    fn build_stream_f32(&self, device: &Device, config: StreamConfig) -> Result<Stream, String> {
+    fn build_stream_f32(&self, device: &Device, config: StreamConfig, app_handle: Option<AppHandle>) -> Result<Stream, String> {
         let buffer = self.buffer.clone();
         let state = self.state.clone();
+
+        // Counter for throttling audio level emissions (~100ms at 48kHz)
+        let level_sample_count = Arc::new(AtomicU32::new(0));
+        let level_sample_count_clone = level_sample_count.clone();
 
         let stream = device
             .build_input_stream(
@@ -187,6 +203,18 @@ impl AudioRecorder {
                             if let Ok(mut buf) = buffer.lock() {
                                 for &sample in data {
                                     buf.push_sample(sample);
+                                }
+                            }
+
+                            // Calculate and emit audio level every ~4800 samples (~100ms at 48kHz)
+                            let count = level_sample_count_clone.fetch_add(data.len() as u32, Ordering::Relaxed);
+                            if count % 4800 < data.len() as u32 {
+                                let sum: f32 = data.iter().map(|&s| s * s).sum();
+                                let rms = (sum / data.len() as f32).sqrt();
+                                let normalized_level = (rms * 3.0).min(1.0); // Scale and clamp to 0-1
+
+                                if let Some(handle) = &app_handle {
+                                    let _ = handle.emit("audio-level", AudioLevelEvent { level: normalized_level });
                                 }
                             }
                         }
@@ -201,9 +229,13 @@ impl AudioRecorder {
     }
 
     /// Build audio stream for i16 samples (convert to f32)
-    fn build_stream_i16(&self, device: &Device, config: StreamConfig) -> Result<Stream, String> {
+    fn build_stream_i16(&self, device: &Device, config: StreamConfig, app_handle: Option<AppHandle>) -> Result<Stream, String> {
         let buffer = self.buffer.clone();
         let state = self.state.clone();
+
+        // Counter for throttling audio level emissions
+        let level_sample_count = Arc::new(AtomicU32::new(0));
+        let level_sample_count_clone = level_sample_count.clone();
 
         let stream = device
             .build_input_stream(
@@ -211,11 +243,25 @@ impl AudioRecorder {
                 move |data: &[i16], _: &cpal::InputCallbackInfo| {
                     if let Ok(current_state) = state.lock() {
                         if *current_state == RecordingState::Recording {
+                            // Convert samples and calculate RMS in one pass
+                            let mut sum_sq: f32 = 0.0;
                             if let Ok(mut buf) = buffer.lock() {
                                 for &sample in data {
                                     // Convert i16 to f32
                                     let normalized = sample as f32 / i16::MAX as f32;
                                     buf.push_sample(normalized);
+                                    sum_sq += normalized * normalized;
+                                }
+                            }
+
+                            // Emit audio level every ~4800 samples (~100ms at 48kHz)
+                            let count = level_sample_count_clone.fetch_add(data.len() as u32, Ordering::Relaxed);
+                            if count % 4800 < data.len() as u32 {
+                                let rms = (sum_sq / data.len() as f32).sqrt();
+                                let normalized_level = (rms * 3.0).min(1.0);
+
+                                if let Some(handle) = &app_handle {
+                                    let _ = handle.emit("audio-level", AudioLevelEvent { level: normalized_level });
                                 }
                             }
                         }
@@ -230,9 +276,13 @@ impl AudioRecorder {
     }
 
     /// Build audio stream for u16 samples (convert to f32)
-    fn build_stream_u16(&self, device: &Device, config: StreamConfig) -> Result<Stream, String> {
+    fn build_stream_u16(&self, device: &Device, config: StreamConfig, app_handle: Option<AppHandle>) -> Result<Stream, String> {
         let buffer = self.buffer.clone();
         let state = self.state.clone();
+
+        // Counter for throttling audio level emissions
+        let level_sample_count = Arc::new(AtomicU32::new(0));
+        let level_sample_count_clone = level_sample_count.clone();
 
         let stream = device
             .build_input_stream(
@@ -240,11 +290,25 @@ impl AudioRecorder {
                 move |data: &[u16], _: &cpal::InputCallbackInfo| {
                     if let Ok(current_state) = state.lock() {
                         if *current_state == RecordingState::Recording {
+                            // Convert samples and calculate RMS in one pass
+                            let mut sum_sq: f32 = 0.0;
                             if let Ok(mut buf) = buffer.lock() {
                                 for &sample in data {
                                     // Convert u16 to f32
                                     let normalized = (sample as f32 / u16::MAX as f32) * 2.0 - 1.0;
                                     buf.push_sample(normalized);
+                                    sum_sq += normalized * normalized;
+                                }
+                            }
+
+                            // Emit audio level every ~4800 samples (~100ms at 48kHz)
+                            let count = level_sample_count_clone.fetch_add(data.len() as u32, Ordering::Relaxed);
+                            if count % 4800 < data.len() as u32 {
+                                let rms = (sum_sq / data.len() as f32).sqrt();
+                                let normalized_level = (rms * 3.0).min(1.0);
+
+                                if let Some(handle) = &app_handle {
+                                    let _ = handle.emit("audio-level", AudioLevelEvent { level: normalized_level });
                                 }
                             }
                         }
