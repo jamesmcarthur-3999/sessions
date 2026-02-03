@@ -196,6 +196,17 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
     }
   }, [recordingConfig?.enableAudio, isPaused])
 
+  // Listen for coordinator error events
+  useEffect(() => {
+    const unsubError = sessionCoordinator.on('error', ({ error }) => {
+      showToast(error, 'error', 5000)
+    })
+
+    return () => {
+      unsubError()
+    }
+  }, [showToast])
+
   const handlePauseResume = useCallback(async () => {
     if (isPaused) {
       // Resume - add paused duration to total paused time
