@@ -15,18 +15,20 @@ interface ScreenshotGalleryProps {
 
 export function ScreenshotGallery({ screenshots }: ScreenshotGalleryProps) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
+  const [showAll, setShowAll] = useState(false)
 
   if (screenshots.length === 0) {
     return null
   }
 
   const selectedScreenshot = selectedIndex !== null ? screenshots[selectedIndex] : null
+  const displayCount = showAll ? screenshots.length : Math.min(9, screenshots.length)
 
   return (
     <>
       {/* Grid View */}
       <div className="grid grid-cols-3 gap-3">
-        {screenshots.slice(0, 9).map((ss, index) => (
+        {screenshots.slice(0, displayCount).map((ss, index) => (
           <button
             key={ss.id}
             onClick={() => setSelectedIndex(index)}
@@ -43,12 +45,16 @@ export function ScreenshotGallery({ screenshots }: ScreenshotGalleryProps) {
             </div>
           </button>
         ))}
+        {/* Show more/less toggle */}
         {screenshots.length > 9 && (
-          <div className="aspect-video rounded-lg bg-[var(--paper-warm)] border border-[var(--border-subtle)] flex items-center justify-center">
+          <button
+            onClick={() => setShowAll(!showAll)}
+            className="aspect-video rounded-lg bg-[var(--paper-warm)] border border-dashed border-[var(--border-medium)] flex items-center justify-center hover:bg-[var(--paper-dark)] transition-colors"
+          >
             <span className="text-sm text-[var(--ink-muted)]">
-              +{screenshots.length - 9} more
+              {showAll ? 'Show less' : `+${screenshots.length - 9} more`}
             </span>
-          </div>
+          </button>
         )}
       </div>
 
