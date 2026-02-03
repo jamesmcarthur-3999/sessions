@@ -22,6 +22,29 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
   throw new Error('Not running in Tauri environment')
 }
 
+// Type-safe invoke wrapper with timeout to prevent indefinite hangs
+async function invokeWithTimeout<T>(
+  cmd: string,
+  args?: Record<string, unknown>,
+  timeoutMs: number = 10000
+): Promise<T> {
+  if (typeof window === 'undefined' || !('__TAURI__' in window)) {
+    throw new Error('Not running in Tauri environment')
+  }
+
+  const { invoke: tauriInvoke } = await import('@tauri-apps/api/core')
+
+  return Promise.race([
+    tauriInvoke<T>(cmd, args),
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`IPC timeout after ${timeoutMs}ms: ${cmd}`)),
+        timeoutMs
+      )
+    )
+  ])
+}
+
 // Check if running in Tauri
 export function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI__' in window
@@ -88,11 +111,11 @@ export async function startAudioRecording(
   chunkDurationSecs?: number,
   deviceId?: string | null
 ): Promise<void> {
-  return invoke('start_audio_recording', {
+  return invokeWithTimeout('start_audio_recording', {
     sessionId,
     chunkDurationSecs: chunkDurationSecs ?? 120,
     deviceId: deviceId ?? null,
-  })
+  }, 5000)
 }
 
 export async function pauseAudioRecording(): Promise<void> {
@@ -104,7 +127,7 @@ export async function resumeAudioRecording(): Promise<void> {
 }
 
 export async function stopAudioRecording(): Promise<void> {
-  return invoke('stop_audio_recording')
+  return invokeWithTimeout('stop_audio_recording', undefined, 5000)
 }
 
 // ============================================================================
@@ -122,15 +145,15 @@ export async function startVideoRecording(
   outputPath: string,
   quality?: VideoQuality
 ): Promise<void> {
-  return invoke('start_video_recording', {
+  return invokeWithTimeout('start_video_recording', {
     sessionId,
     outputPath,
     quality,
-  })
+  }, 5000)
 }
 
 export async function stopVideoRecording(): Promise<string> {
-  return invoke<string>('stop_video_recording')
+  return invokeWithTimeout<string>('stop_video_recording', undefined, 5000)
 }
 
 export async function isVideoRecording(): Promise<boolean> {
@@ -157,6 +180,7 @@ export interface SessionRecordingState {
   isPaused: boolean
   screenshots: string[]
   audioChunks: string[]
+  videoPath?: string
   startTime: number
   options: RecordingOptions
 }
@@ -280,7 +304,14 @@ class SessionRecordingController {
       if (mergedOptions.enableVideo) {
         try {
           // Video output path will be in app data directory
-          const outputPath = `session_${sessionId}.mp4`
+          let outputPath = `session_${sessionId}.mp4`
+          try {
+            const { appDataDir, join } = await import('@tauri-apps/api/path')
+            const dir = await appDataDir()
+            outputPath = await join(dir, outputPath)
+          } catch (pathError) {
+            console.warn('Failed to resolve app data dir, using relative path:', pathError)
+          }
           await startVideoRecording(sessionId, outputPath)
           console.log('🎬 Video recording started')
           videoStarted = true
@@ -388,6 +419,7 @@ class SessionRecordingController {
 
     const { options } = this.state
     const errors: string[] = []
+    let videoPath: string | null = null
 
     // Stop screenshot capture
     if (options.enableScreenshots) {
@@ -444,7 +476,7 @@ class SessionRecordingController {
     // Stop video recording if it was enabled
     if (isTauri() && options.enableVideo) {
       try {
-        await stopVideoRecording()
+        videoPath = await stopVideoRecording()
         console.log('🎬 Video recording stopped')
       } catch (e) {
         console.error('Failed to stop video:', e)
@@ -452,7 +484,7 @@ class SessionRecordingController {
       }
     }
 
-    const result = { ...this.state }
+    const result = { ...this.state, videoPath: videoPath ?? this.state.videoPath }
     result.isRecording = false
 
     console.log(`📹 Session recording stopped: ${result.screenshots.length} screenshots`)
