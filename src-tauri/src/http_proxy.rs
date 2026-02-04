@@ -37,6 +37,10 @@ pub struct StreamChunk {
 /// Make an HTTP request and return the full response
 #[tauri::command]
 pub async fn http_proxy(request: ProxyRequest) -> Result<ProxyResponse, String> {
+    println!("[http_proxy] URL: {}", request.url);
+    println!("[http_proxy] Method: {}", request.method);
+    println!("[http_proxy] Headers: {:?}", request.headers.keys().collect::<Vec<_>>());
+
     let client = reqwest::Client::new();
 
     // Build headers
@@ -56,8 +60,9 @@ pub async fn http_proxy(request: ProxyRequest) -> Result<ProxyResponse, String> 
 
     let mut req = client.request(method, &request.url).headers(headers);
 
-    if let Some(body) = request.body {
-        req = req.body(body);
+    if let Some(ref body) = request.body {
+        println!("[http_proxy] Body length: {}", body.len());
+        req = req.body(body.clone());
     }
 
     // Send request
@@ -65,6 +70,7 @@ pub async fn http_proxy(request: ProxyRequest) -> Result<ProxyResponse, String> 
         .map_err(|e| format!("Request failed: {}", e))?;
 
     let status = response.status().as_u16();
+    println!("[http_proxy] Response status: {}", status);
 
     // Collect response headers
     let mut resp_headers = HashMap::new();
@@ -77,6 +83,11 @@ pub async fn http_proxy(request: ProxyRequest) -> Result<ProxyResponse, String> 
     // Read body
     let body = response.text().await
         .map_err(|e| format!("Failed to read response: {}", e))?;
+
+    // Log error responses for debugging
+    if status >= 400 {
+        println!("[http_proxy] Error response body: {}", &body[..body.len().min(500)]);
+    }
 
     Ok(ProxyResponse {
         status,

@@ -5,7 +5,7 @@
  * all available context (screenshots, transcripts, insights).
  */
 
-import { Baleybot } from '@baleybots/core';
+import { Baleybot, Output, anthropic } from '@baleybots/core';
 import { QAResponseSchema, type SessionContext, type QAResponse } from './types';
 
 const SYSTEM_PROMPT = `You are a helpful assistant that answers questions about a work session.
@@ -25,8 +25,10 @@ export function createQABot() {
   return Baleybot.create({
     name: 'qa-bot',
     goal: SYSTEM_PROMPT,
-    model: 'claude-sonnet-4-20250514',
-    outputSchema: QAResponseSchema,
+    model: anthropic('claude-sonnet-4-20250514', {
+      proxyUrl: '', // Disable proxy - use direct URLs with our custom fetch
+    }),
+    output: Output.object({ schema: QAResponseSchema }),
   });
 }
 

@@ -33,44 +33,26 @@ export const AnalysisModeDecisionSchema = z.object({
 
 export type AnalysisModeDecision = z.infer<typeof AnalysisModeDecisionSchema>;
 
-// Q&A response
+// Q&A response - using string array for relevantMoments for v6 compatibility
 export const QAResponseSchema = z.object({
   answer: z.string(),
-  relevantMoments: z.array(z.object({
-    timestamp: z.string(),
-    description: z.string(),
-  })).optional(),
+  relevantMoments: z.array(z.string()).optional().describe('Relevant moments from the session, formatted as "HH:MM: description"'),
   suggestedFollowUp: z.string().nullable(),
 });
 
 export type QAResponse = z.infer<typeof QAResponseSchema>;
 
 // Final summary output (matches app's Summary type)
+// Uses arrays of strings for v6 Output pattern compatibility
 export const FinalSummarySchema = z.object({
   text: z.string().describe('A comprehensive 2-4 paragraph summary of the entire session'),
-  tasks: z.array(z.object({
-    title: z.string().describe('A clear, actionable task'),
-  })).describe('Action items extracted from the session'),
-  notes: z.array(z.object({
-    content: z.string().describe('A key insight or note worth remembering'),
-  })).describe('Important observations and insights'),
+  tasks: z.array(z.string()).describe('Action items extracted from the session'),
+  notes: z.array(z.string()).describe('Important observations and insights'),
 });
 
 export type FinalSummary = z.infer<typeof FinalSummarySchema>;
 
-// Capture processing output
-export const CaptureResultSchema = z.object({
-  title: z.string().describe('A concise 2-6 word title for the capture'),
-  summary: z.string().describe('A brief paragraph summarizing the captured content'),
-  tasks: z.array(z.object({
-    title: z.string().describe('A clear, actionable task'),
-  })).describe('Action items extracted from the content'),
-  notes: z.array(z.object({
-    content: z.string().describe('A key insight or note'),
-  })).describe('Important observations'),
-});
-
-export type CaptureResult = z.infer<typeof CaptureResultSchema>;
+// CaptureResult is now defined in capture.ts using the v6 Output pattern
 
 // Session context for bots
 export interface SessionContext {

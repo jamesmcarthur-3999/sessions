@@ -6,7 +6,7 @@
  * transcripts, and screenshot analyses.
  */
 
-import { Baleybot } from '@baleybots/core';
+import { Baleybot, Output, anthropic } from '@baleybots/core';
 import { FinalSummarySchema, type FinalSummary } from './types';
 import type { DbScreenshot, DbAudioChunk, DbInsight, DbRollingSummary } from '../../types/database';
 
@@ -35,8 +35,10 @@ export function createFinalSummaryBot() {
   return Baleybot.create({
     name: 'final-summary',
     goal: SYSTEM_PROMPT,
-    model: 'claude-sonnet-4-20250514',
-    outputSchema: FinalSummarySchema,
+    model: anthropic('claude-sonnet-4-20250514', {
+      proxyUrl: '', // Disable proxy - use direct URLs with our custom fetch
+    }),
+    output: Output.object({ schema: FinalSummarySchema }),
   });
 }
 

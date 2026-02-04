@@ -5,7 +5,7 @@
  * or de-escalate analysis depth.
  */
 
-import { Baleybot } from '@baleybots/core';
+import { Baleybot, Output, anthropic } from '@baleybots/core';
 import { AnalysisModeDecisionSchema, type SessionContext, type AnalysisModeDecision } from './types';
 
 const SYSTEM_PROMPT = `You are an analysis controller that decides the appropriate analysis intensity for a work session.
@@ -26,8 +26,10 @@ export function createAnalysisControllerBot() {
   return Baleybot.create({
     name: 'analysis-controller',
     goal: SYSTEM_PROMPT,
-    model: 'claude-sonnet-4-20250514',
-    outputSchema: AnalysisModeDecisionSchema,
+    model: anthropic('claude-sonnet-4-20250514', {
+      proxyUrl: '', // Disable proxy - use direct URLs with our custom fetch
+    }),
+    output: Output.object({ schema: AnalysisModeDecisionSchema }),
   });
 }
 

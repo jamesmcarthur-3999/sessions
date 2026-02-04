@@ -25,6 +25,36 @@ interface ProxyResponse {
 }
 
 /**
+ * Map baleybots proxy paths back to real API URLs
+ * Baleybots rewrites URLs like api.anthropic.com/v1/messages to localhost/api/anthropic/chat
+ * We need to reverse this since we're making real API calls from Rust
+ */
+function unmapProxyUrl(url: string): string {
+  const originalUrl = url;
+
+  // Check if this is a localhost proxy URL
+  if (url.includes('localhost') || url.includes('127.0.0.1')) {
+    // Map back to real API endpoints
+    if (url.includes('/api/anthropic/chat')) {
+      const mapped = 'https://api.anthropic.com/v1/messages';
+      console.log('[TauriFetch] URL unmapped:', originalUrl, '→', mapped);
+      return mapped;
+    }
+    if (url.includes('/api/openai/chat')) {
+      const mapped = 'https://api.openai.com/v1/chat/completions';
+      console.log('[TauriFetch] URL unmapped:', originalUrl, '→', mapped);
+      return mapped;
+    }
+  }
+
+  // No mapping needed
+  if (originalUrl !== url) {
+    console.log('[TauriFetch] URL unchanged:', originalUrl);
+  }
+  return url;
+}
+
+/**
  * Custom fetch that routes through Tauri's Rust backend
  * Falls back to native fetch when not in Tauri environment
  */
@@ -38,7 +68,11 @@ export async function tauriFetch(
   }
 
   // Build request for Tauri
-  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+  let url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+
+  // Reverse baleybots URL rewriting - convert proxy URLs back to real API URLs
+  url = unmapProxyUrl(url);
+
   const method = init?.method || 'GET';
 
   // Convert headers to plain object
@@ -80,6 +114,16 @@ export async function tauriFetch(
 
   try {
     console.log('[TauriFetch] Calling http_proxy:', url, method);
+    console.log('[TauriFetch] Headers:', JSON.stringify(headers, null, 2));
+    if (body) {
+      try {
+        const bodyObj = JSON.parse(body);
+        console.log('[TauriFetch] Body model:', bodyObj.model);
+        console.log('[TauriFetch] Body keys:', Object.keys(bodyObj));
+      } catch {
+        console.log('[TauriFetch] Body (raw):', body.slice(0, 200));
+      }
+    }
 
     // Call Tauri backend
     const response = await invoke<ProxyResponse>('http_proxy', { request });

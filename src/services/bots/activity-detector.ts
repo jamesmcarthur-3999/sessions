@@ -5,7 +5,7 @@
  * identify context changes, and suggest insights.
  */
 
-import { Baleybot, combine, text, image } from '@baleybots/core';
+import { Baleybot, Output, combine, text, image, anthropic } from '@baleybots/core';
 import { ActivityDetectionSchema, type ActivityDetection } from './types';
 
 const SYSTEM_PROMPT = `You are an activity detector analyzing screenshots from a work session.
@@ -23,8 +23,10 @@ export function createActivityDetectorBot() {
   return Baleybot.create({
     name: 'activity-detector',
     goal: SYSTEM_PROMPT,
-    model: 'claude-sonnet-4-20250514',
-    outputSchema: ActivityDetectionSchema,
+    model: anthropic('claude-sonnet-4-20250514', {
+      proxyUrl: '', // Disable proxy - use direct URLs with our custom fetch
+    }),
+    output: Output.object({ schema: ActivityDetectionSchema }),
   });
 }
 

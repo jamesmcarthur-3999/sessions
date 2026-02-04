@@ -5,7 +5,7 @@
  * Runs periodically and when significant changes are detected.
  */
 
-import { Baleybot } from '@baleybots/core';
+import { Baleybot, Output, anthropic } from '@baleybots/core';
 import { RollingSummarySchema, type SessionContext, type RollingSummary } from './types';
 
 const SYSTEM_PROMPT = `You are a session summarizer. Your job is to maintain a concise, evolving summary of a work session.
@@ -32,8 +32,10 @@ export function createSummarizerBot() {
   return Baleybot.create({
     name: 'summarizer',
     goal: SYSTEM_PROMPT,
-    model: 'claude-sonnet-4-20250514',
-    outputSchema: RollingSummarySchema,
+    model: anthropic('claude-sonnet-4-20250514', {
+      proxyUrl: '', // Disable proxy - use direct URLs with our custom fetch
+    }),
+    output: Output.object({ schema: RollingSummarySchema }),
   });
 }
 
