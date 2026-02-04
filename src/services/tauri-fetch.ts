@@ -79,8 +79,12 @@ export async function tauriFetch(
   };
 
   try {
+    console.log('[TauriFetch] Calling http_proxy:', url, method);
+
     // Call Tauri backend
     const response = await invoke<ProxyResponse>('http_proxy', { request });
+
+    console.log('[TauriFetch] Response status:', response.status);
 
     // Convert to Response object
     const responseHeaders = new Headers();
@@ -94,6 +98,7 @@ export async function tauriFetch(
     });
   } catch (error) {
     // Convert Tauri error to fetch-like error
+    console.error('[TauriFetch] Error:', error);
     throw new TypeError(`Network request failed: ${error}`);
   }
 }
