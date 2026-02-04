@@ -28,7 +28,7 @@ export function createCaptureBot() {
   return Baleybot.create({
     name: 'capture',
     goal: SYSTEM_PROMPT,
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-3-5-sonnet-20241022',
     outputSchema: CaptureResultSchema,
   });
 }

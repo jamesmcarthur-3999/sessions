@@ -46,7 +46,9 @@ export function QuickCapture({ onBack, onComplete }: QuickCaptureProps) {
     try {
       const sessionId = generateId()
       // Ensure bots are initialized
-      await initializeBots()
+      console.log('[QuickCapture] Initializing bots...')
+      const initResult = await initializeBots()
+      console.log('[QuickCapture] Bots initialized:', initResult, 'isReady:', isBotsReady())
 
       await new Promise(r => setTimeout(r, 500))
       setProcessingStage('Extracting insights...')
@@ -56,6 +58,7 @@ export function QuickCapture({ onBack, onComplete }: QuickCaptureProps) {
 
       if (isBotsReady()) {
         // Use Capture Bot
+        console.log('[QuickCapture] Creating capture bot...')
         const captureBot = createCaptureBot()
 
         // Build attachment descriptions
@@ -64,7 +67,9 @@ export function QuickCapture({ onBack, onComplete }: QuickCaptureProps) {
         )
 
         const input = buildCaptureInput(text, attachmentDescriptions)
+        console.log('[QuickCapture] Calling captureBot.process with input length:', input.length)
         const result = await captureBot.process(input)
+        console.log('[QuickCapture] Got result:', result)
 
         title = result?.title || 'Quick Note'
         summary = {
@@ -118,7 +123,8 @@ export function QuickCapture({ onBack, onComplete }: QuickCaptureProps) {
       onComplete(session)
     } catch (error) {
       console.error('Failed to process capture:', error)
-      showToast('Failed to process capture. Please try again.', 'error', 5000)
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      showToast(`Capture failed: ${errorMessage}`, 'error', 8000)
       setIsProcessing(false)
       setProcessingStage('')
     }
