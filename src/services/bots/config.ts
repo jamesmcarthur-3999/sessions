@@ -22,17 +22,8 @@ let baleybots: typeof import('@baleybots/core') | null = null;
 async function loadBaleybots() {
   if (!baleybots) {
     baleybots = await import('@baleybots/core');
-    try {
-      baleybots.Baleybot.setGlobalConfig({
-        anthropic: {
-          headers: {
-            'anthropic-dangerous-direct-browser-access': 'true',
-          },
-        },
-      });
-    } catch (error) {
-      console.warn('[Baleybots] Failed to set global config:', error);
-    }
+    // Note: Headers are now passed directly in each bot's model config
+    // via the anthropic() factory function for better control
   }
   return baleybots;
 }

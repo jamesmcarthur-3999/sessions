@@ -71,7 +71,7 @@ export function QuickCapture({ onBack, onComplete }: QuickCaptureProps) {
 
         // Use Capture Bot
         console.log('[QuickCapture] Creating capture bot...')
-        const captureBot = createCaptureBot()
+        const captureBot = await createCaptureBot()
 
         // Build attachment descriptions
         const attachmentDescriptions = attachments.map(f =>

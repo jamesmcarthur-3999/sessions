@@ -5,8 +5,10 @@
  * structured information: title, summary, tasks, and notes.
  */
 
-import { Baleybot } from '@baleybots/core';
+import { Baleybot, anthropic } from '@baleybots/core';
 import { CaptureResultSchema, type CaptureResult } from './types';
+import { getSecureItem } from '../secure-storage';
+import { isTauri } from '../recording';
 
 const SYSTEM_PROMPT = `You are an AI assistant that analyzes captured text and extracts structured information.
 
@@ -24,11 +26,26 @@ Guidelines:
 - Same for notes - only include if there's something worth noting
 - Look for implicit tasks: TODOs, FIXMEs, "need to", "should", "must", etc.`;
 
-export function createCaptureBot() {
+export async function createCaptureBot() {
+  // Get API key from secure storage or localStorage
+  let apiKey = await getSecureItem('sessions_api_key');
+  if (!apiKey && !isTauri()) {
+    apiKey = localStorage.getItem('sessions_api_key');
+  }
+
+  if (!apiKey) {
+    throw new Error('No API key configured. Please add your Claude API key in Settings.');
+  }
+
   return Baleybot.create({
     name: 'capture',
     goal: SYSTEM_PROMPT,
-    model: 'claude-3-5-sonnet-20241022',
+    model: anthropic('claude-3-5-sonnet-20241022', {
+      apiKey,
+      headers: {
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+    }),
     outputSchema: CaptureResultSchema,
   });
 }
