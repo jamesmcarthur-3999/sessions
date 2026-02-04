@@ -47,8 +47,11 @@ async function invokeWithTimeout<T>(
 }
 
 // Check if running in Tauri
+// In Tauri v2, __TAURI__ is injected but may not be available immediately
+// Also check for __TAURI_INTERNALS__ which is always present
 export function isTauri(): boolean {
-  return typeof window !== 'undefined' && '__TAURI__' in window
+  if (typeof window === 'undefined') return false;
+  return '__TAURI__' in window || '__TAURI_INTERNALS__' in window;
 }
 
 // ============================================================================
