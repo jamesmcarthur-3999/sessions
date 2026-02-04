@@ -37,14 +37,14 @@ export async function createCaptureBot() {
     throw new Error('No API key configured. Please add your Claude API key in Settings.');
   }
 
+  // Use proxy server to avoid browser CORS issues
+  // The proxy runs on localhost:3001 alongside the app
   return Baleybot.create({
     name: 'capture',
     goal: SYSTEM_PROMPT,
     model: anthropic('claude-3-5-sonnet-20241022', {
       apiKey,
-      headers: {
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
+      proxyUrl: 'http://localhost:3001',
     }),
     outputSchema: CaptureResultSchema,
   });

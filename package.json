@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/ensure-baleybots.mjs && vite",
+    "dev:proxy": "node scripts/proxy-server.mjs",
+    "dev:full": "node scripts/ensure-baleybots.mjs && (node scripts/proxy-server.mjs &) && vite",
     "build": "node scripts/ensure-baleybots.mjs && tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
@@ -12,13 +14,14 @@
     "baleybots:update": "scripts/update-baleybots.sh",
     "boot": "scripts/boot.sh",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev",
+    "tauri:dev": "(node scripts/proxy-server.mjs &) && tauri dev",
     "tauri:build": "tauri build"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.35",
     "@baleybots/chat": "file:./vendor/baleybots/typescript/packages/chat",
     "@baleybots/core": "file:./vendor/baleybots/typescript/packages/core",
+    "@baleybots/proxy-server": "file:./vendor/baleybots/typescript/packages/proxy-server",
     "@baleybots/react": "file:./vendor/baleybots/typescript/packages/react",
     "@tauri-apps/api": "^2.9.1",
     "@tauri-apps/plugin-fs": "^2.4.5",
