@@ -7,8 +7,6 @@
 
 import { Baleybot, anthropic } from '@baleybots/core';
 import { CaptureResultSchema, type CaptureResult } from './types';
-import { getSecureItem } from '../secure-storage';
-import { isTauri } from '../recording';
 
 const SYSTEM_PROMPT = `You are an AI assistant that analyzes captured text and extracts structured information.
 
@@ -27,25 +25,12 @@ Guidelines:
 - Look for implicit tasks: TODOs, FIXMEs, "need to", "should", "must", etc.`;
 
 export async function createCaptureBot() {
-  // Get API key from secure storage or localStorage
-  let apiKey = await getSecureItem('sessions_api_key');
-  if (!apiKey && !isTauri()) {
-    apiKey = localStorage.getItem('sessions_api_key');
-  }
-
-  if (!apiKey) {
-    throw new Error('No API key configured. Please add your Claude API key in Settings.');
-  }
-
-  // Use proxy server to avoid browser CORS issues
-  // The proxy runs on localhost:3001 alongside the app
+  // API key is set via setDefaultApiKey in config.ts
+  // Custom fetch (Tauri or browser) is set via setGlobalConfig
   return Baleybot.create({
     name: 'capture',
     goal: SYSTEM_PROMPT,
-    model: anthropic('claude-3-5-sonnet-20241022', {
-      apiKey,
-      proxyUrl: 'http://localhost:3001',
-    }),
+    model: anthropic('claude-3-5-sonnet-20241022'),
     outputSchema: CaptureResultSchema,
   });
 }

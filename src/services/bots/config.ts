@@ -7,6 +7,7 @@
 
 import { getSecureItem, setSecureItem, removeSecureItem } from '../secure-storage'
 import { isTauri } from '../recording'
+import { createTauriFetch } from '../tauri-fetch'
 
 export interface BotConfig {
   claudeApiKey?: string;
@@ -22,8 +23,33 @@ let baleybots: typeof import('@baleybots/core') | null = null;
 async function loadBaleybots() {
   if (!baleybots) {
     baleybots = await import('@baleybots/core');
-    // Note: Headers are now passed directly in each bot's model config
-    // via the anthropic() factory function for better control
+
+    // Configure baleybots to use Tauri's HTTP proxy when in Tauri environment
+    // This bypasses browser CORS restrictions by routing through Rust
+    if (isTauri()) {
+      const tauriFetch = createTauriFetch();
+      baleybots.Baleybot.setGlobalConfig({
+        // Use Tauri fetch for all providers
+        fetch: tauriFetch,
+        anthropic: {
+          fetch: tauriFetch,
+        },
+        openai: {
+          fetch: tauriFetch,
+        },
+      });
+      console.log('[Baleybots] Configured to use Tauri HTTP proxy');
+    } else {
+      // In browser mode, use direct fetch with CORS header
+      baleybots.Baleybot.setGlobalConfig({
+        anthropic: {
+          headers: {
+            'anthropic-dangerous-direct-browser-access': 'true',
+          },
+        },
+      });
+      console.log('[Baleybots] Configured for direct browser access');
+    }
   }
   return baleybots;
 }
@@ -152,15 +178,22 @@ export function resetBots(): void {
  */
 export async function testApiKey(apiKey: string): Promise<{ valid: boolean; error?: string }> {
   try {
-    // Make a minimal API call to verify the key works
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    // Use Tauri fetch when available, otherwise native fetch with CORS header
+    const fetchFn = isTauri() ? createTauriFetch() : fetch;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    };
+
+    // Add CORS header for browser mode
+    if (!isTauri()) {
+      headers['anthropic-dangerous-direct-browser-access'] = 'true';
+    }
+
+    const response = await fetchFn('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
+      headers,
       body: JSON.stringify({
         model: 'claude-3-haiku-20240307', // Use cheapest model for test
         max_tokens: 1,

@@ -1,5 +1,6 @@
 mod activity_monitor;
 mod audio_capture;
+mod http_proxy;
 mod video_recording;
 
 use tauri::Manager;
@@ -349,6 +350,9 @@ pub fn run() {
             // Activity monitoring
             start_activity_monitor,
             stop_activity_monitor,
+            // HTTP proxy for AI API calls (bypasses browser CORS)
+            http_proxy::http_proxy,
+            http_proxy::http_proxy_stream,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
