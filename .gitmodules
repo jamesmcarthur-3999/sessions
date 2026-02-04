@@ -1,3 +1,4 @@
 [submodule "vendor/baleybots"]
 	path = vendor/baleybots
-	url = ./vendor/baleybots
+	url = https://github.com/baleybots/baleybots.git
+	branch = main

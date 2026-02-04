@@ -6,7 +6,8 @@
  */
 
 import type { Session } from '../types'
-import { getAllCompleteSessions } from './database'
+import { getAllSessionsForSync, getSessionSummary, getCapturePayload } from './database'
+import { isTauri } from './recording'
 
 const STORAGE_KEY = 'sessions'
 
@@ -56,6 +57,14 @@ class StorageService {
           typeof session.createdAt === 'string'
         )
       })
+
+      if (sessions.length === 0 && isTauri()) {
+        try {
+          return await this.syncFromDatabase()
+        } catch (syncError) {
+          console.warn('[STORAGE] Failed to recover from database:', syncError)
+        }
+      }
 
       // Sort by createdAt descending
       return sessions.sort((a, b) =>
@@ -150,25 +159,42 @@ class StorageService {
    * Use when localStorage is corrupted or cleared
    */
   async syncFromDatabase(): Promise<Session[]> {
-    const dbSessions = await getAllCompleteSessions()
+    const dbSessions = await getAllSessionsForSync()
 
     // Convert DbSession to Session format
-    const sessions: Session[] = dbSessions.map(db => ({
-      id: db.id,
-      type: db.type as 'session' | 'capture',
-      title: db.title,
-      createdAt: db.created_at,
-      duration: db.duration_seconds ?? undefined,
-      // Note: summary data is stored separately in rolling_summaries table
-      // and would need to be fetched separately if needed
-    }))
+    const sessions: Session[] = []
+
+    for (const db of dbSessions) {
+      const summary = await getSessionSummary(db.id)
+      const capturePayload = db.type === 'capture'
+        ? await getCapturePayload(db.id)
+        : null
+
+      sessions.push({
+        id: db.id,
+        type: db.type as 'session' | 'capture',
+        title: db.title,
+        createdAt: db.created_at,
+        duration: db.duration_seconds ?? undefined,
+        videoPath: db.video_path ?? undefined,
+        status: db.status,
+        summary: summary ?? undefined,
+        captureText: capturePayload?.text || undefined,
+        attachments: capturePayload?.attachments || undefined,
+      })
+    }
+
+    // Sort by createdAt descending
+    const sorted = sessions.sort((a, b) =>
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    )
 
     // Save to localStorage using the write lock
     return this.withLock(async () => {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions))
-        console.log(`[STORAGE] Synced ${sessions.length} sessions from database`)
-        return sessions
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(sorted))
+        console.log(`[STORAGE] Synced ${sorted.length} sessions from database`)
+        return sorted
       } catch (error) {
         console.error('[STORAGE] Failed to sync from database:', error)
         throw error
@@ -185,7 +211,7 @@ class StorageService {
     dbCount: number
   }> {
     const local = await this.loadSessions()
-    const dbSessions = await getAllCompleteSessions()
+    const dbSessions = await getAllSessionsForSync()
 
     return {
       inSync: local.length === dbSessions.length,

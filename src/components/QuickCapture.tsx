@@ -3,9 +3,10 @@ import { motion } from 'framer-motion'
 import { ArrowLeft, Sparkles, Paperclip, X, Image as ImageIcon, FileText, Feather } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { createCaptureBot, buildCaptureInput, initializeBots, isBotsReady } from '../services/bots'
+import { persistCaptureAttachments } from '../services/attachments'
 import { generateId } from '../utils/id'
 import { useToast } from './Toast'
-import type { Session, Summary } from '../types'
+import type { Session, Summary, Attachment } from '../types'
 
 interface QuickCaptureProps {
   onBack: () => void
@@ -43,6 +44,7 @@ export function QuickCapture({ onBack, onComplete }: QuickCaptureProps) {
     setProcessingStage('Reading your thoughts...')
 
     try {
+      const sessionId = generateId()
       // Ensure bots are initialized
       await initializeBots()
 
@@ -93,14 +95,22 @@ export function QuickCapture({ onBack, onComplete }: QuickCaptureProps) {
       setProcessingStage('Crafting your summary...')
       await new Promise(r => setTimeout(r, 300))
 
+      let attachmentMetadata: Attachment[] = []
+      if (attachments.length > 0) {
+        setProcessingStage('Saving attachments...')
+        attachmentMetadata = await persistCaptureAttachments(sessionId, attachments)
+      }
+
       // Create session
       const session: Session = {
-        id: generateId(),
+        id: sessionId,
         type: 'capture',
         title,
         createdAt: new Date().toISOString(),
         captureText: text,
+        attachments: attachmentMetadata.length > 0 ? attachmentMetadata : undefined,
         summary,
+        status: 'complete',
       }
 
       // Save and navigate

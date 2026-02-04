@@ -256,6 +256,11 @@ pub async fn start_video_recording(
         .map_err(|e| format!("Failed to lock video recorder: {}", e))?;
     let quality = quality.unwrap_or_default();
     let path = PathBuf::from(output_path);
+    if let Some(parent) = path.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            return Err(format!("Failed to create video output directory: {}", e));
+        }
+    }
 
     recorder.start_recording(session_id, path, quality)
 }

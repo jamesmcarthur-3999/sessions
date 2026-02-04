@@ -7,6 +7,13 @@
   ],
   "permissions": [
     "core:default",
+    "fs:allow-appdata-meta",
+    "fs:allow-appdata-meta-recursive",
+    "fs:allow-appdata-read",
+    "fs:allow-appdata-read-recursive",
+    "fs:allow-appdata-write",
+    "fs:allow-appdata-write-recursive",
+    "shell:allow-open",
     "sql:default",
     "sql:allow-load",
     "sql:allow-execute",
@@ -16,6 +23,16 @@
     "store:allow-set",
     "store:allow-delete",
     "store:allow-save",
-    "store:allow-load"
+    "store:allow-load",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "reveal-in-finder",
+          "cmd": "open",
+          "args": ["-R", { "validator": ".+" }]
+        }
+      ]
+    }
   ]
 }

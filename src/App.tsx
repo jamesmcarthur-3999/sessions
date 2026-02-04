@@ -23,6 +23,7 @@ function AppContent() {
   const [view, setView] = useState<View>('home')
   const [selectedSession, setSelectedSession] = useState<Session | null>(null)
   const [showCommandPalette, setShowCommandPalette] = useState(false)
+  const [showSettingsOverlay, setShowSettingsOverlay] = useState(false)
   const [showWelcome, setShowWelcome] = useState(() => {
     return !localStorage.getItem('sessions_onboarding_complete')
   })
@@ -35,16 +36,19 @@ function AppContent() {
   const handleBack = useCallback(() => {
     setSelectedSession(null)
     setView('home')
+    setShowSettingsOverlay(false)
   }, [])
 
   const handleCaptureComplete = useCallback((session: Session) => {
     setSelectedSession(session)
     setView('summary')
+    setShowSettingsOverlay(false)
   }, [])
 
   const handleRecordingComplete = useCallback((session: Session) => {
     setSelectedSession(session)
     setView('summary')
+    setShowSettingsOverlay(false)
   }, [])
 
   const handleStartSession = useCallback(() => {
@@ -53,6 +57,7 @@ function AppContent() {
       type: 'session',
       title: 'New Session',
       createdAt: new Date().toISOString(),
+      status: 'recording',
     }
     dispatch({ type: 'START_RECORDING', payload: session })
     setView('recording')
@@ -104,13 +109,17 @@ function AppContent() {
   // Listen for navigate-to-settings events (from LiveSessionPanel)
   useEffect(() => {
     const handleNavigateToSettings = () => {
-      setView('settings')
+      if (view === 'recording') {
+        setShowSettingsOverlay(true)
+      } else {
+        setView('settings')
+      }
     }
     window.addEventListener('navigate-to-settings', handleNavigateToSettings)
     return () => {
       window.removeEventListener('navigate-to-settings', handleNavigateToSettings)
     }
-  }, [])
+  }, [view])
 
   // Migrate API keys from localStorage to secure storage on startup
   useEffect(() => {
@@ -186,6 +195,15 @@ function AppContent() {
         onAddApiKey={handleWelcomeAddApiKey}
         onGetStarted={handleWelcomeGetStarted}
       />
+
+      {/* Settings Overlay (while recording) */}
+      {showSettingsOverlay && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm">
+          <div className="absolute inset-0 overflow-y-auto">
+            <Settings onBack={() => setShowSettingsOverlay(false)} />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -1,7 +1,17 @@
 import { createContext, useContext, useReducer, useEffect, useState, type ReactNode } from 'react'
 import type { Session } from '../types'
 import { storage } from '../services/storage'
-import { initDatabase, deleteSessionData, findOrphanedSessions, markSessionsAsInterrupted } from '../services/database'
+import {
+  initDatabase,
+  deleteSessionData,
+  findOrphanedSessions,
+  markSessionsAsInterrupted,
+  createSession,
+  updateSessionStatus,
+  saveSessionSummary,
+  saveCapturePayload,
+  updateSessionTitle,
+} from '../services/database'
 import { isTauri } from '../services/recording'
 
 interface AppState {
@@ -111,7 +121,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        const sessions = await storage.loadSessions()
+        const sessions = isTauri()
+          ? await storage.syncFromDatabase()
+          : await storage.loadSessions()
         dispatch({ type: 'SET_SESSIONS', payload: sessions })
       } catch (error) {
         console.error('Failed to load sessions:', error)
@@ -125,11 +137,56 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const addSession = async (session: Session) => {
     dispatch({ type: 'ADD_SESSION', payload: session })
     await storage.saveSession(session)
+    if (isTauri()) {
+      // Persist capture sessions to the database (recording sessions are created at start)
+      if (session.type === 'capture') {
+        try {
+          await createSession(session.id, 'capture', session.title, 'ambient')
+          await updateSessionStatus(session.id, 'complete', session.duration)
+          if (session.captureText || session.attachments) {
+            await saveCapturePayload(session.id, session.captureText || '', session.attachments)
+          }
+        } catch (error) {
+          console.error('[DATABASE] Failed to persist capture session:', error)
+        }
+      }
+
+      if (session.summary) {
+        try {
+          await saveSessionSummary(session.id, session.summary)
+        } catch (error) {
+          console.error('[DATABASE] Failed to save session summary:', error)
+        }
+      }
+    }
   }
 
   const updateSession = async (session: Session) => {
     dispatch({ type: 'UPDATE_SESSION', payload: session })
     await storage.saveSession(session)
+    if (isTauri()) {
+      try {
+        await updateSessionTitle(session.id, session.title)
+      } catch (error) {
+        console.error('[DATABASE] Failed to update session title:', error)
+      }
+
+      if (session.summary) {
+        try {
+          await saveSessionSummary(session.id, session.summary)
+        } catch (error) {
+          console.error('[DATABASE] Failed to update session summary:', error)
+        }
+      }
+
+      if (session.type === 'capture' && (session.captureText || session.attachments)) {
+        try {
+          await saveCapturePayload(session.id, session.captureText || '', session.attachments)
+        } catch (error) {
+          console.error('[DATABASE] Failed to update capture payload:', error)
+        }
+      }
+    }
   }
 
   const deleteSession = async (id: string) => {

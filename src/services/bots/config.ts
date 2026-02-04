@@ -6,6 +6,7 @@
  */
 
 import { getSecureItem, setSecureItem, removeSecureItem } from '../secure-storage'
+import { isTauri } from '../recording'
 
 export interface BotConfig {
   claudeApiKey?: string;
@@ -21,6 +22,17 @@ let baleybots: typeof import('@baleybots/core') | null = null;
 async function loadBaleybots() {
   if (!baleybots) {
     baleybots = await import('@baleybots/core');
+    try {
+      baleybots.Baleybot.setGlobalConfig({
+        anthropic: {
+          headers: {
+            'anthropic-dangerous-direct-browser-access': 'true',
+          },
+        },
+      });
+    } catch (error) {
+      console.warn('[Baleybots] Failed to set global config:', error);
+    }
   }
   return baleybots;
 }
@@ -30,6 +42,10 @@ async function loadBaleybots() {
  */
 export async function initializeBots(): Promise<boolean> {
   if (isInitialized) return true;
+  if (!isTauri()) {
+    console.warn('[Baleybots] Skipping initialization outside Tauri');
+    return false;
+  }
 
   try {
     const { setDefaultApiKey } = await loadBaleybots();
@@ -146,6 +162,7 @@ export async function testApiKey(apiKey: string): Promise<{ valid: boolean; erro
         'Content-Type': 'application/json',
         'x-api-key': apiKey,
         'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
       },
       body: JSON.stringify({
         model: 'claude-3-haiku-20240307', // Use cheapest model for test

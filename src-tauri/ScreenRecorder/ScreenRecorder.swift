@@ -10,6 +10,7 @@
 import Foundation
 import ScreenCaptureKit
 import AVFoundation
+import AppKit
 
 // MARK: - C-Compatible Global Functions (for Rust FFI)
 

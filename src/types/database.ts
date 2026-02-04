@@ -10,6 +10,7 @@ export interface DbSession {
   created_at: string;
   updated_at: string;
   duration_seconds: number | null;
+  video_path: string | null;
   status: 'recording' | 'processing' | 'complete' | 'error' | 'interrupted';
   analysis_mode: 'ambient' | 'deep';
 }
@@ -55,6 +56,20 @@ export interface DbRollingSummary {
   updated_at: string;
   content: string;
   version: number;
+}
+
+// Final summary payload
+export interface DbSessionSummary {
+  session_id: string;
+  updated_at: string;
+  summary_json: string;
+}
+
+// Capture payload (text + attachments metadata)
+export interface DbCapturePayload {
+  session_id: string;
+  text: string | null;
+  attachments_json: string | null;
 }
 
 // Chat messages

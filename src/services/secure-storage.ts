@@ -15,8 +15,8 @@ async function getStore() {
   }
 
   if (!store) {
-    const { Store } = await import('@tauri-apps/plugin-store')
-    store = new Store('secure-credentials.json')
+    const { load } = await import('@tauri-apps/plugin-store')
+    store = await load('secure-credentials.json')
   }
   return store
 }

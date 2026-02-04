@@ -7,6 +7,7 @@
 
 import Database from '@tauri-apps/plugin-sql';
 import { generateId } from '../utils/id';
+import type { Summary, Attachment } from '../types';
 import type {
   DbSession,
   DbScreenshot,
@@ -29,6 +30,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   duration_seconds INTEGER,
+  video_path TEXT,
   status TEXT NOT NULL DEFAULT 'recording' CHECK (status IN ('recording', 'processing', 'complete', 'error', 'interrupted')),
   analysis_mode TEXT NOT NULL DEFAULT 'ambient' CHECK (analysis_mode IN ('ambient', 'deep'))
 );
@@ -81,6 +83,20 @@ CREATE TABLE IF NOT EXISTS rolling_summaries (
   version INTEGER NOT NULL DEFAULT 1
 );
 
+-- Final session summaries (JSON payload)
+CREATE TABLE IF NOT EXISTS session_summaries (
+  session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+  updated_at TEXT NOT NULL,
+  summary_json TEXT NOT NULL
+);
+
+-- Capture payloads (text + attachment metadata)
+CREATE TABLE IF NOT EXISTS capture_payloads (
+  session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+  text TEXT,
+  attachments_json TEXT
+);
+
 -- Chat messages table
 CREATE TABLE IF NOT EXISTS chat_messages (
   id TEXT PRIMARY KEY,
@@ -101,6 +117,20 @@ CREATE TABLE IF NOT EXISTS analysis_state (
   updated_at TEXT NOT NULL
 );
 `;
+
+async function ensureColumn(
+  database: Database,
+  table: string,
+  column: string,
+  definition: string
+): Promise<void> {
+  const columns = await database.select<Array<{ name: string }>>(
+    `PRAGMA table_info(${table})`
+  );
+  if (!columns.some(c => c.name === column)) {
+    await database.execute(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
+  }
+}
 
 /**
  * Initialize the database connection and create schema
@@ -129,6 +159,13 @@ export async function initDatabase(): Promise<void> {
       const statements = SCHEMA.split(';').filter(s => s.trim());
       for (const statement of statements) {
         await db.execute(statement);
+      }
+
+      // Apply lightweight migrations for new columns
+      try {
+        await ensureColumn(db, 'sessions', 'video_path', 'video_path TEXT');
+      } catch (error) {
+        console.warn('[DATABASE] Failed to ensure sessions.video_path column:', error);
       }
 
       console.log('[DATABASE] Schema initialized successfully');
@@ -189,6 +226,7 @@ export async function createSession(
     created_at: now,
     updated_at: now,
     duration_seconds: null,
+    video_path: null,
     status: 'recording',
     analysis_mode: analysisMode,
   };
@@ -198,9 +236,18 @@ export async function createSession(
     await db.execute('BEGIN TRANSACTION');
 
     await db.execute(
-      `INSERT INTO sessions (id, type, title, created_at, updated_at, status, analysis_mode)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [session.id, session.type, session.title, session.created_at, session.updated_at, session.status, session.analysis_mode]
+      `INSERT INTO sessions (id, type, title, created_at, updated_at, status, analysis_mode, video_path)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        session.id,
+        session.type,
+        session.title,
+        session.created_at,
+        session.updated_at,
+        session.status,
+        session.analysis_mode,
+        session.video_path,
+      ]
     );
 
     // Initialize analysis state
@@ -246,6 +293,30 @@ export async function updateSessionStatus(
   await db.execute(
     `UPDATE sessions SET status = $1, duration_seconds = $2, updated_at = $3 WHERE id = $4`,
     [status, durationSeconds ?? null, now, id]
+  );
+}
+
+export async function updateSessionTitle(
+  id: string,
+  title: string
+): Promise<void> {
+  const db = await ensureDb();
+  const now = new Date().toISOString();
+  await db.execute(
+    `UPDATE sessions SET title = $1, updated_at = $2 WHERE id = $3`,
+    [title, now, id]
+  );
+}
+
+export async function updateSessionVideoPath(
+  id: string,
+  videoPath: string | null
+): Promise<void> {
+  const db = await ensureDb();
+  const now = new Date().toISOString();
+  await db.execute(
+    `UPDATE sessions SET video_path = $1, updated_at = $2 WHERE id = $3`,
+    [videoPath, now, id]
   );
 }
 
@@ -459,6 +530,88 @@ export async function updateRollingSummary(
 }
 
 // ============================================================================
+// Final Summary
+// ============================================================================
+
+export async function saveSessionSummary(
+  sessionId: string,
+  summary: Summary
+): Promise<void> {
+  const db = await ensureDb();
+  const now = new Date().toISOString();
+  const summaryJson = JSON.stringify(summary);
+
+  await db.execute(
+    `INSERT INTO session_summaries (session_id, updated_at, summary_json)
+     VALUES ($1, $2, $3)
+     ON CONFLICT(session_id) DO UPDATE SET
+       summary_json = excluded.summary_json,
+       updated_at = excluded.updated_at`,
+    [sessionId, now, summaryJson]
+  );
+}
+
+export async function getSessionSummary(sessionId: string): Promise<Summary | null> {
+  const db = await ensureDb();
+  const result = await db.select<Array<{ summary_json: string }>>(
+    'SELECT summary_json FROM session_summaries WHERE session_id = $1',
+    [sessionId]
+  );
+  if (!result[0]?.summary_json) return null;
+
+  try {
+    return JSON.parse(result[0].summary_json) as Summary;
+  } catch {
+    return null;
+  }
+}
+
+// ============================================================================
+// Capture Payloads
+// ============================================================================
+
+export async function saveCapturePayload(
+  sessionId: string,
+  text: string,
+  attachments?: Attachment[]
+): Promise<void> {
+  const db = await ensureDb();
+  const attachmentsJson = attachments ? JSON.stringify(attachments) : null;
+
+  await db.execute(
+    `INSERT INTO capture_payloads (session_id, text, attachments_json)
+     VALUES ($1, $2, $3)
+     ON CONFLICT(session_id) DO UPDATE SET
+       text = excluded.text,
+       attachments_json = excluded.attachments_json`,
+    [sessionId, text, attachmentsJson]
+  );
+}
+
+export async function getCapturePayload(sessionId: string): Promise<{ text: string; attachments: Attachment[] } | null> {
+  const db = await ensureDb();
+  const result = await db.select<Array<{ text: string | null; attachments_json: string | null }>>(
+    'SELECT text, attachments_json FROM capture_payloads WHERE session_id = $1',
+    [sessionId]
+  );
+  if (!result[0]) return null;
+
+  let attachments: Attachment[] = [];
+  if (result[0].attachments_json) {
+    try {
+      attachments = JSON.parse(result[0].attachments_json) as Attachment[];
+    } catch {
+      attachments = [];
+    }
+  }
+
+  return {
+    text: result[0].text ?? '',
+    attachments,
+  };
+}
+
+// ============================================================================
 // Chat Messages
 // ============================================================================
 
@@ -541,8 +694,10 @@ export async function deleteSessionData(sessionId: string): Promise<void> {
     await db.execute('BEGIN TRANSACTION');
 
     // Delete in order to respect foreign key constraints (if CASCADE isn't working)
+    await db.execute('DELETE FROM capture_payloads WHERE session_id = $1', [sessionId]);
     await db.execute('DELETE FROM chat_messages WHERE session_id = $1', [sessionId]);
     await db.execute('DELETE FROM insights WHERE session_id = $1', [sessionId]);
+    await db.execute('DELETE FROM session_summaries WHERE session_id = $1', [sessionId]);
     await db.execute('DELETE FROM rolling_summaries WHERE session_id = $1', [sessionId]);
     await db.execute('DELETE FROM analysis_state WHERE session_id = $1', [sessionId]);
     await db.execute('DELETE FROM audio_chunks WHERE session_id = $1', [sessionId]);
@@ -600,5 +755,15 @@ export async function getAllCompleteSessions(): Promise<DbSession[]> {
   const db = await ensureDb();
   return await db.select<DbSession[]>(
     "SELECT * FROM sessions WHERE status = 'complete' ORDER BY created_at DESC"
+  );
+}
+
+/**
+ * Get all sessions for UI sync (includes interrupted/error sessions)
+ */
+export async function getAllSessionsForSync(): Promise<DbSession[]> {
+  const db = await ensureDb();
+  return await db.select<DbSession[]>(
+    "SELECT * FROM sessions WHERE status IN ('complete', 'interrupted', 'error', 'processing') ORDER BY created_at DESC"
   );
 }

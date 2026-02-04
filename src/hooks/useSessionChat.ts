@@ -7,6 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { sessionCoordinator } from '../services/session-coordinator';
 import { getChatHistory } from '../services/database';
+import { generateId } from '../utils/id';
 import type { DbChatMessage } from '../types/database';
 
 interface ChatState {
@@ -72,13 +73,23 @@ export function useSessionChat(sessionId: string | null) {
   const sendMessage = useCallback(async (message: string) => {
     if (!sessionId || !message.trim()) return;
 
-    setState(s => ({ ...s, isSending: true, error: null }));
+    const optimisticMessage: DbChatMessage = {
+      id: generateId(),
+      session_id: sessionId,
+      created_at: new Date().toISOString(),
+      role: 'user',
+      content: message,
+      metadata: null,
+    };
+
+    setState(s => ({
+      ...s,
+      isSending: true,
+      error: null,
+      messages: [...s.messages, optimisticMessage],
+    }));
 
     try {
-      // Optimistically add user message
-      const messages = await getChatHistory(sessionId);
-      setState(s => ({ ...s, messages }));
-
       // Send to coordinator (response will come via event)
       await sessionCoordinator.handleChatMessage(sessionId, message);
     } catch (error) {
