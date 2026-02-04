@@ -2,7 +2,8 @@ import { useState, useRef, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { ArrowLeft, Sparkles, Paperclip, X, Image as ImageIcon, FileText, Feather } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { createCaptureBot, buildCaptureInput, initializeBots, isBotsReady } from '../services/bots'
+import { createCaptureBot, buildCaptureInput, initializeBots, isBotsReady, testApiKey } from '../services/bots'
+import { getSecureItem } from '../services/secure-storage'
 import { persistCaptureAttachments } from '../services/attachments'
 import { generateId } from '../utils/id'
 import { useToast } from './Toast'
@@ -57,6 +58,17 @@ export function QuickCapture({ onBack, onComplete }: QuickCaptureProps) {
       let summary: Summary
 
       if (isBotsReady()) {
+        // First test the API key directly to verify it works
+        console.log('[QuickCapture] Testing API key...')
+        const apiKey = await getSecureItem('sessions_api_key') || localStorage.getItem('sessions_api_key')
+        if (apiKey) {
+          const testResult = await testApiKey(apiKey)
+          console.log('[QuickCapture] API key test result:', testResult)
+          if (!testResult.valid) {
+            throw new Error(`API key test failed: ${testResult.error}`)
+          }
+        }
+
         // Use Capture Bot
         console.log('[QuickCapture] Creating capture bot...')
         const captureBot = createCaptureBot()
