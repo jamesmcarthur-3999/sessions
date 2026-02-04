@@ -10,7 +10,7 @@ export { createActivityDetectorBot, buildActivityDetectorInput } from './activit
 export { createAnalysisControllerBot, buildAnalysisControllerInput, type ActivityMetrics } from './analysis-controller';
 export { createQABot, buildQAInput } from './qa-bot';
 export { createFinalSummaryBot, buildFinalSummaryInput, type FinalSummaryInput } from './final-summary';
-export { createCaptureBot, buildCaptureInput } from './capture';
+export { processCapture, buildCaptureInput } from './capture';
 export {
   initializeBots,
   updateApiKeys,
