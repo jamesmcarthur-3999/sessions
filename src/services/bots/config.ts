@@ -41,27 +41,33 @@ async function loadBaleybots() {
  * Initialize Baleybots with API keys from secure storage
  */
 export async function initializeBots(): Promise<boolean> {
-  if (isInitialized) return true;
-  if (!isTauri()) {
-    console.warn('[Baleybots] Skipping initialization outside Tauri');
-    return false;
-  }
-
+  // Always try to load and set keys - don't skip even if initialized
+  // This ensures keys are re-applied after module reloads
   try {
     const { setDefaultApiKey } = await loadBaleybots();
 
-    // Get Claude API key from secure storage
-    const claudeKey = await getSecureItem('sessions_api_key');
+    // Get Claude API key - try secure storage first, then localStorage fallback
+    let claudeKey = await getSecureItem('sessions_api_key');
+
+    // Fallback to localStorage if secure storage returns null (browser mode or migration issue)
+    if (!claudeKey && !isTauri()) {
+      claudeKey = localStorage.getItem('sessions_api_key');
+    }
 
     // Get OpenAI API key from secure storage (for Whisper)
-    const openaiKey = await getSecureItem('sessions_openai_api_key');
+    let openaiKey = await getSecureItem('sessions_openai_api_key');
+    if (!openaiKey && !isTauri()) {
+      openaiKey = localStorage.getItem('sessions_openai_api_key');
+    }
 
     let hasAnyKey = false;
 
     if (claudeKey) {
       setDefaultApiKey('anthropic', claudeKey);
       hasAnyKey = true;
-      console.log('[Baleybots] AI service configured');
+      console.log('[Baleybots] AI service configured with key:', claudeKey.substring(0, 10) + '...');
+    } else {
+      console.warn('[Baleybots] No Claude API key found');
     }
 
     if (openaiKey) {
