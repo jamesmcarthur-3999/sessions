@@ -5,8 +5,18 @@
  * structured information: title, summary, tasks, and notes.
  */
 
-import { Baleybot, anthropic } from '@baleybots/core';
-import { CaptureResultSchema, type CaptureResult } from './types';
+import { Baleybot, Output, anthropic } from '@baleybots/core';
+import { z } from 'zod';
+
+// Schema for structured output - arrays of strings (what models naturally return)
+const CaptureSchema = z.object({
+  title: z.string().describe('A concise 2-6 word title for the capture'),
+  summary: z.string().describe('A brief paragraph summarizing the captured content'),
+  tasks: z.array(z.string()).describe('Action items as clear, actionable strings (start with verbs)'),
+  notes: z.array(z.string()).describe('Key insights or notes worth remembering'),
+});
+
+export type CaptureResult = z.infer<typeof CaptureSchema>;
 
 const SYSTEM_PROMPT = `You are an AI assistant that analyzes captured text and extracts structured information.
 
@@ -30,8 +40,10 @@ export async function createCaptureBot() {
   return Baleybot.create({
     name: 'capture',
     goal: SYSTEM_PROMPT,
-    model: anthropic('claude-3-5-sonnet-20241022'),
-    outputSchema: CaptureResultSchema,
+    model: anthropic('claude-sonnet-4-5-20250929', {
+      proxyUrl: '', // Disable proxy - use direct URLs with our custom fetch
+    }),
+    output: Output.object({ schema: CaptureSchema }), // v6 BAL pattern
   });
 }
 
@@ -53,4 +65,4 @@ export function buildCaptureInput(text: string, attachmentDescriptions?: string[
   return parts.join('\n');
 }
 
-export type { CaptureResult };
+// CaptureResult already exported above via z.infer

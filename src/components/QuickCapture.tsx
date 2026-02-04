@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { ArrowLeft, Sparkles, Paperclip, X, Image as ImageIcon, FileText, Feather } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { createCaptureBot, buildCaptureInput, initializeBots, isBotsReady, testApiKey } from '../services/bots'
+import { createCaptureBot, buildCaptureInput, initializeBots, isBotsReady, testApiKey, type CaptureResult } from '../services/bots'
 import { getSecureItem } from '../services/secure-storage'
 import { persistCaptureAttachments } from '../services/attachments'
 import { generateId } from '../utils/id'
@@ -80,20 +80,20 @@ export function QuickCapture({ onBack, onComplete }: QuickCaptureProps) {
 
         const input = buildCaptureInput(text, attachmentDescriptions)
         console.log('[QuickCapture] Calling captureBot.process with input length:', input.length)
-        const result = await captureBot.process(input)
+        const result = await captureBot.process(input) as unknown as CaptureResult | null
         console.log('[QuickCapture] Got result:', result)
 
-        title = result?.title || 'Quick Note'
+        title = result?.title ?? 'Quick Note'
         summary = {
-          text: result?.summary || 'Content captured.',
-          tasks: (result?.tasks || []).map(t => ({
+          text: result?.summary ?? 'Content captured.',
+          tasks: (result?.tasks ?? []).map((t: string) => ({
             id: generateId(),
-            title: t?.title || 'Untitled task',
+            title: t, // v6 Output pattern returns strings directly
             completed: false,
           })),
-          notes: (result?.notes || []).map(n => ({
+          notes: (result?.notes ?? []).map((n: string) => ({
             id: generateId(),
-            content: n?.content || '',
+            content: n, // v6 Output pattern returns strings directly
           })),
           generatedAt: new Date().toISOString(),
         }

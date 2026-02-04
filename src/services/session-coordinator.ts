@@ -9,7 +9,7 @@
  */
 
 import { EventEmitter } from './event-emitter';
-import type { SessionContext, ActivityDetection } from './bots/types';
+import type { SessionContext, ActivityDetection, RollingSummary, AnalysisModeDecision, QAResponse } from './bots/types';
 import type { ActivityMetrics } from './bots/analysis-controller';
 import {
   getSession,
@@ -225,7 +225,7 @@ class SessionCoordinatorService {
       // Pass multimodal content to the activity bot
       // Baleybots combine() returns the correct format
       // Use retry wrapper to handle rate limits
-      const result = await withBotRetry(() => this.activityBot!.process(input));
+      const result = await withBotRetry(() => this.activityBot!.process(input)) as unknown as ActivityDetection | null;
 
       // Validate bot response structure
       if (!result || typeof result !== 'object') {
@@ -235,7 +235,7 @@ class SessionCoordinatorService {
       }
 
       // Update screenshot with analysis
-      await updateScreenshotAnalysis(screenshot.id, result.currentContext || 'Analysis unavailable');
+      await updateScreenshotAnalysis(screenshot.id, result.currentContext ?? 'Analysis unavailable');
 
       // Emit activity event
       this.emitter.emit('activity-detected', {
@@ -434,10 +434,10 @@ class SessionCoordinatorService {
     try {
       const input = bots.buildQAInput(message, context);
       // Use retry wrapper to handle rate limits
-      const result = await withBotRetry(() => this.qaBot!.process(input));
+      const result = await withBotRetry(() => this.qaBot!.process(input)) as unknown as QAResponse | null;
 
       // Validate bot response structure
-      const answer = result?.answer || 'Sorry, I was unable to generate a response. Please try again.';
+      const answer = result?.answer ?? 'Sorry, I was unable to generate a response. Please try again.';
 
       // Save assistant response
       await saveChatMessage(sessionId, 'assistant', answer);
@@ -513,7 +513,7 @@ class SessionCoordinatorService {
     try {
       const input = bots.buildSummarizerInput(context);
       // Use retry wrapper to handle rate limits
-      const result = await withBotRetry(() => this.summarizerBot!.process(input));
+      const result = await withBotRetry(() => this.summarizerBot!.process(input)) as unknown as RollingSummary | null;
 
       // Validate bot response structure
       const summary = result?.summary;
@@ -553,7 +553,7 @@ class SessionCoordinatorService {
     try {
       const input = bots.buildAnalysisControllerInput(context, metrics);
       // Use retry wrapper to handle rate limits
-      const result = await withBotRetry(() => this.analysisControllerBot!.process(input));
+      const result = await withBotRetry(() => this.analysisControllerBot!.process(input)) as unknown as AnalysisModeDecision | null;
 
       // Validate bot response structure
       if (!result || typeof result.confidence !== 'number' || !result.recommendedMode) {

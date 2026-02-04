@@ -7,7 +7,6 @@
 
 import type { Session } from '../types'
 import { getAllSessionsForSync, getSessionSummary, getCapturePayload } from './database'
-import { isTauri } from './recording'
 
 const STORAGE_KEY = 'sessions'
 
@@ -58,13 +57,10 @@ class StorageService {
         )
       })
 
-      if (sessions.length === 0 && isTauri()) {
-        try {
-          return await this.syncFromDatabase()
-        } catch (syncError) {
-          console.warn('[STORAGE] Failed to recover from database:', syncError)
-        }
-      }
+      // Note: We no longer auto-sync from database here because loadSessions
+      // can be called from within a withLock context (e.g., saveSession),
+      // and syncFromDatabase also uses withLock, causing a deadlock.
+      // Initial sync happens in AppContext initialization instead.
 
       // Sort by createdAt descending
       return sessions.sort((a, b) =>

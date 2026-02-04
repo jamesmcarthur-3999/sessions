@@ -6,7 +6,7 @@ import { sessionRecorder, isTauri, checkScreenRecordingPermission, requestScreen
 import { createSession, updateSessionStatus, updateSessionTitle, updateSessionVideoPath, saveSessionSummary, getRollingSummary, getInsights, getAudioChunks, getScreenshots } from '../services/database'
 import { sessionCoordinator } from '../services/session-coordinator'
 import { smartCapture } from '../services/smart-capture'
-import { createFinalSummaryBot, buildFinalSummaryInput, initializeBots, isBotsReady } from '../services/bots'
+import { createFinalSummaryBot, buildFinalSummaryInput, initializeBots, isBotsReady, type FinalSummary } from '../services/bots'
 import { generateId } from '../utils/id'
 import { useSessionIntelligence } from '../hooks/useSessionIntelligence'
 import { LiveSessionPanel } from './LiveSessionPanel'
@@ -377,18 +377,18 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
         })
 
         setProcessingPercent(70)
-        const result = await finalBot.process(input)
+        const result = await finalBot.process(input) as unknown as FinalSummary | null
 
         summary = {
-          text: result?.text || 'Session completed.',
-          tasks: (result?.tasks || []).map((t) => ({
+          text: result?.text ?? 'Session completed.',
+          tasks: (result?.tasks ?? []).map((t: string) => ({
             id: generateId(),
-            title: t?.title || 'Untitled task',
+            title: t,
             completed: false,
           })),
-          notes: (result?.notes || []).map((n) => ({
+          notes: (result?.notes ?? []).map((n: string) => ({
             id: generateId(),
-            content: n?.content || '',
+            content: n,
           })),
           generatedAt: new Date().toISOString(),
         }
