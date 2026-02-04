@@ -2,7 +2,8 @@ import { useState, useRef, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { ArrowLeft, Sparkles, Paperclip, X, Image as ImageIcon, FileText, Feather } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { processCapture, buildCaptureInput } from '../services/bots'
+import { createCaptureBot, buildCaptureInput, initializeBots, isBotsReady, testApiKey } from '../services/bots'
+import { getSecureItem } from '../services/secure-storage'
 import { persistCaptureAttachments } from '../services/attachments'
 import { generateId } from '../utils/id'
 import { useToast } from './Toast'
@@ -45,34 +46,67 @@ export function QuickCapture({ onBack, onComplete }: QuickCaptureProps) {
 
     try {
       const sessionId = generateId()
+      // Ensure bots are initialized
+      console.log('[QuickCapture] Initializing bots...')
+      const initResult = await initializeBots()
+      console.log('[QuickCapture] Bots initialized:', initResult, 'isReady:', isBotsReady())
 
-      await new Promise(r => setTimeout(r, 300))
+      await new Promise(r => setTimeout(r, 500))
       setProcessingStage('Extracting insights...')
 
-      // Build input with attachment descriptions
-      const attachmentDescriptions = attachments.map(f =>
-        `${f.type.startsWith('image/') ? 'Image' : 'File'}: ${f.name}`
-      )
-      const input = buildCaptureInput(text, attachmentDescriptions)
+      let title: string
+      let summary: Summary
 
-      // Process with AI SDK directly (bypasses Baleybots proxy requirement)
-      console.log('[QuickCapture] Processing capture with AI SDK...')
-      const result = await processCapture(input)
-      console.log('[QuickCapture] Got result:', result)
+      if (isBotsReady()) {
+        // First test the API key directly to verify it works
+        console.log('[QuickCapture] Testing API key...')
+        const apiKey = await getSecureItem('sessions_api_key') || localStorage.getItem('sessions_api_key')
+        if (apiKey) {
+          const testResult = await testApiKey(apiKey)
+          console.log('[QuickCapture] API key test result:', testResult)
+          if (!testResult.valid) {
+            throw new Error(`API key test failed: ${testResult.error}`)
+          }
+        }
 
-      const title = result?.title || 'Quick Note'
-      const summary: Summary = {
-        text: result?.summary || 'Content captured.',
-        tasks: (result?.tasks || []).map(t => ({
-          id: generateId(),
-          title: t?.title || 'Untitled task',
-          completed: false,
-        })),
-        notes: (result?.notes || []).map(n => ({
-          id: generateId(),
-          content: n?.content || '',
-        })),
-        generatedAt: new Date().toISOString(),
+        // Use Capture Bot
+        console.log('[QuickCapture] Creating capture bot...')
+        const captureBot = await createCaptureBot()
+
+        // Build attachment descriptions
+        const attachmentDescriptions = attachments.map(f =>
+          `${f.type.startsWith('image/') ? 'Image' : 'File'}: ${f.name}`
+        )
+
+        const input = buildCaptureInput(text, attachmentDescriptions)
+        console.log('[QuickCapture] Calling captureBot.process with input length:', input.length)
+        const result = await captureBot.process(input)
+        console.log('[QuickCapture] Got result:', result)
+
+        title = result?.title || 'Quick Note'
+        summary = {
+          text: result?.summary || 'Content captured.',
+          tasks: (result?.tasks || []).map(t => ({
+            id: generateId(),
+            title: t?.title || 'Untitled task',
+            completed: false,
+          })),
+          notes: (result?.notes || []).map(n => ({
+            id: generateId(),
+            content: n?.content || '',
+          })),
+          generatedAt: new Date().toISOString(),
+        }
+      } else {
+        // Fallback when no API key
+        const words = text.split(/\s+/).length
+        title = words < 10 ? 'Quick Note' : 'Captured Notes'
+        summary = {
+          text: `Captured ${words} words. Configure your Claude API key in Settings to enable AI-powered analysis.`,
+          tasks: [],
+          notes: [],
+          generatedAt: new Date().toISOString(),
+        }
       }
 
       setProcessingStage('Crafting your summary...')

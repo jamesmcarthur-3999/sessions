@@ -3,13 +3,9 @@
  *
  * Processes quick captures (text, pasted content) and extracts
  * structured information: title, summary, tasks, and notes.
- *
- * Uses @ai-sdk/anthropic directly for browser compatibility
- * (Baleybots requires a proxy server in browser mode).
  */
 
-import { createAnthropic } from '@ai-sdk/anthropic';
-import { generateObject } from 'ai';
+import { Baleybot, anthropic } from '@baleybots/core';
 import { CaptureResultSchema, type CaptureResult } from './types';
 import { getSecureItem } from '../secure-storage';
 import { isTauri } from '../recording';
@@ -30,10 +26,7 @@ Guidelines:
 - Same for notes - only include if there's something worth noting
 - Look for implicit tasks: TODOs, FIXMEs, "need to", "should", "must", etc.`;
 
-/**
- * Process a capture using the Anthropic API directly
- */
-export async function processCapture(input: string): Promise<CaptureResult> {
+export async function createCaptureBot() {
   // Get API key from secure storage or localStorage
   let apiKey = await getSecureItem('sessions_api_key');
   if (!apiKey && !isTauri()) {
@@ -44,23 +37,17 @@ export async function processCapture(input: string): Promise<CaptureResult> {
     throw new Error('No API key configured. Please add your Claude API key in Settings.');
   }
 
-  // Create Anthropic provider with browser access header
-  const anthropic = createAnthropic({
-    apiKey,
-    headers: {
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
+  return Baleybot.create({
+    name: 'capture',
+    goal: SYSTEM_PROMPT,
+    model: anthropic('claude-3-5-sonnet-20241022', {
+      apiKey,
+      headers: {
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+    }),
+    outputSchema: CaptureResultSchema,
   });
-
-  // Generate structured output
-  const { object } = await generateObject({
-    model: anthropic('claude-3-5-sonnet-20241022'),
-    schema: CaptureResultSchema,
-    system: SYSTEM_PROMPT,
-    prompt: input,
-  });
-
-  return object;
 }
 
 export function buildCaptureInput(text: string, attachmentDescriptions?: string[]): string {
