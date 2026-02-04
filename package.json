@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "baleybots:ensure": "node scripts/ensure-baleybots.mjs",
     "baleybots:update": "scripts/update-baleybots.sh",
+    "boot": "scripts/boot.sh",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"
