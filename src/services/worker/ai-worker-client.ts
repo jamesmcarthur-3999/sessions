@@ -70,6 +70,8 @@ class AiWorkerClient {
   private chatTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
   private initPromise: Promise<void> | null = null;
   private workerState: WorkerState = 'CREATED';
+  private initAttempts = 0;
+  private static readonly MAX_INIT_ATTEMPTS = 3;
 
   /**
    * Initialize the worker (lazy, called on first use)
@@ -77,6 +79,17 @@ class AiWorkerClient {
   async initialize(): Promise<void> {
     if (this.worker && this.isReady()) return;
     if (this.initPromise) return this.initPromise;
+
+    // If in ERROR state, allow re-creation
+    if (this.workerState === 'ERROR') {
+      this.worker = null;
+      this.workerState = 'CREATED';
+    }
+
+    if (this.initAttempts >= AiWorkerClient.MAX_INIT_ATTEMPTS) {
+      throw new Error(`Worker failed to initialize after ${AiWorkerClient.MAX_INIT_ATTEMPTS} attempts. Please restart the app.`);
+    }
+    this.initAttempts++;
 
     this.initPromise = this.createWorker();
     return this.initPromise;
@@ -167,6 +180,7 @@ class AiWorkerClient {
       });
 
       console.log('[AI Worker Client] Worker fully initialized');
+      this.initAttempts = 0; // Reset on success
     } catch (error) {
       console.error('[AI Worker Client] Failed to initialize:', error);
       this.handleWorkerError(error instanceof Error ? error.message : String(error));
