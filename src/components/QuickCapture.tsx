@@ -7,6 +7,7 @@ import { persistCaptureAttachments } from '../services/attachments'
 import { generateId } from '../utils/id'
 import { useToast } from './Toast'
 import type { Session, Summary, Attachment } from '../types'
+import { logger } from '../utils/logger'
 
 interface QuickCaptureProps {
   onBack: () => void
@@ -46,9 +47,9 @@ export function QuickCapture({ onBack, onComplete }: QuickCaptureProps) {
     try {
       const sessionId = generateId()
       // Ensure bots are initialized
-      console.log('[QuickCapture] Initializing bots...')
+      logger.debug('[QuickCapture] Initializing bots...')
       const initResult = await initializeBots()
-      console.log('[QuickCapture] Bots initialized:', initResult, 'isReady:', isBotsReady())
+      logger.debug('[QuickCapture] Bots initialized:', initResult, 'isReady:', isBotsReady())
 
       await new Promise(r => setTimeout(r, 500))
       setProcessingStage('Extracting insights...')
@@ -58,7 +59,7 @@ export function QuickCapture({ onBack, onComplete }: QuickCaptureProps) {
 
       if (isBotsReady()) {
         // Use Capture Pipeline
-        console.log('[QuickCapture] Creating capture pipeline...')
+        logger.debug('[QuickCapture] Creating capture pipeline...')
         const captureBot = createCapturePipeline()
 
         // Build attachment descriptions
@@ -67,9 +68,9 @@ export function QuickCapture({ onBack, onComplete }: QuickCaptureProps) {
         )
 
         const input = buildCaptureInput(text, attachmentDescriptions)
-        console.log('[QuickCapture] Calling captureBot.process with input length:', input.length)
+        logger.debug('[QuickCapture] Calling captureBot.process with input length:', input.length)
         const result = await captureBot.process(input) as unknown as CaptureResult | null
-        console.log('[QuickCapture] Got result:', result)
+        logger.debug('[QuickCapture] Got result:', result)
 
         title = result?.title ?? 'Quick Note'
         summary = {
@@ -122,7 +123,7 @@ export function QuickCapture({ onBack, onComplete }: QuickCaptureProps) {
       await addSession(session)
       onComplete(session)
     } catch (error) {
-      console.error('Failed to process capture:', error)
+      logger.error('Failed to process capture:', error)
       const errorMessage = error instanceof Error ? error.message : String(error)
       const safeMessage = errorMessage.includes('API key')
         ? 'API key error. Please check your key in Settings.'

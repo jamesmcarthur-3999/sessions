@@ -17,6 +17,7 @@ import { migrateToSecureStorage } from './services/secure-storage'
 import { sessionRecorder } from './services/recording'
 import { sessionBridge } from './services/session-bridge'
 import type { Session } from './types'
+import { logger } from './utils/logger'
 
 type View = 'home' | 'summary' | 'history' | 'capture' | 'recording' | 'settings'
 
@@ -135,7 +136,7 @@ function AppContent() {
 
   // Migrate API keys from localStorage to secure storage on startup
   useEffect(() => {
-    migrateToSecureStorage().catch(console.error)
+    migrateToSecureStorage().catch((err: unknown) => logger.error(err))
   }, [])
 
   return (
@@ -173,7 +174,7 @@ function AppContent() {
           <ErrorBoundary
             key="recording-boundary"
             onError={(error) => {
-              console.error('[App] Recording error boundary caught:', error)
+              logger.error('[App] Recording error boundary caught:', error)
               // Clean up recording state when error boundary catches
               Promise.all([
                 sessionRecorder.isRecording()

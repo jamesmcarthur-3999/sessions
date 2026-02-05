@@ -8,6 +8,7 @@
  */
 
 import { isTauri } from './recording';
+import { logger } from '../utils/logger';
 
 // Storage paths
 let appDataDir: string | null = null;
@@ -32,7 +33,7 @@ async function ensureStorageDir(): Promise<string> {
   // Create screenshots directory if it doesn't exist
   if (!(await exists(screenshotsDir))) {
     await mkdir(screenshotsDir, { recursive: true });
-    console.log('[SCREENSHOT STORAGE] Created directory:', screenshotsDir);
+    logger.debug('[SCREENSHOT STORAGE] Created directory:', screenshotsDir);
   }
 
   return screenshotsDir;
@@ -86,7 +87,7 @@ export async function saveScreenshotToFile(
   const { writeFile } = await import('@tauri-apps/plugin-fs');
   await writeFile(filePath, bytes);
 
-  console.log(`[SCREENSHOT STORAGE] Saved: ${filePath} (${Math.round(bytes.length / 1024)}KB)`);
+  logger.debug(`[SCREENSHOT STORAGE] Saved: ${filePath} (${Math.round(bytes.length / 1024)}KB)`);
   return filePath;
 }
 
@@ -142,10 +143,10 @@ export async function deleteSessionScreenshots(sessionId: string): Promise<void>
     const { remove, exists } = await import('@tauri-apps/plugin-fs');
     if (await exists(sessionDir)) {
       await remove(sessionDir, { recursive: true });
-      console.log('[SCREENSHOT STORAGE] Deleted session directory:', sessionDir);
+      logger.debug('[SCREENSHOT STORAGE] Deleted session directory:', sessionDir);
     }
   } catch (error) {
-    console.error('[SCREENSHOT STORAGE] Failed to delete session screenshots:', error);
+    logger.error('[SCREENSHOT STORAGE] Failed to delete session screenshots:', error);
   }
 }
 
@@ -199,7 +200,7 @@ export async function getStorageStats(): Promise<{
       totalSizeBytes,
     };
   } catch (error) {
-    console.error('[SCREENSHOT STORAGE] Failed to get stats:', error);
+    logger.error('[SCREENSHOT STORAGE] Failed to get stats:', error);
     return { totalSessions: 0, totalFiles: 0, totalSizeBytes: 0 };
   }
 }

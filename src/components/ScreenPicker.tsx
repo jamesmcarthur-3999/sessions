@@ -16,6 +16,7 @@ import {
   requestScreenRecordingPermission,
   type ScreenInfo,
 } from '../services/recording'
+import { logger } from '../utils/logger'
 
 interface ScreenPickerProps {
   /** Currently selected screen IDs */
@@ -96,7 +97,7 @@ export function ScreenPicker({
         }
       }
     } catch (e) {
-      console.error('Failed to load screens:', e)
+      logger.error('Failed to load screens:', e)
       setError(e instanceof Error ? e.message : 'Failed to load displays')
     } finally {
       setIsLoading(false)
@@ -118,7 +119,7 @@ export function ScreenPicker({
         loadScreens()
       }
     } catch (e) {
-      console.error('Permission request failed:', e)
+      logger.error('Permission request failed:', e)
     }
   }
 

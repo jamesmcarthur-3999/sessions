@@ -9,6 +9,7 @@ import { getSecureItem, setSecureItem, removeSecureItem } from '../secure-storag
 import { isTauri } from '../recording'
 import { createTauriFetch } from '../tauri-fetch'
 import { resetPipelines } from './pipelines'
+import { logger } from '../../utils/logger'
 
 export interface BotConfig {
   claudeApiKey?: string;
@@ -39,7 +40,7 @@ async function loadBaleybots() {
           fetch: tauriFetch,
         },
       });
-      console.log('[Baleybots] Configured to use Tauri HTTP proxy');
+      logger.info('[Baleybots] Configured to use Tauri HTTP proxy');
     } else {
       // In browser mode, use direct fetch with CORS header
       baleybots.Baleybot.setGlobalConfig({
@@ -49,7 +50,7 @@ async function loadBaleybots() {
           },
         },
       });
-      console.log('[Baleybots] Configured for direct browser access');
+      logger.info('[Baleybots] Configured for direct browser access');
     }
   }
   return baleybots;
@@ -73,25 +74,25 @@ export async function initializeBots(): Promise<boolean> {
     if (claudeKey) {
       setDefaultApiKey('anthropic', claudeKey);
       hasAnyKey = true;
-      console.log('[Baleybots] AI service configured');
+      logger.info('[Baleybots] AI service configured');
     } else {
-      console.warn('[Baleybots] No Claude API key found');
+      logger.warn('[Baleybots] No Claude API key found');
     }
 
     if (openaiKey) {
       setDefaultApiKey('openai', openaiKey);
-      console.log('[Baleybots] Transcription service configured');
+      logger.info('[Baleybots] Transcription service configured');
     }
 
     isInitialized = hasAnyKey;
 
     if (!hasAnyKey) {
-      console.warn('[Baleybots] No API keys configured - AI features will not work');
+      logger.warn('[Baleybots] No API keys configured - AI features will not work');
     }
 
     return hasAnyKey;
   } catch (error) {
-    console.error('[Baleybots] Failed to initialize:', error);
+    logger.error('[Baleybots] Failed to initialize:', error);
     return false;
   }
 }
@@ -109,11 +110,11 @@ export async function updateApiKeys(config: BotConfig): Promise<void> {
       if (config.claudeApiKey) {
         setDefaultApiKey('anthropic', config.claudeApiKey);
         await setSecureItem('sessions_api_key', config.claudeApiKey);
-        console.log('[Baleybots] AI service updated');
+        logger.info('[Baleybots] AI service updated');
       } else {
         await removeSecureItem('sessions_api_key');
         keysRemoved = true;
-        console.log('[Baleybots] AI service removed');
+        logger.info('[Baleybots] AI service removed');
       }
     }
 
@@ -121,11 +122,11 @@ export async function updateApiKeys(config: BotConfig): Promise<void> {
       if (config.openaiApiKey) {
         setDefaultApiKey('openai', config.openaiApiKey);
         await setSecureItem('sessions_openai_api_key', config.openaiApiKey);
-        console.log('[Baleybots] Transcription service updated');
+        logger.info('[Baleybots] Transcription service updated');
       } else {
         await removeSecureItem('sessions_openai_api_key');
         keysRemoved = true;
-        console.log('[Baleybots] Transcription service removed');
+        logger.info('[Baleybots] Transcription service removed');
       }
     }
 
@@ -137,7 +138,7 @@ export async function updateApiKeys(config: BotConfig): Promise<void> {
     // Mark as initialized if we have at least Claude key
     isInitialized = !!(await getSecureItem('sessions_api_key'));
   } catch (error) {
-    console.error('[Baleybots] Failed to update API keys:', error);
+    logger.error('[Baleybots] Failed to update API keys:', error);
     throw error;
   }
 }

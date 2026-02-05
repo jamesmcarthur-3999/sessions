@@ -47,7 +47,7 @@ export function LiveTranscript({ sessionId, audioEnabled }: LiveTranscriptProps)
   }, [])
 
   // Auto-scroll to bottom when new content arrives (unless user scrolled up)
-  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout>>()
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   const scrollToBottom = useCallback(() => {
     if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current)

@@ -21,6 +21,10 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
   },
+  // Disable sourcemaps in production for security and bundle size
+  build: {
+    sourcemap: false,
+  },
   // Prevent Vite from clearing the terminal
   clearScreen: false,
   // Optimize deps configuration

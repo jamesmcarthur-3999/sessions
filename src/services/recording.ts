@@ -14,6 +14,7 @@ import { smartCapture } from './smart-capture'
 import { loadAudioBinary } from './audio-storage'
 import { loadScreenshotBinary } from './screenshot-storage'
 import type { RecordingStopResult } from '../types'
+import { logger } from '../utils/logger'
 
 // Type-safe invoke wrapper
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -269,7 +270,7 @@ class SessionRecordingController {
         try {
           // Use 10-second chunks for faster transcription feedback
           await startAudioRecording(sessionId, 10, mergedOptions.selectedMicrophone)
-          console.log('🎤 Audio recording started')
+          logger.info('🎤 Audio recording started')
 
           // Listen for audio chunk events from Rust (file-based)
           this.audioChunkListener = await listen<{
@@ -295,25 +296,25 @@ class SessionRecordingController {
                 duration
               );
 
-              console.log('[RECORDING] Audio chunk saved:', chunk.id, audioPath);
+              logger.debug('[RECORDING] Audio chunk saved:', chunk.id, audioPath);
 
               // Load audio binary from file and send to AI Worker for transcription (zero-copy)
               try {
                 const audioData = await loadAudioBinary(audioPath);
                 aiWorker.transcribeAudioBinary(sid, chunk.id, audioData).catch((e) => {
-                  console.error('Audio transcription request error:', e);
+                  logger.error('Audio transcription request error:', e);
                 });
               } catch (loadError) {
-                console.error('Failed to load audio for transcription:', loadError);
+                logger.error('Failed to load audio for transcription:', loadError);
               }
             } catch (e) {
-              console.error('Audio chunk processing error:', e);
+              logger.error('Audio chunk processing error:', e);
             }
           });
-          console.log('🎤 Audio chunk listener started')
+          logger.debug('🎤 Audio chunk listener started')
           audioStarted = true
         } catch (e) {
-          console.error('Failed to start audio recording:', e)
+          logger.error('Failed to start audio recording:', e)
           errors.push(`Audio recording failed: ${e instanceof Error ? e.message : 'Unknown error'}`)
         }
       }
@@ -324,21 +325,21 @@ class SessionRecordingController {
           if (mergedOptions.smartCaptureEnabled) {
             // Use smart capture (event-driven) - activity monitor started inside
             await smartCapture.start(sessionId, mergedOptions.selectedScreen)
-            console.log('Smart capture started')
+            logger.info('Smart capture started')
           } else {
             // Use interval-based capture - still start activity monitor for app tracking
             try {
               const { invoke: tauriInvoke } = await import('@tauri-apps/api/core')
               await tauriInvoke('start_activity_monitor')
-              console.log('Activity monitor started (interval mode)')
+              logger.info('Activity monitor started (interval mode)')
             } catch (e) {
-              console.warn('Failed to start activity monitor:', e)
+              logger.warn('Failed to start activity monitor:', e)
             }
             this.startScreenshotCapture()
           }
           screenshotsStarted = true
         } catch (e) {
-          console.error('Failed to start screenshot capture:', e)
+          logger.error('Failed to start screenshot capture:', e)
           errors.push(`Screenshot capture failed: ${e instanceof Error ? e.message : 'Unknown error'}`)
         }
       }
@@ -353,19 +354,19 @@ class SessionRecordingController {
             const dir = await appDataDir()
             outputPath = await join(dir, outputPath)
           } catch (pathError) {
-            console.warn('Failed to resolve app data dir, using relative path:', pathError)
+            logger.warn('Failed to resolve app data dir, using relative path:', pathError)
           }
           await startVideoRecording(sessionId, outputPath)
-          console.log('🎬 Video recording started')
+          logger.info('🎬 Video recording started')
           videoStarted = true
         } catch (e) {
-          console.error('Failed to start video recording:', e)
+          logger.error('Failed to start video recording:', e)
           errors.push(`Video recording failed: ${e instanceof Error ? e.message : 'Unknown error'}`)
         }
       }
     }
 
-    console.log('📹 Session recording started:', sessionId, mergedOptions)
+    logger.info('📹 Session recording started:', sessionId, mergedOptions)
 
     return {
       success: errors.length === 0,
@@ -416,17 +417,17 @@ class SessionRecordingController {
             imageData,
             'interval',
             null // No previous analysis for interval-based capture
-          ).catch(console.error)
+          ).catch(logger.error)
         } catch (loadError) {
-          console.error('Failed to load screenshot binary for analysis:', loadError)
+          logger.error('Failed to load screenshot binary for analysis:', loadError)
         }
       } catch (dbError) {
-        console.error('Failed to save screenshot to database:', dbError)
+        logger.error('Failed to save screenshot to database:', dbError)
       }
 
-      console.log('Screenshot captured (' + this.state.screenshotCount + ' total)')
+      logger.debug('Screenshot captured (' + this.state.screenshotCount + ' total)')
     } catch (e) {
-      console.error('Failed to capture screenshot:', e)
+      logger.error('Failed to capture screenshot:', e)
     }
   }
 
@@ -441,11 +442,11 @@ class SessionRecordingController {
       try {
         await pauseAudioRecording()
       } catch (e) {
-        console.error('Failed to pause audio:', e)
+        logger.error('Failed to pause audio:', e)
       }
     }
 
-    console.log('⏸️ Recording paused')
+    logger.info('⏸️ Recording paused')
   }
 
   async resumeRecording(): Promise<void> {
@@ -457,15 +458,15 @@ class SessionRecordingController {
     if (isTauri() && this.state.options.enableAudio) {
       try {
         await resumeAudioRecording()
-        console.log('🎤 Audio recording resumed')
+        logger.info('🎤 Audio recording resumed')
       } catch (e) {
-        console.error('Failed to resume audio:', e)
+        logger.error('Failed to resume audio:', e)
         // Continue anyway - audio might have been stopped
       }
     }
 
     this.state.isPaused = false
-    console.log('▶️ Recording resumed')
+    logger.info('▶️ Recording resumed')
   }
 
   async stopRecording(): Promise<RecordingStopResult> {
@@ -482,9 +483,9 @@ class SessionRecordingController {
       if (options.smartCaptureEnabled) {
         try {
           await smartCapture.stop()
-          console.log('Smart capture stopped')
+          logger.info('Smart capture stopped')
         } catch (e) {
-          console.error('Failed to stop smart capture:', e)
+          logger.error('Failed to stop smart capture:', e)
           errors.push('Screenshot capture failed to stop properly')
         }
       } else {
@@ -498,16 +499,16 @@ class SessionRecordingController {
           try {
             const { invoke: tauriInvoke } = await import('@tauri-apps/api/core')
             await tauriInvoke('stop_activity_monitor')
-            console.log('Activity monitor stopped')
+            logger.info('Activity monitor stopped')
           } catch (e) {
-            console.warn('Failed to stop activity monitor:', e)
+            logger.warn('Failed to stop activity monitor:', e)
           }
         }
         // Capture final screenshot
         try {
           await this.captureAndStoreScreenshot()
         } catch (e) {
-          console.error('Failed to capture final screenshot:', e)
+          logger.error('Failed to capture final screenshot:', e)
           // Don't add to errors - final screenshot is nice-to-have
         }
       }
@@ -518,9 +519,9 @@ class SessionRecordingController {
     if (isTauri() && options.enableAudio) {
       try {
         await stopAudioRecording()
-        console.log('🎤 Audio recording stopped')
+        logger.info('🎤 Audio recording stopped')
       } catch (e) {
-        console.error('Failed to stop audio:', e)
+        logger.error('Failed to stop audio:', e)
         errors.push('Audio recording may still be active')
       }
 
@@ -535,9 +536,9 @@ class SessionRecordingController {
     if (isTauri() && options.enableVideo) {
       try {
         videoPath = await stopVideoRecording()
-        console.log('🎬 Video recording stopped')
+        logger.info('🎬 Video recording stopped')
       } catch (e) {
-        console.error('Failed to stop video:', e)
+        logger.error('Failed to stop video:', e)
         errors.push('Video recording may still be active')
       }
     }
@@ -549,13 +550,13 @@ class SessionRecordingController {
       stopErrors: errors.length > 0 ? errors : undefined
     }
 
-    console.log(`📹 Session recording stopped: ${result.screenshotCount} screenshots`)
+    logger.info(`📹 Session recording stopped: ${result.screenshotCount} screenshots`)
 
     this.state = null
 
     // Log warnings if there were errors
     if (errors.length > 0) {
-      console.warn('Recording stopped with errors:', errors)
+      logger.warn('Recording stopped with errors:', errors)
     }
 
     return result

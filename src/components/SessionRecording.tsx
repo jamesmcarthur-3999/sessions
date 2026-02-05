@@ -21,6 +21,7 @@ import { sessionBridge } from '../services/session-bridge'
 import { smartCapture } from '../services/smart-capture'
 import { createFinalSummaryPipeline, buildFinalSummaryInput, initializeBots, isBotsReady, type FinalSummary } from '../services/bots'
 import { generateId } from '../utils/id'
+import { logger } from '../utils/logger'
 import { useToast } from './Toast'
 import type { Session, Summary, RecordingConfig } from '../types'
 
@@ -169,7 +170,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
 
           if (isCleaningUp) {
             // Cleanup was triggered while we were starting - clean up now
-            console.log('[SessionRecording] Cleanup triggered during init, stopping')
+            logger.debug('[SessionRecording] Cleanup triggered during init, stopping')
             await sessionRecorder.stopRecording().catch(() => {})
             await sessionBridge.stopSession(sessionIdRef.current).catch(() => {})
             return
@@ -180,12 +181,12 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
             showToastRef.current(error, 'error', 5000)
           }
 
-          console.log('[SessionRecording] Recording started successfully')
+          logger.info('[SessionRecording] Recording started successfully')
         } catch (e) {
           // Don't show errors if we're cleaning up
           if (isCleaningUp) return
 
-          console.error('Failed to start recording:', e)
+          logger.error('Failed to start recording:', e)
           const errorMessage = e instanceof Error ? e.message : 'Failed to start recording'
 
           // Try to clean up the partial state
@@ -235,7 +236,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
             setShowConfirmation(true)
           }
         }).then(fn => { unlistenClose = fn })
-      }).catch(console.error)
+      }).catch((err: unknown) => logger.error(err))
     }
 
     // Cleanup function
@@ -248,7 +249,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
       // This prevents React StrictMode's double-mount from stopping the session prematurely
       if (sessionStarted || sessionRecorder.isRecording()) {
         const sessionId = sessionIdRef.current
-        console.log('[SessionRecording] Cleanup: stopping session', sessionId)
+        logger.debug('[SessionRecording] Cleanup: stopping session', sessionId)
 
         // Fire-and-forget cleanup (we can't await in cleanup)
         Promise.all([
@@ -260,7 +261,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
           // Ignore all cleanup errors
         })
       } else {
-        console.log('[SessionRecording] Cleanup: session not started, skipping')
+        logger.debug('[SessionRecording] Cleanup: session not started, skipping')
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally run once on mount
@@ -313,7 +314,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
           }
         })
       } catch (error) {
-        console.error('Failed to setup audio level listener:', error)
+        logger.error('Failed to setup audio level listener:', error)
       }
     }
 
@@ -364,7 +365,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
         await sessionRecorder.resumeRecording()
         sessionBridge.resumeSession(sessionIdRef.current)
       } catch (e) {
-        console.error('Failed to resume:', e)
+        logger.error('Failed to resume:', e)
       }
     } else {
       pauseStartRef.current = Date.now()
@@ -372,7 +373,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
         await sessionRecorder.pauseRecording()
         sessionBridge.pauseSession(sessionIdRef.current)
       } catch (e) {
-        console.error('Failed to pause:', e)
+        logger.error('Failed to pause:', e)
       }
     }
     setIsPaused(prev => !prev)
@@ -382,7 +383,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
   const handleTitleChange = useCallback((newTitle: string) => {
     setSessionTitle(newTitle)
     if (isTauri()) {
-      updateSessionTitle(sessionIdRef.current, newTitle).catch(console.error)
+      updateSessionTitle(sessionIdRef.current, newTitle).catch((err: unknown) => logger.error(err))
     }
   }, [])
 
@@ -432,7 +433,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
           try {
             await updateSessionVideoPath(sessionIdRef.current, videoPath)
           } catch {
-            console.error('[DATABASE] Failed to save video path')
+            logger.error('[DATABASE] Failed to save video path')
           }
         }
 
@@ -515,7 +516,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
         try {
           await saveSessionSummary(sessionIdRef.current, summary)
         } catch {
-          console.error('[DATABASE] Failed to save session summary')
+          logger.error('[DATABASE] Failed to save session summary')
         }
       }
 
@@ -545,7 +546,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
       dispatch({ type: 'STOP_RECORDING' })
       onComplete(session)
     } catch (error) {
-      console.error('Failed to end session:', error)
+      logger.error('Failed to end session:', error)
 
       if (inTauri) {
         try {

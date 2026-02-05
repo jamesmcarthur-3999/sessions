@@ -9,6 +9,7 @@
  */
 
 import { isTauri } from './recording';
+import { logger } from '../utils/logger';
 
 // Dynamic import cache for invoke function
 // We use dynamic import to avoid loading @tauri-apps/api/core before Tauri is ready
@@ -23,7 +24,7 @@ async function getInvoke(): Promise<typeof import('@tauri-apps/api/core').invoke
       const tauriCore = await import('@tauri-apps/api/core');
       invokeFunction = tauriCore.invoke;
     } catch (error) {
-      console.error('[TauriFetch] Failed to load @tauri-apps/api/core:', error);
+      logger.error('[TauriFetch] Failed to load @tauri-apps/api/core:', error);
       throw new Error('Tauri API not available');
     }
   }
@@ -56,19 +57,19 @@ function unmapProxyUrl(url: string): string {
     // Map back to real API endpoints
     if (url.includes('/api/anthropic/chat')) {
       const mapped = 'https://api.anthropic.com/v1/messages';
-      console.log('[TauriFetch] URL unmapped:', originalUrl, '→', mapped);
+      logger.debug('[TauriFetch] URL unmapped:', originalUrl, '→', mapped);
       return mapped;
     }
     if (url.includes('/api/openai/chat')) {
       const mapped = 'https://api.openai.com/v1/chat/completions';
-      console.log('[TauriFetch] URL unmapped:', originalUrl, '→', mapped);
+      logger.debug('[TauriFetch] URL unmapped:', originalUrl, '→', mapped);
       return mapped;
     }
   }
 
   // No mapping needed
   if (originalUrl !== url) {
-    console.log('[TauriFetch] URL unchanged:', originalUrl);
+    logger.debug('[TauriFetch] URL unchanged:', originalUrl);
   }
   return url;
 }
@@ -132,8 +133,8 @@ export async function tauriFetch(
   };
 
   try {
-    console.log('[TauriFetch] Calling http_proxy:', url, method);
-    console.log('[TauriFetch] Headers:', Object.keys(headers).join(', '));
+    logger.debug('[TauriFetch] Calling http_proxy:', url, method);
+    logger.debug('[TauriFetch] Headers:', Object.keys(headers).join(', '));
 
     // Get invoke dynamically to ensure Tauri is ready
     const invoke = await getInvoke();
@@ -141,7 +142,7 @@ export async function tauriFetch(
     // Call Tauri backend
     const response = await invoke<ProxyResponse>('http_proxy', { request });
 
-    console.log('[TauriFetch] Response status:', response.status);
+    logger.debug('[TauriFetch] Response status:', response.status);
 
     // Convert to Response object
     const responseHeaders = new Headers();
@@ -155,7 +156,7 @@ export async function tauriFetch(
     });
   } catch (error) {
     // Convert Tauri error to fetch-like error
-    console.error('[TauriFetch] Error:', error);
+    logger.error('[TauriFetch] Error:', error);
     throw new TypeError(`Network request failed: ${error}`);
   }
 }

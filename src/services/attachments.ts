@@ -14,7 +14,17 @@ function sanitizeFileName(name: string): string {
   return sanitized.length > 0 ? sanitized : 'attachment'
 }
 
-async function ensureDir(fs: any, dir: string): Promise<void> {
+/** Minimal FS interface matching Tauri plugin-fs APIs across versions */
+interface TauriFs {
+  createDir?: (path: string, opts?: { recursive?: boolean }) => Promise<void>
+  mkdir?: (path: string, opts?: { recursive?: boolean }) => Promise<void>
+  createDirectory?: (path: string, opts?: { recursive?: boolean }) => Promise<void>
+  writeFile?: (...args: unknown[]) => Promise<void>
+  writeBinaryFile?: (...args: unknown[]) => Promise<void>
+  writeTextFile?: (...args: unknown[]) => Promise<void>
+}
+
+async function ensureDir(fs: TauriFs, dir: string): Promise<void> {
   const createDir = fs.createDir || fs.mkdir || fs.createDirectory
   if (!createDir) {
     throw new Error('No directory creation API available')
@@ -29,7 +39,7 @@ async function ensureDir(fs: any, dir: string): Promise<void> {
   }
 }
 
-async function writeFileFlexible(fs: any, path: string, bytes: Uint8Array): Promise<void> {
+async function writeFileFlexible(fs: TauriFs, path: string, bytes: Uint8Array): Promise<void> {
   const writeFile = fs.writeFile || fs.writeBinaryFile || fs.writeTextFile
   if (!writeFile) {
     throw new Error('No file write API available')
@@ -63,7 +73,7 @@ export async function persistCaptureAttachments(
   }
 
   const { appDataDir, join } = await import('@tauri-apps/api/path')
-  const fs = await import('@tauri-apps/plugin-fs')
+  const fs = await import('@tauri-apps/plugin-fs') as unknown as TauriFs
 
   const root = await appDataDir()
   const attachmentsDir = await join(root, 'attachments', sessionId)

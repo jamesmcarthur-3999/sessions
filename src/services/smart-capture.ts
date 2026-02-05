@@ -18,6 +18,7 @@ import { aiWorker } from './worker';
 import { captureScreenshotOptimized, isTauri } from './recording';
 import { loadScreenshotBinary } from './screenshot-storage';
 import { EventEmitter } from './event-emitter';
+import { logger } from '../utils/logger';
 
 // ============================================================================
 // Constants
@@ -102,7 +103,7 @@ class SmartCaptureService {
    */
   async start(sessionId: string, screenId: string | null): Promise<void> {
     if (this.isRunning) {
-      console.warn('[SMART CAPTURE] Already running');
+      logger.warn('[SMART CAPTURE] Already running');
       return;
     }
 
@@ -115,10 +116,10 @@ class SmartCaptureService {
     this.captureCount = 0;
     this.capturePending = false;
 
-    console.log('[SMART CAPTURE] Starting', { sessionId, screenId });
+    logger.info('[SMART CAPTURE] Starting', { sessionId, screenId });
 
     if (!isTauri()) {
-      console.log('[SMART CAPTURE] Browser mode - limited functionality');
+      logger.debug('[SMART CAPTURE] Browser mode - limited functionality');
       this.startTick();
       return;
     }
@@ -132,9 +133,9 @@ class SmartCaptureService {
     try {
       const { invoke } = await import('@tauri-apps/api/core');
       await invoke('start_activity_monitor');
-      console.log('[SMART CAPTURE] Activity monitor started');
+      logger.info('[SMART CAPTURE] Activity monitor started');
     } catch (e) {
-      console.error('[SMART CAPTURE] Failed to start activity monitor:', e);
+      logger.error('[SMART CAPTURE] Failed to start activity monitor:', e);
     }
 
     // Start tick loop
@@ -152,7 +153,7 @@ class SmartCaptureService {
   async stop(): Promise<void> {
     if (!this.isRunning) return;
 
-    console.log('[SMART CAPTURE] Stopping');
+    logger.info('[SMART CAPTURE] Stopping');
     this.isRunning = false;
 
     // Final capture
@@ -176,12 +177,12 @@ class SmartCaptureService {
         const { invoke } = await import('@tauri-apps/api/core');
         await invoke('stop_activity_monitor');
       } catch (e) {
-        console.error('[SMART CAPTURE] Failed to stop activity monitor:', e);
+        logger.error('[SMART CAPTURE] Failed to stop activity monitor:', e);
       }
     }
 
     this.sessionId = null;
-    console.log('[SMART CAPTURE] Stopped');
+    logger.info('[SMART CAPTURE] Stopped');
   }
 
   /**
@@ -270,7 +271,7 @@ class SmartCaptureService {
     if (!this.isRunning || !this.sessionId) return;
 
     if (event.event_type === 'app_switch' && event.app_name) {
-      console.log('[SMART CAPTURE] App switch:', this.lastApp, '->', event.app_name);
+      logger.debug('[SMART CAPTURE] App switch:', this.lastApp, '->', event.app_name);
 
       // App switch = high activity bump
       this.bumpActivity(0.4);
@@ -329,7 +330,7 @@ class SmartCaptureService {
 
     // Skip in browser mode
     if (!isTauri()) {
-      console.log('[SMART CAPTURE] Browser mode, skipping capture');
+      logger.debug('[SMART CAPTURE] Browser mode, skipping capture');
       this.lastCaptureTime = Date.now();
       return;
     }
@@ -366,23 +367,23 @@ class SmartCaptureService {
           imageData,
           trigger,
           null
-        ).catch(console.error);
+        ).catch(logger.error);
       } catch (loadError) {
-        console.error('[SMART CAPTURE] Failed to load screenshot binary for analysis:', loadError);
+        logger.error('[SMART CAPTURE] Failed to load screenshot binary for analysis:', loadError);
       }
 
-      console.log(`[SMART CAPTURE] Captured: ${trigger}`, {
+      logger.debug(`[SMART CAPTURE] Captured: ${trigger}`, {
         app: this.lastApp,
         activityLevel: this.activityLevel.toFixed(2),
         count: this.captureCount,
       });
     } catch (e) {
-      console.error('[SMART CAPTURE] Capture failed:', e);
+      logger.error('[SMART CAPTURE] Capture failed:', e);
       this.consecutiveFailures++;
       if (this.consecutiveFailures >= SmartCaptureService.MAX_CONSECUTIVE_FAILURES) {
         this.circuitBrokenUntil = Date.now() + 60_000;
         this.consecutiveFailures = 0;
-        console.warn('[SMART CAPTURE] Circuit breaker triggered after repeated failures, pausing for 60s');
+        logger.warn('[SMART CAPTURE] Circuit breaker triggered after repeated failures, pausing for 60s');
       }
     } finally {
       this.capturePending = false;

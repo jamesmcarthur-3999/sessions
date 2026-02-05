@@ -4,6 +4,7 @@ import { ArrowLeft, Key, Sparkles, Check, Eye, EyeOff, Zap, AlertCircle, Brain, 
 import { updateApiKeys, testApiKey } from '../services/bots'
 import { getSecureItem } from '../services/secure-storage'
 import { Tooltip } from './Tooltip'
+import { logger } from '../utils/logger'
 
 interface SettingsProps {
   onBack: () => void
@@ -60,8 +61,8 @@ export function Settings({ onBack }: SettingsProps) {
 
       setSaveStatus('success')
       setTimeout(() => setSaveStatus('idle'), 2000)
-    } catch (error) {
-      console.error('[Settings] Failed to save configuration')
+    } catch (_error) {
+      logger.error('[Settings] Failed to save configuration')
       setSaveStatus('error')
       setTimeout(() => setSaveStatus('idle'), 3000)
     } finally {
@@ -82,12 +83,12 @@ export function Settings({ onBack }: SettingsProps) {
         await updateApiKeys({ claudeApiKey: apiKey.trim() })
         setTestStatus('success')
       } else {
-        console.error('[Settings] Connection test failed')
+        logger.error('[Settings] Connection test failed')
         setTestError(result.error || 'Invalid API key')
         setTestStatus('error')
       }
     } catch (error) {
-      console.error('[Settings] Connection test error')
+      logger.error('[Settings] Connection test error')
       setTestError(error instanceof Error ? error.message : 'Connection failed')
       setTestStatus('error')
     }

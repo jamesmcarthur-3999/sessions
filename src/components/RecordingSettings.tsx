@@ -28,6 +28,7 @@ import {
   type ScreenInfo,
 } from '../services/recording'
 import { hasApiKey } from '../services/bots'
+import { logger } from '../utils/logger'
 import { getSecureItem } from '../services/secure-storage'
 
 interface ToggleSwitchProps {
@@ -151,7 +152,7 @@ export function RecordingSettings({
           }
         }
       } catch (e) {
-        console.error('Failed to load devices:', e)
+        logger.error('Failed to load devices:', e)
       }
     } else {
       // Browser mode - mock devices

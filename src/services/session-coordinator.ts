@@ -30,6 +30,7 @@ import {
 import { loadScreenshotData } from './screenshot-storage';
 import type { DbScreenshot } from '../types/database';
 import { withBotRetry } from '../utils/retry';
+import { logger } from '../utils/logger';
 
 // Re-export for use by other modules
 export type { ActivityMetrics };
@@ -96,7 +97,7 @@ class SessionCoordinatorService {
       // Initialize bots with API keys before first use
       const initialized = await module.initializeBots();
       if (!initialized) {
-        console.warn('[COORDINATOR] Bots not initialized - no API key configured');
+        logger.warn('[COORDINATOR] Bots not initialized - no API key configured');
       }
 
       this.botsModule = module;
@@ -119,7 +120,7 @@ class SessionCoordinatorService {
    */
   async startSession(sessionId: string): Promise<void> {
     if (this.activeSessions.has(sessionId)) {
-      console.warn('Session ' + sessionId + ' already active');
+      logger.warn('Session ' + sessionId + ' already active');
       return;
     }
 
@@ -133,7 +134,7 @@ class SessionCoordinatorService {
       lastAnalysisCheck: Date.now(),
     });
 
-    console.log('Session coordinator started for ' + sessionId);
+    logger.info('Session coordinator started for ' + sessionId);
   }
 
   /**
@@ -154,7 +155,7 @@ class SessionCoordinatorService {
     this.pausedSessions.delete(sessionId);
     this.lastActivityType.delete(sessionId);
 
-    console.log('Session coordinator stopped for ' + sessionId);
+    logger.info('Session coordinator stopped for ' + sessionId);
   }
 
   /**
@@ -162,7 +163,7 @@ class SessionCoordinatorService {
    */
   pauseSession(sessionId: string): void {
     this.pausedSessions.add(sessionId);
-    console.log('[COORDINATOR] Session paused:', sessionId);
+    logger.info('[COORDINATOR] Session paused:', sessionId);
   }
 
   /**
@@ -170,7 +171,7 @@ class SessionCoordinatorService {
    */
   resumeSession(sessionId: string): void {
     this.pausedSessions.delete(sessionId);
-    console.log('[COORDINATOR] Session resumed:', sessionId);
+    logger.info('[COORDINATOR] Session resumed:', sessionId);
   }
 
   /**
@@ -187,7 +188,7 @@ class SessionCoordinatorService {
     try {
       // Skip analysis if session is paused
       if (this.pausedSessions.has(sessionId)) {
-        console.log('[COORDINATOR] Skipping screenshot analysis - session paused');
+        logger.debug('[COORDINATOR] Skipping screenshot analysis - session paused');
         return;
       }
 
@@ -196,7 +197,7 @@ class SessionCoordinatorService {
 
       // Check if bots are ready (API key configured)
       if (!bots.isBotsReady()) {
-        console.log('[COORDINATOR] Skipping screenshot analysis - no API key configured');
+        logger.debug('[COORDINATOR] Skipping screenshot analysis - no API key configured');
         // Still save basic metadata to screenshot
         await updateScreenshotAnalysis(screenshot.id, 'Analysis unavailable - configure API key in Settings');
         return;
@@ -220,7 +221,7 @@ class SessionCoordinatorService {
 
       // Validate bot response structure
       if (!result || typeof result !== 'object') {
-        console.error('[COORDINATOR] Invalid activity bot response:', result);
+        logger.error('[COORDINATOR] Invalid activity bot response:', result);
         await updateScreenshotAnalysis(screenshot.id, 'Analysis failed - invalid response');
         this.emitter.emit('error', {
           sessionId,
@@ -261,7 +262,7 @@ class SessionCoordinatorService {
       // Get AI recommendation for next capture timing
       await this.recommendCaptureTiming(sessionId, result.currentContext ?? null);
     } catch (error) {
-      console.error('Screenshot processing error:', error);
+      logger.error('Screenshot processing error:', error);
       this.emitter.emit('error', {
         sessionId,
         error: error instanceof Error ? error.message : 'Screenshot processing failed',
@@ -274,7 +275,7 @@ class SessionCoordinatorService {
    */
   async processTranscript(sessionId: string, _transcript: string): Promise<void> {
     if (this.pausedSessions.has(sessionId)) {
-      console.log('[COORDINATOR] Skipping transcript processing - session paused');
+      logger.debug('[COORDINATOR] Skipping transcript processing - session paused');
       return;
     }
     // Transcripts trigger summary updates more frequently
@@ -408,7 +409,7 @@ class SessionCoordinatorService {
           reason: result.reason ?? 'AI timing recommendation',
         });
 
-        console.log('[COORDINATOR] Capture timing recommendation:', {
+        logger.debug('[COORDINATOR] Capture timing recommendation:', {
           waitSeconds: clampedSeconds,
           activityLevel: result.activityLevel,
           reason: result.reason,
@@ -423,7 +424,7 @@ class SessionCoordinatorService {
         });
       }
     } catch (error) {
-      console.error('[COORDINATOR] Capture timing error for session', sessionId, ':', error);
+      logger.error('[COORDINATOR] Capture timing error for session', sessionId, ':', error);
       // Fall back on error
       this.emitter.emit('capture-timing', {
         sessionId,
@@ -529,7 +530,7 @@ class SessionCoordinatorService {
 
     // Skip if no API key configured
     if (!bots.isBotsReady()) {
-      console.log('[COORDINATOR] Skipping summary update - no API key configured');
+      logger.debug('[COORDINATOR] Skipping summary update - no API key configured');
       return;
     }
 
@@ -543,7 +544,7 @@ class SessionCoordinatorService {
       // Validate bot response structure
       const summary = result?.summary;
       if (!summary) {
-        console.error('[COORDINATOR] Invalid summarizer bot response:', result);
+        logger.error('[COORDINATOR] Invalid summarizer bot response:', result);
         return; // Don't overwrite existing summary with empty content
       }
 
@@ -554,7 +555,7 @@ class SessionCoordinatorService {
         summary,
       });
     } catch (error) {
-      console.error('Summary update error:', error);
+      logger.error('Summary update error:', error);
       this.emitter.emit('error', {
         sessionId,
         error: 'AI summary update failed. Check your Claude API key in Settings.',
@@ -582,7 +583,7 @@ class SessionCoordinatorService {
 
       // Validate bot response structure
       if (!result || typeof result.confidence !== 'number' || !result.recommendedMode) {
-        console.error('[COORDINATOR] Invalid analysis controller bot response:', result);
+        logger.error('[COORDINATOR] Invalid analysis controller bot response:', result);
         return;
       }
 
@@ -596,10 +597,10 @@ class SessionCoordinatorService {
         });
 
         // Log mode change with metrics
-        console.log('[COORDINATOR] Mode changed to', result.recommendedMode, 'due to:', result.reason, metrics);
+        logger.info('[COORDINATOR] Mode changed to', result.recommendedMode, 'due to:', result.reason, metrics);
       }
     } catch (error) {
-      console.error('Analysis mode check error:', error);
+      logger.error('Analysis mode check error:', error);
     }
   }
 

@@ -100,6 +100,7 @@ async function withRetry<T>(
 ): Promise<T> {
   // Try to use baleybots' withRetry if available
   if (baleybots && 'withRetry' in baleybots) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await (baleybots as any).withRetry(operation, {
       maxRetries,
       initialDelayMs,

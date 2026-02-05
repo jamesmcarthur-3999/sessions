@@ -31,6 +31,7 @@ import { isTauri } from '../services/recording'
 import { useSessionChat } from '../hooks/useSessionChat'
 import type { Session } from '../types'
 import type { DbScreenshot, DbAudioChunk } from '../types/database'
+import { logger } from '../utils/logger'
 
 interface SummaryViewProps {
   session: Session
@@ -178,7 +179,7 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
         setScreenshots(ss)
         setAudioChunks(audio)
       } catch (error) {
-        console.error('Failed to load media:', error)
+        logger.error('Failed to load media:', error)
         setMediaError('Failed to load screenshots and audio. Please try again.')
       } finally {
         setLoadingMedia(false)
@@ -244,7 +245,7 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
       const { open } = await import('@tauri-apps/plugin-shell')
       await open(path)
     } catch (error) {
-      console.error('Failed to open path:', error)
+      logger.error('Failed to open path:', error)
       setOpenError('Failed to open file. Check permissions in Settings.')
     }
   }
@@ -256,7 +257,7 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
       const { Command } = await import('@tauri-apps/plugin-shell')
       await Command.create('reveal-in-finder', ['-R', path]).execute()
     } catch (error) {
-      console.error('Failed to reveal in Finder:', error)
+      logger.error('Failed to reveal in Finder:', error)
       setOpenError('Failed to reveal file in Finder.')
     }
   }
@@ -385,8 +386,13 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
               onBlur={async () => {
                 setIsEditingTitle(false)
                 if (editedTitle !== session.title && editedTitle.trim()) {
-                  const updatedSession = { ...session, title: editedTitle.trim() }
-                  await updateSession(updatedSession)
+                  try {
+                    const updatedSession = { ...session, title: editedTitle.trim() }
+                    await updateSession(updatedSession)
+                  } catch (err) {
+                    logger.error('[SummaryView] Failed to save title:', err)
+                    setEditedTitle(session.title) // Revert on error
+                  }
                 } else {
                   setEditedTitle(session.title) // Reset if empty
                 }
@@ -634,7 +640,7 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
                         setScreenshots(ss)
                         setAudioChunks(audio)
                       }).catch((error) => {
-                        console.error('Failed to load media:', error)
+                        logger.error('Failed to load media:', error)
                         setMediaError('Failed to load screenshots and audio. Please try again.')
                       }).finally(() => {
                         setLoadingMedia(false)

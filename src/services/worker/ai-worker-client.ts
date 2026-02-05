@@ -25,6 +25,7 @@ import type { WorkerState } from './worker-state';
 import { EventEmitter } from '../event-emitter';
 import { RequestManager } from './request-manager';
 import { getSecureItem } from '../secure-storage';
+import { logger } from '../../utils/logger';
 
 // ============================================================================
 // Event Types
@@ -107,7 +108,7 @@ class AiWorkerClient {
 
       // Handle worker errors (fixes C1 - clear worker ref on crash)
       this.worker.onerror = (error) => {
-        console.error('[AI Worker] Error:', error);
+        logger.error('[AI Worker] Error:', error);
         this.handleWorkerError(error.message || 'Unknown worker error');
       };
 
@@ -127,20 +128,20 @@ class AiWorkerClient {
         this.worker!.addEventListener('message', handler);
       });
 
-      console.log('[AI Worker Client] Worker bootstrapped, sending API keys...');
+      logger.info('[AI Worker Client] Worker bootstrapped, sending API keys...');
 
       // Send API keys to worker
       const anthropicKey = await getSecureItem('sessions_api_key');
       const openaiKey = await getSecureItem('sessions_openai_api_key');
 
-      console.log('[AI Worker Client] API keys:', anthropicKey ? 'configured' : 'not set', '/', openaiKey ? 'configured' : 'not set');
+      logger.debug('[AI Worker Client] API keys:', anthropicKey ? 'configured' : 'not set', '/', openaiKey ? 'configured' : 'not set');
 
       // Warn if keys are missing - transcription/analysis will fail
       if (!anthropicKey) {
-        console.warn('[AI Worker Client] No Anthropic API key - screenshot analysis will be disabled');
+        logger.warn('[AI Worker Client] No Anthropic API key - screenshot analysis will be disabled');
       }
       if (!openaiKey) {
-        console.warn('[AI Worker Client] No OpenAI API key - audio transcription will be disabled');
+        logger.warn('[AI Worker Client] No OpenAI API key - audio transcription will be disabled');
       }
 
       // Wait for worker to process init and become INITIALIZED
@@ -148,7 +149,7 @@ class AiWorkerClient {
         const timeout = setTimeout(() => {
           // Timeout fired - assume worker is initialized (init is synchronous in worker)
           // Set state to prevent re-initialization attempts
-          console.warn('[AI Worker Client] Init confirmation timeout, assuming initialized');
+          logger.warn('[AI Worker Client] Init confirmation timeout, assuming initialized');
           this.worker!.removeEventListener('message', handler);
           this.workerState = 'INITIALIZED';
           resolve();
@@ -156,7 +157,7 @@ class AiWorkerClient {
 
         const handler = (event: MessageEvent<WorkerResponse>) => {
           if (event.data.type === 'state-change' && event.data.to === 'INITIALIZED') {
-            console.log('[AI Worker Client] Received INITIALIZED state confirmation');
+            logger.debug('[AI Worker Client] Received INITIALIZED state confirmation');
             clearTimeout(timeout);
             this.worker!.removeEventListener('message', handler);
             this.workerState = 'INITIALIZED';
@@ -175,10 +176,10 @@ class AiWorkerClient {
         });
       });
 
-      console.log('[AI Worker Client] Worker fully initialized');
+      logger.info('[AI Worker Client] Worker fully initialized');
       this.initAttempts = 0; // Reset on success
     } catch (error) {
-      console.error('[AI Worker Client] Failed to initialize:', error);
+      logger.error('[AI Worker Client] Failed to initialize:', error);
       this.handleWorkerError(error instanceof Error ? error.message : String(error));
       throw error;
     } finally {
@@ -215,7 +216,7 @@ class AiWorkerClient {
 
   private send(message: WorkerMessage): void {
     if (!this.worker) {
-      console.warn('[AI Worker Client] Worker not initialized, message dropped:', message.type);
+      logger.warn('[AI Worker Client] Worker not initialized, message dropped:', message.type);
       return;
     }
     this.worker.postMessage(message);
@@ -328,7 +329,7 @@ class AiWorkerClient {
         break;
 
       case 'log':
-        console[msg.level](`[AI Worker] ${msg.message}`);
+        logger[msg.level](`[AI Worker] ${msg.message}`);
         break;
 
       case 'progress':

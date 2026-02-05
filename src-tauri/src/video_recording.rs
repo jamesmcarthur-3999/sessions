@@ -13,7 +13,15 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::State;
 
-// FFI declarations for Swift functions
+// FFI declarations for Swift ScreenRecorder module (ScreenRecorder/ScreenRecorder.swift).
+//
+// SAFETY CONTRACT:
+// - screen_recorder_create() returns an owned opaque pointer; caller MUST call _destroy to free.
+// - All functions taking `recorder: *mut c_void` require a valid pointer from _create.
+// - screen_recorder_generate_thumbnail() returns a C string allocated with strdup();
+//   caller MUST free it with libc::free().
+// - These functions are NOT thread-safe; callers synchronize via Mutex<VideoRecorder>.
+// - ABI: C calling convention, stable across macOS versions. Built against macOS 12.3+ SDK.
 #[cfg(target_os = "macos")]
 extern "C" {
     fn screen_recorder_create() -> *mut std::ffi::c_void;
@@ -28,6 +36,7 @@ extern "C" {
     fn screen_recorder_is_recording(recorder: *mut std::ffi::c_void) -> bool;
     fn screen_recorder_destroy(recorder: *mut std::ffi::c_void);
     fn screen_recorder_check_permission() -> bool;
+    #[allow(dead_code)]
     fn screen_recorder_request_permission();
     fn screen_recorder_get_duration(path: *const c_char) -> f64;
     fn screen_recorder_generate_thumbnail(path: *const c_char, time: f64) -> *const c_char;
@@ -59,9 +68,11 @@ pub struct VideoRecorder {
     output_path: Arc<Mutex<Option<PathBuf>>>,
 }
 
-// Manual implementation of Send for VideoRecorder
-// SAFETY: swift_recorder pointer is only accessed from a single thread
-// and protected by the Arc<Mutex<VideoRecorder>> wrapper
+// SAFETY: VideoRecorder is safe to send/share across threads because:
+// 1. swift_recorder (raw pointer) is only accessed through &mut self methods
+// 2. VideoRecorder is always wrapped in Arc<Mutex<VideoRecorder>> (see lib.rs)
+// 3. The Mutex ensures exclusive access — no concurrent pointer derefs
+// 4. current_session_id and output_path use their own Arc<Mutex<T>>
 unsafe impl Send for VideoRecorder {}
 unsafe impl Sync for VideoRecorder {}
 
@@ -250,6 +261,7 @@ impl VideoRecorder {
     }
 
     /// Request screen recording permission
+    #[allow(dead_code)]
     pub fn request_permission() -> Result<(), String> {
         #[cfg(target_os = "macos")]
         {
@@ -299,7 +311,7 @@ pub async fn start_video_recording(
     recorder: State<'_, Arc<Mutex<VideoRecorder>>>,
 ) -> Result<(), String> {
     let mut recorder = recorder.lock()
-        .map_err(|e| format!("Failed to lock video recorder: {}", e))?;
+        .map_err(|_| "Video recorder is busy. Please try again.".to_string())?;
     let quality = quality.unwrap_or_default();
     let path = PathBuf::from(output_path);
     if let Some(parent) = path.parent() {
@@ -317,7 +329,7 @@ pub async fn stop_video_recording(
     recorder: State<'_, Arc<Mutex<VideoRecorder>>>,
 ) -> Result<String, String> {
     let mut recorder = recorder.lock()
-        .map_err(|e| format!("Failed to lock video recorder: {}", e))?;
+        .map_err(|_| "Video recorder is busy. Please try again.".to_string())?;
     let path = recorder.stop_recording()?;
     Ok(path.to_string_lossy().to_string())
 }
@@ -328,7 +340,7 @@ pub async fn is_recording(
     recorder: State<'_, Arc<Mutex<VideoRecorder>>>,
 ) -> Result<bool, String> {
     let recorder = recorder.lock()
-        .map_err(|e| format!("Failed to lock video recorder: {}", e))?;
+        .map_err(|_| "Video recorder is busy. Please try again.".to_string())?;
     Ok(recorder.is_recording())
 }
 
@@ -338,7 +350,7 @@ pub async fn get_current_recording_session(
     recorder: State<'_, Arc<Mutex<VideoRecorder>>>,
 ) -> Result<Option<String>, String> {
     let recorder = recorder.lock()
-        .map_err(|e| format!("Failed to lock video recorder: {}", e))?;
+        .map_err(|_| "Video recorder is busy. Please try again.".to_string())?;
     Ok(recorder.current_session_id())
 }
 

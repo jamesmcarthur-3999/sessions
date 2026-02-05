@@ -7,6 +7,7 @@
 
 import type { Session } from '../types'
 import { getAllSessionsForSync, getSessionSummary, getCapturePayload } from './database'
+import { logger } from '../utils/logger'
 
 const STORAGE_KEY = 'sessions'
 
@@ -41,7 +42,7 @@ class StorageService {
 
       // Validate that we got an array
       if (!Array.isArray(parsed)) {
-        console.error('[STORAGE] Invalid data format - expected array')
+        logger.error('[STORAGE] Invalid data format - expected array')
         return []
       }
 
@@ -67,7 +68,7 @@ class StorageService {
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       )
     } catch (error) {
-      console.error('[STORAGE] Failed to load sessions:', error)
+      logger.error('[STORAGE] Failed to load sessions:', error)
       // Return empty array but log the error for debugging
       // In a production app, we might want to show an error to the user
       return []
@@ -91,12 +92,12 @@ class StorageService {
         // Check localStorage quota before writing
         // localStorage typically has a 5-10MB limit
         if (data.length > 4 * 1024 * 1024) {
-          console.warn('[STORAGE] Data approaching localStorage limit')
+          logger.warn('[STORAGE] Data approaching localStorage limit')
         }
 
         localStorage.setItem(STORAGE_KEY, data)
       } catch (error) {
-        console.error('[STORAGE] Failed to save session:', error)
+        logger.error('[STORAGE] Failed to save session:', error)
         // Check if it's a quota error
         if (error instanceof DOMException && error.name === 'QuotaExceededError') {
           throw new Error('Storage quota exceeded. Please delete some old sessions.')
@@ -113,7 +114,7 @@ class StorageService {
         const filtered = sessions.filter(s => s.id !== id)
         localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered))
       } catch (error) {
-        console.error('[STORAGE] Failed to delete session:', error)
+        logger.error('[STORAGE] Failed to delete session:', error)
         throw error
       }
     })
@@ -189,10 +190,10 @@ class StorageService {
     return this.withLock(async () => {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(sorted))
-        console.log(`[STORAGE] Synced ${sorted.length} sessions from database`)
+        logger.info(`[STORAGE] Synced ${sorted.length} sessions from database`)
         return sorted
       } catch (error) {
-        console.error('[STORAGE] Failed to sync from database:', error)
+        logger.error('[STORAGE] Failed to sync from database:', error)
         throw error
       }
     })

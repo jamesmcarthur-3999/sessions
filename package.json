@@ -1,12 +1,13 @@
 {
   "name": "sessions",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "node scripts/ensure-baleybots.mjs && vite",
     "build": "node scripts/ensure-baleybots.mjs && tsc -b && vite build",
     "lint": "eslint .",
+    "type-check": "tsc --noEmit",
     "preview": "vite preview",
     "test": "vitest",
     "test:run": "vitest run",

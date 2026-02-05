@@ -14,8 +14,8 @@ fn compile_swift_module() {
     println!("cargo:rerun-if-changed=ScreenRecorder/ScreenRecorder.swift");
     println!("cargo:rerun-if-changed=ScreenRecorder/ScreenRecorder.h");
 
-    let out_dir = env::var("OUT_DIR").unwrap();
-    let target = env::var("TARGET").unwrap();
+    let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set — required by Cargo build");
+    let target = env::var("TARGET").expect("TARGET not set — required by Cargo build");
 
     // Determine architecture
     let arch = if target.contains("aarch64") || target.contains("arm64") {

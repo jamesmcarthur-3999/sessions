@@ -2,6 +2,8 @@
  * Simple typed event emitter
  */
 
+import { logger } from '../utils/logger';
+
 type Listener<T> = (data: T) => void;
 
 export class EventEmitter<Events extends { [key: string]: unknown }> {
@@ -24,7 +26,7 @@ export class EventEmitter<Events extends { [key: string]: unknown }> {
       try {
         callback(data);
       } catch (error) {
-        console.error('Error in event listener for ' + String(event) + ':', error);
+        logger.error('Error in event listener for ' + String(event) + ':', error);
       }
     });
   }

@@ -20,6 +20,7 @@ import type {
 } from '../types/database';
 import { saveScreenshotToFile, deleteSessionScreenshots } from './screenshot-storage';
 import { deleteSessionAudio } from './audio-storage';
+import { logger } from '../utils/logger';
 
 let db: Database | null = null;
 let initPromise: Promise<void> | null = null;
@@ -152,15 +153,15 @@ export async function initDatabase(): Promise<void> {
 
   initPromise = (async () => {
     try {
-      console.log('[DATABASE] Initializing SQLite database...');
+      logger.info('[DATABASE] Initializing SQLite database...');
       db = await Database.load('sqlite:sessions.db');
-      console.log('[DATABASE] Database connection established');
+      logger.info('[DATABASE] Database connection established');
 
       // Quick integrity check
       try {
         await db.select<Array<{ integrity_check: string }>>('PRAGMA integrity_check');
       } catch (integrityError) {
-        console.error('[DATABASE] Database integrity check failed:', integrityError);
+        logger.error('[DATABASE] Database integrity check failed:', integrityError);
         db = null;
         throw new Error('Database appears corrupted. Please contact support or delete the database file to start fresh.');
       }
@@ -175,7 +176,7 @@ export async function initDatabase(): Promise<void> {
       await db.execute('PRAGMA synchronous = NORMAL');
       // Larger cache reduces disk I/O
       await db.execute('PRAGMA cache_size = 10000');
-      console.log('[DATABASE] Foreign key constraints and performance optimizations enabled');
+      logger.debug('[DATABASE] Foreign key constraints and performance optimizations enabled');
 
       // Create tables
       const statements = SCHEMA.split(';').filter(s => s.trim());
@@ -187,26 +188,26 @@ export async function initDatabase(): Promise<void> {
       try {
         await ensureColumn(db, 'sessions', 'video_path', 'video_path TEXT');
       } catch (error) {
-        console.warn('[DATABASE] Failed to ensure sessions.video_path column:', error);
+        logger.warn('[DATABASE] Failed to ensure sessions.video_path column:', error);
       }
 
       // Add file_path column for file-based screenshot storage
       try {
         await ensureColumn(db, 'screenshots', 'file_path', 'file_path TEXT');
       } catch (error) {
-        console.warn('[DATABASE] Failed to ensure screenshots.file_path column:', error);
+        logger.warn('[DATABASE] Failed to ensure screenshots.file_path column:', error);
       }
 
       // Add file_path column for file-based audio storage
       try {
         await ensureColumn(db, 'audio_chunks', 'file_path', 'file_path TEXT');
       } catch (error) {
-        console.warn('[DATABASE] Failed to ensure audio_chunks.file_path column:', error);
+        logger.warn('[DATABASE] Failed to ensure audio_chunks.file_path column:', error);
       }
 
-      console.log('[DATABASE] Schema initialized successfully');
+      logger.info('[DATABASE] Schema initialized successfully');
     } catch (error) {
-      console.error('[DATABASE] Failed to initialize database:', error);
+      logger.error('[DATABASE] Failed to initialize database:', error);
       db = null;
       // Re-throw with actionable error messages
       const message = error instanceof Error ? error.message : String(error);
@@ -311,7 +312,7 @@ export async function createSession(
     await db.execute('COMMIT');
   } catch (error) {
     await db.execute('ROLLBACK').catch(() => {});
-    console.error('[DATABASE] Failed to create session, rolled back:', error);
+    logger.error('[DATABASE] Failed to create session, rolled back:', error);
     throw error;
   }
 
@@ -409,7 +410,7 @@ export async function saveScreenshot(
     [screenshot.id, screenshot.session_id, screenshot.captured_at, screenshot.trigger, screenshot.app_name, screenshot.window_title, screenshot.file_path]
   );
 
-  console.log(`[DATABASE] Screenshot saved: ${filePath} (${Math.round(dataBase64.length / 1024)}KB)`);
+  logger.debug(`[DATABASE] Screenshot saved: ${filePath} (${Math.round(dataBase64.length / 1024)}KB)`);
   return screenshot;
 }
 
@@ -497,7 +498,7 @@ export async function saveAudioChunk(
     [chunk.id, chunk.session_id, chunk.start_time, chunk.end_time, chunk.duration_seconds, chunk.file_path]
   );
 
-  console.log(`[DATABASE] Audio chunk saved: ${filePath} (${durationSeconds.toFixed(1)}s)`);
+  logger.debug(`[DATABASE] Audio chunk saved: ${filePath} (${durationSeconds.toFixed(1)}s)`);
   return chunk;
 }
 
@@ -784,18 +785,18 @@ export async function deleteSessionData(sessionId: string): Promise<void> {
     await db.execute('DELETE FROM sessions WHERE id = $1', [sessionId]);
 
     await db.execute('COMMIT');
-    console.log('[DATABASE] Deleted session data:', sessionId);
+    logger.info('[DATABASE] Deleted session data:', sessionId);
 
     // Also delete media files (async, non-critical)
     deleteSessionScreenshots(sessionId).catch(err => {
-      console.warn('[DATABASE] Failed to delete screenshot files:', err);
+      logger.warn('[DATABASE] Failed to delete screenshot files:', err);
     });
     deleteSessionAudio(sessionId).catch(err => {
-      console.warn('[DATABASE] Failed to delete audio files:', err);
+      logger.warn('[DATABASE] Failed to delete audio files:', err);
     });
   } catch (error) {
     await db.execute('ROLLBACK');
-    console.error('[DATABASE] Failed to delete session, rolled back:', error);
+    logger.error('[DATABASE] Failed to delete session, rolled back:', error);
     throw error;
   }
 }
@@ -828,7 +829,7 @@ export async function markSessionsAsInterrupted(sessionIds: string[]): Promise<v
     `UPDATE sessions SET status = 'interrupted' WHERE id IN (${placeholders})`,
     sessionIds
   );
-  console.log(`[DATABASE] Marked ${sessionIds.length} sessions as interrupted`);
+  logger.info(`[DATABASE] Marked ${sessionIds.length} sessions as interrupted`);
 }
 
 // ============================================================================

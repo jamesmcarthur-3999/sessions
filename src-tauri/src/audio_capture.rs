@@ -83,8 +83,11 @@ pub struct AudioRecorder {
     sample_rate: u32,
 }
 
-// SAFETY: AudioRecorder uses Mutex for all internal state synchronization,
-// making it safe to share across threads despite Stream not being Send/Sync on macOS
+// SAFETY: AudioRecorder is safe to send/share across threads because:
+// 1. All mutable state (stream, buffer, session_id, etc.) is behind Arc<Mutex<T>>
+// 2. cpal::Stream is !Send on macOS but is only accessed through Mutex<Option<Stream>>
+// 3. Stream operations (play/pause) are called only while holding the mutex lock
+// 4. The chunk processor thread accesses shared state only through Arc<Mutex<T>>
 unsafe impl Send for AudioRecorder {}
 unsafe impl Sync for AudioRecorder {}
 

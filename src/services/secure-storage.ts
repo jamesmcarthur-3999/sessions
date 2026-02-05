@@ -5,11 +5,13 @@
  */
 
 import { isTauri } from './recording'
+import { logger } from '../utils/logger'
 
 /** Keys that contain secrets and must not be stored in plaintext localStorage */
 const SECRET_KEYS = new Set(['sessions_api_key', 'sessions_openai_api_key'])
 
-let store: any = null
+/** Tauri Store instance — typed loosely to avoid importing at module level (dynamic import below) */
+let store: { get(key: string): Promise<unknown>; set(key: string, value: unknown): Promise<void>; delete(key: string): Promise<boolean>; save(): Promise<void> } | null = null
 
 async function getStore() {
   if (!isTauri()) {
@@ -17,10 +19,10 @@ async function getStore() {
   }
 
   if (!store) {
-    console.log('[SECURE-STORAGE] Loading store...')
+    logger.debug('[SECURE-STORAGE] Loading store...')
     const { load } = await import('@tauri-apps/plugin-store')
     store = await load('secure-credentials.json')
-    console.log('[SECURE-STORAGE] Store loaded successfully')
+    logger.debug('[SECURE-STORAGE] Store loaded successfully')
   }
   return store
 }
@@ -48,7 +50,7 @@ export async function getSecureItem(key: string): Promise<string | null> {
   const s = await getStore()
   if (s) {
     const value = await s.get(key) as string | null
-    console.log(`[SECURE-STORAGE] Get '${key}': ${value ? 'found' : 'not found'}`)
+    logger.debug(`[SECURE-STORAGE] Get '${key}': ${value ? 'found' : 'not found'}`)
     return value
   } else if (SECRET_KEYS.has(key)) {
     // Don't read secrets from insecure localStorage
@@ -78,7 +80,7 @@ export async function migrateToSecureStorage(): Promise<void> {
     if (value) {
       await setSecureItem(key, value)
       localStorage.removeItem(key)
-      console.log(`[SECURE-STORAGE] Migrated ${key} to secure storage`)
+      logger.info(`[SECURE-STORAGE] Migrated ${key} to secure storage`)
     }
   }
 }

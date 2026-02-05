@@ -13,6 +13,7 @@ import {
   updateSessionTitle,
 } from '../services/database'
 import { isTauri } from '../services/recording'
+import { logger } from '../utils/logger'
 
 interface AppState {
   sessions: Session[]
@@ -91,7 +92,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       initDatabase()
         .then(() => setDbReady(true))
         .catch(err => {
-          console.error('Database init failed:', err)
+          logger.error('Database init failed:', err)
           setDbError(err instanceof Error ? err.message : 'Database initialization failed')
         })
     } else {
@@ -113,10 +114,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
             if (orphanedSessions.length > 0) {
               const sessionIds = orphanedSessions.map(s => s.id)
               await markSessionsAsInterrupted(sessionIds)
-              console.log(`[CRASH RECOVERY] Recovered ${sessionIds.length} interrupted sessions`)
+              logger.info(`[CRASH RECOVERY] Recovered ${sessionIds.length} interrupted sessions`)
             }
           } catch (recoveryError) {
-            console.error('[CRASH RECOVERY] Failed to recover sessions:', recoveryError)
+            logger.error('[CRASH RECOVERY] Failed to recover sessions:', recoveryError)
             // Continue loading even if recovery fails
           }
         }
@@ -126,7 +127,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           : await storage.loadSessions()
         dispatch({ type: 'SET_SESSIONS', payload: sessions })
       } catch (error) {
-        console.error('Failed to load sessions:', error)
+        logger.error('Failed to load sessions:', error)
         dispatch({ type: 'SET_ERROR', payload: error instanceof Error ? error.message : 'Failed to load sessions' })
         dispatch({ type: 'SET_LOADING', payload: false })
       }
@@ -147,7 +148,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             await saveCapturePayload(session.id, session.captureText || '', session.attachments)
           }
         } catch (error) {
-          console.error('[DATABASE] Failed to persist capture session:', error)
+          logger.error('[DATABASE] Failed to persist capture session:', error)
         }
       }
 
@@ -155,7 +156,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         try {
           await saveSessionSummary(session.id, session.summary)
         } catch (error) {
-          console.error('[DATABASE] Failed to save session summary:', error)
+          logger.error('[DATABASE] Failed to save session summary:', error)
         }
       }
     }
@@ -168,14 +169,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       try {
         await updateSessionTitle(session.id, session.title)
       } catch (error) {
-        console.error('[DATABASE] Failed to update session title:', error)
+        logger.error('[DATABASE] Failed to update session title:', error)
       }
 
       if (session.summary) {
         try {
           await saveSessionSummary(session.id, session.summary)
         } catch (error) {
-          console.error('[DATABASE] Failed to update session summary:', error)
+          logger.error('[DATABASE] Failed to update session summary:', error)
         }
       }
 
@@ -183,7 +184,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         try {
           await saveCapturePayload(session.id, session.captureText || '', session.attachments)
         } catch (error) {
-          console.error('[DATABASE] Failed to update capture payload:', error)
+          logger.error('[DATABASE] Failed to update capture payload:', error)
         }
       }
     }
@@ -196,7 +197,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       await deleteSessionData(id)
     } catch (err) {
-      console.error('Failed to delete session from database:', err)
+      logger.error('Failed to delete session from database:', err)
       errors.push('database')
     }
 
@@ -204,7 +205,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       await storage.deleteSession(id)
     } catch (err) {
-      console.error('Failed to delete session from localStorage:', err)
+      logger.error('Failed to delete session from localStorage:', err)
       errors.push('localStorage')
     }
 
@@ -213,13 +214,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       dispatch({ type: 'DELETE_SESSION', payload: id })
     } else if (errors.length === 1) {
       // Partial failure - try to rollback or warn user
-      console.error(`Partial delete failure: ${errors.join(', ')}`)
+      logger.error(`Partial delete failure: ${errors.join(', ')}`)
       // Still update UI but warn user
       dispatch({ type: 'DELETE_SESSION', payload: id })
       // Could show a toast warning here
     } else {
       // Both failed - don't update UI
-      console.error('Delete completely failed')
+      logger.error('Delete completely failed')
       throw new Error('Failed to delete session')
     }
   }

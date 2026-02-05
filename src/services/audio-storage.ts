@@ -6,6 +6,7 @@
  */
 
 import { isTauri } from './recording';
+import { logger } from '../utils/logger';
 
 // Storage paths (cached)
 let appDataDir: string | null = null;
@@ -30,7 +31,7 @@ async function ensureStorageDir(): Promise<string> {
   // Create audio directory if it doesn't exist
   if (!(await exists(audioBaseDir))) {
     await mkdir(audioBaseDir, { recursive: true });
-    console.log('[AUDIO STORAGE] Created directory:', audioBaseDir);
+    logger.debug('[AUDIO STORAGE] Created directory:', audioBaseDir);
   }
 
   return audioBaseDir;
@@ -97,10 +98,10 @@ export async function deleteSessionAudio(sessionId: string): Promise<void> {
     const { remove, exists } = await import('@tauri-apps/plugin-fs');
     if (await exists(sessionDir)) {
       await remove(sessionDir, { recursive: true });
-      console.log('[AUDIO STORAGE] Deleted session directory:', sessionDir);
+      logger.debug('[AUDIO STORAGE] Deleted session directory:', sessionDir);
     }
   } catch (error) {
-    console.error('[AUDIO STORAGE] Failed to delete session audio:', error);
+    logger.error('[AUDIO STORAGE] Failed to delete session audio:', error);
   }
 }
 
@@ -161,7 +162,7 @@ export async function getAudioStorageStats(): Promise<{
       totalSizeBytes,
     };
   } catch (error) {
-    console.error('[AUDIO STORAGE] Failed to get stats:', error);
+    logger.error('[AUDIO STORAGE] Failed to get stats:', error);
     return { totalSessions: 0, totalFiles: 0, totalSizeBytes: 0 };
   }
 }

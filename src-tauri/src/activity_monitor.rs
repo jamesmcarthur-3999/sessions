@@ -167,6 +167,7 @@ impl ActivityMonitor {
     }
 
     /// Check if monitoring is active
+    #[allow(dead_code)]
     pub fn is_running(&self) -> bool {
         self.is_started.load(Ordering::SeqCst) && !self.stop_flag.load(Ordering::SeqCst)
     }

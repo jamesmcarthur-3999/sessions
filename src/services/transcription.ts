@@ -6,6 +6,8 @@
  * - Local Whisper (future)
  */
 
+import { logger } from '../utils/logger';
+
 const MAX_WHISPER_SIZE = 25 * 1024 * 1024; // 25MB
 
 interface TranscriptionResult {
@@ -47,7 +49,7 @@ class TranscriptionService {
     const apiKey = await this.getOpenAIApiKey();
 
     if (!apiKey) {
-      console.warn('[TRANSCRIPTION] No OpenAI API key configured, skipping transcription');
+      logger.warn('[TRANSCRIPTION] No OpenAI API key configured, skipping transcription');
       return { text: '' };
     }
 
@@ -62,19 +64,19 @@ class TranscriptionService {
         if (attempt > 0) {
           // Exponential backoff: 1s, 2s, 4s
           const delay = Math.pow(2, attempt - 1) * 1000;
-          console.log(`[TRANSCRIPTION] Retry ${attempt}/${maxRetries} after ${delay}ms`);
+          logger.debug(`[TRANSCRIPTION] Retry ${attempt}/${maxRetries} after ${delay}ms`);
           await new Promise(resolve => setTimeout(resolve, delay));
         }
 
         return await this.transcribeWithOpenAI(audioBase64, apiKey);
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
-        console.error(`[TRANSCRIPTION] Attempt ${attempt + 1} failed:`, lastError.message);
+        logger.error(`[TRANSCRIPTION] Attempt ${attempt + 1} failed:`, lastError.message);
       }
     }
 
     // All retries failed - throw to allow caller to handle
-    console.error('[TRANSCRIPTION] All retries exhausted');
+    logger.error('[TRANSCRIPTION] All retries exhausted');
     throw lastError || new Error('Transcription failed after retries');
   }
 
@@ -93,7 +95,7 @@ class TranscriptionService {
 
     // Check size before processing
     if (binaryString.length > MAX_WHISPER_SIZE) {
-      console.error(`[TRANSCRIPTION] Audio too large: ${(binaryString.length / 1024 / 1024).toFixed(1)}MB`);
+      logger.error(`[TRANSCRIPTION] Audio too large: ${(binaryString.length / 1024 / 1024).toFixed(1)}MB`);
       throw new Error(`Audio chunk too large (${(binaryString.length / 1024 / 1024).toFixed(1)}MB). Maximum is 25MB.`);
     }
 
@@ -109,7 +111,7 @@ class TranscriptionService {
     formData.append('model', this.config.model);
     formData.append('response_format', 'verbose_json');
 
-    console.log('[TRANSCRIPTION] Sending audio to Whisper API...');
+    logger.debug('[TRANSCRIPTION] Sending audio to Whisper API...');
 
     const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
@@ -121,13 +123,13 @@ class TranscriptionService {
 
     if (!response.ok) {
       const error = await response.text();
-      console.error('[TRANSCRIPTION] API error:', response.status, error);
+      logger.error('[TRANSCRIPTION] API error:', response.status, error);
       throw new Error(`Transcription API error ${response.status}: ${error}`);
     }
 
     const result = await response.json();
 
-    console.log('[TRANSCRIPTION] Received transcript:', result.text?.substring(0, 100) + '...');
+    logger.debug('[TRANSCRIPTION] Received transcript:', result.text?.substring(0, 100) + '...');
 
     return {
       text: result.text || '',

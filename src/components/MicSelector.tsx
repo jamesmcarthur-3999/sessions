@@ -10,6 +10,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Mic, MicOff, ChevronDown, Check, AlertCircle } from 'lucide-react'
 import { AudioLevelMeter } from './AudioLevelMeter'
 import { getAudioDevices, isTauri, type AudioDevice } from '../services/recording'
+import { logger } from '../utils/logger'
 
 interface MicSelectorProps {
   /** Selected microphone ID, or null for no audio */
@@ -72,7 +73,7 @@ export function MicSelector({
         }
       }
     } catch (e) {
-      console.error('Failed to load audio devices:', e)
+      logger.error('Failed to load audio devices:', e)
       setError(e instanceof Error ? e.message : 'Failed to load microphones')
     } finally {
       setIsLoading(false)

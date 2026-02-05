@@ -6,6 +6,7 @@
  */
 
 import { claudeRateLimiter } from './rate-limiter'
+import { logger } from './logger'
 
 export interface RetryOptions {
   maxRetries: number;
@@ -68,11 +69,11 @@ export async function withRetry<T>(
 
       // Check if error is retryable
       if (!isRetryableError(error, opts.retryableErrors ?? defaultOptions.retryableErrors ?? [])) {
-        console.log('[RETRY] Non-retryable error, failing immediately:', error);
+        logger.debug('[RETRY] Non-retryable error, failing immediately:', error);
         break;
       }
 
-      console.log(`[RETRY] Attempt ${attempt + 1} failed, retrying in ${delay}ms...`);
+      logger.debug(`[RETRY] Attempt ${attempt + 1} failed, retrying in ${delay}ms...`);
       await sleep(delay);
 
       // Increase delay with exponential backoff (with jitter)

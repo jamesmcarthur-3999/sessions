@@ -5,6 +5,8 @@
  * and waiting when necessary.
  */
 
+import { logger } from './logger'
+
 export class RateLimiter {
   private tokens: number
   private lastRefill: number
@@ -35,7 +37,7 @@ export class RateLimiter {
 
     // Calculate wait time for 1 token
     const waitTime = Math.ceil((1 - this.tokens) / this.refillRate)
-    console.log(`[RATE_LIMITER] Waiting ${waitTime}ms for rate limit`)
+    logger.debug(`[RATE_LIMITER] Waiting ${waitTime}ms for rate limit`)
 
     await new Promise(resolve => setTimeout(resolve, waitTime))
     this.tokens = 0

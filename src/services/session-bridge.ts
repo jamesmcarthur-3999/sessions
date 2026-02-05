@@ -37,6 +37,7 @@ import {
   updateAudioTranscript,
 } from './database';
 import type { DbInsight } from '../types/database';
+import { logger } from '../utils/logger';
 
 // ============================================================================
 // Events (same shape as CoordinatorEvents for compatibility)
@@ -104,12 +105,12 @@ class SessionBridgeService {
    */
   async startSession(sessionId: string): Promise<void> {
     if (this.activeSessions.has(sessionId)) {
-      console.warn('[SESSION BRIDGE] Session already active:', sessionId);
+      logger.warn('[SESSION BRIDGE] Session already active:', sessionId);
       return;
     }
 
     if (this.isStarting) {
-      console.warn('[SESSION BRIDGE] Another session is starting, ignoring:', sessionId);
+      logger.warn('[SESSION BRIDGE] Another session is starting, ignoring:', sessionId);
       return;
     }
 
@@ -121,19 +122,19 @@ class SessionBridgeService {
       // Proactive worker init (fixes D3)
       try {
         await aiWorker.initialize();
-        console.log('[SESSION BRIDGE] Worker initialized proactively');
+        logger.info('[SESSION BRIDGE] Worker initialized proactively');
       } catch (error) {
-        console.warn('[SESSION BRIDGE] Proactive worker init failed:', error);
+        logger.warn('[SESSION BRIDGE] Proactive worker init failed:', error);
         // Continue anyway - will try again on first use
       }
 
       // Set up periodic analysis mode check (every 2 minutes)
       const analysisInterval = setInterval(() => {
-        this.checkAnalysisMode(sessionId).catch(console.error);
+        this.checkAnalysisMode(sessionId).catch(logger.error);
       }, 120000);
       this.analysisCheckTimers.set(sessionId, analysisInterval);
 
-      console.log('[SESSION BRIDGE] Started for session:', sessionId);
+      logger.info('[SESSION BRIDGE] Started for session:', sessionId);
     } finally {
       this.isStarting = false;
     }
@@ -154,14 +155,14 @@ class SessionBridgeService {
     // Wait for tracked in-flight operations
     const inflight = this.inflightOps.get(sessionId);
     if (inflight && inflight.size > 0) {
-      console.log(
+      logger.debug(
         `[SESSION BRIDGE] Waiting for ${inflight.size} tracked in-flight operations...`
       );
       await Promise.race([
         this.waitForInflight(sessionId),
         new Promise((r) => setTimeout(r, 5000)), // 5s max wait
       ]);
-      console.log('[SESSION BRIDGE] In-flight operations completed or timed out');
+      logger.debug('[SESSION BRIDGE] In-flight operations completed or timed out');
     }
 
     this.activeSessions.delete(sessionId);
@@ -181,7 +182,7 @@ class SessionBridgeService {
       this.analysisCheckTimers.delete(sessionId);
     }
 
-    console.log('[SESSION BRIDGE] Stopped for session:', sessionId);
+    logger.info('[SESSION BRIDGE] Stopped for session:', sessionId);
   }
 
   /**
@@ -213,7 +214,7 @@ class SessionBridgeService {
    */
   pauseSession(sessionId: string): void {
     this.pausedSessions.add(sessionId);
-    console.log('[SESSION BRIDGE] Session paused:', sessionId);
+    logger.info('[SESSION BRIDGE] Session paused:', sessionId);
   }
 
   /**
@@ -221,7 +222,7 @@ class SessionBridgeService {
    */
   resumeSession(sessionId: string): void {
     this.pausedSessions.delete(sessionId);
-    console.log('[SESSION BRIDGE] Session resumed:', sessionId);
+    logger.info('[SESSION BRIDGE] Session resumed:', sessionId);
   }
 
   /**
@@ -278,7 +279,7 @@ class SessionBridgeService {
 
       // Check pause state (fixes D2)
       if (this.pausedSessions.has(data.sessionId)) {
-        console.log('[SESSION BRIDGE] Skipping analysis persist (paused)');
+        logger.debug('[SESSION BRIDGE] Skipping analysis persist (paused)');
         return;
       }
 
@@ -307,7 +308,7 @@ class SessionBridgeService {
           this.emitter.emit('error', { sessionId: data.sessionId, error: data.error });
         }
       } catch (error) {
-        console.error('[SESSION BRIDGE] Failed to persist analysis:', error);
+        logger.error('[SESSION BRIDGE] Failed to persist analysis:', error);
         this.emitter.emit('error', {
           sessionId: data.sessionId,
           error: 'Failed to save analysis',
@@ -321,7 +322,7 @@ class SessionBridgeService {
 
       // Check pause state (fixes D2)
       if (this.pausedSessions.has(data.sessionId)) {
-        console.log('[SESSION BRIDGE] Skipping insight persist (paused)');
+        logger.debug('[SESSION BRIDGE] Skipping insight persist (paused)');
         return;
       }
 
@@ -337,7 +338,7 @@ class SessionBridgeService {
           content: data.content,
         });
       } catch (error) {
-        console.error('[SESSION BRIDGE] Failed to persist insight:', error);
+        logger.error('[SESSION BRIDGE] Failed to persist insight:', error);
       }
     });
 
@@ -347,7 +348,7 @@ class SessionBridgeService {
 
       // Check pause state (fixes D2)
       if (this.pausedSessions.has(data.sessionId)) {
-        console.log('[SESSION BRIDGE] Skipping summary persist (paused)');
+        logger.debug('[SESSION BRIDGE] Skipping summary persist (paused)');
         return;
       }
 
@@ -358,7 +359,7 @@ class SessionBridgeService {
           summary: data.summary,
         });
       } catch (error) {
-        console.error('[SESSION BRIDGE] Failed to persist summary:', error);
+        logger.error('[SESSION BRIDGE] Failed to persist summary:', error);
       }
     });
 
@@ -383,7 +384,7 @@ class SessionBridgeService {
           const context = await this.buildContext(data.sessionId);
           await aiWorker.updateSummary(data.sessionId, context);
         } catch (error) {
-          console.error('[SESSION BRIDGE] Failed to trigger summary update:', error);
+          logger.error('[SESSION BRIDGE] Failed to trigger summary update:', error);
         }
       }, 5000);
 
@@ -396,7 +397,7 @@ class SessionBridgeService {
 
       // Check pause state (fixes D2)
       if (this.pausedSessions.has(data.sessionId)) {
-        console.log('[SESSION BRIDGE] Skipping mode change persist (paused)');
+        logger.debug('[SESSION BRIDGE] Skipping mode change persist (paused)');
         return;
       }
 
@@ -404,7 +405,7 @@ class SessionBridgeService {
         await updateAnalysisMode(data.sessionId, data.mode);
         this.emitter.emit('mode-changed', data);
       } catch (error) {
-        console.error('[SESSION BRIDGE] Failed to persist mode change:', error);
+        logger.error('[SESSION BRIDGE] Failed to persist mode change:', error);
       }
     });
 
@@ -430,7 +431,7 @@ class SessionBridgeService {
 
       // Check pause state (fixes D2)
       if (this.pausedSessions.has(data.sessionId)) {
-        console.log('[SESSION BRIDGE] Skipping transcription persist (paused)');
+        logger.debug('[SESSION BRIDGE] Skipping transcription persist (paused)');
         return;
       }
 
@@ -444,13 +445,13 @@ class SessionBridgeService {
           text: data.text,
         });
       } catch (error) {
-        console.error('[SESSION BRIDGE] Failed to persist transcription:', error);
+        logger.error('[SESSION BRIDGE] Failed to persist transcription:', error);
       }
     });
 
     // State changes - log for debugging
     const unsubStateChange = aiWorker.on('state-change', (data) => {
-      console.log(
+      logger.debug(
         `[SESSION BRIDGE] Worker state: ${data.from} -> ${data.to}`,
         data.reason ? `(${data.reason})` : ''
       );
@@ -535,9 +536,9 @@ class SessionBridgeService {
         currentFocusDuration: 0,
       };
 
-      aiWorker.checkAnalysisMode(sessionId, context, metrics).catch(console.error);
+      aiWorker.checkAnalysisMode(sessionId, context, metrics).catch(logger.error);
     } catch (error) {
-      console.error('[SESSION BRIDGE] Analysis mode check failed:', error);
+      logger.error('[SESSION BRIDGE] Analysis mode check failed:', error);
     }
   }
 
