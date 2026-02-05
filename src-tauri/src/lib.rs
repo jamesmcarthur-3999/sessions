@@ -358,7 +358,7 @@ pub fn run() {
     let video_recorder = Arc::new(Mutex::new(VideoRecorder::new()));
     let activity_monitor = Arc::new(Mutex::new(ActivityMonitor::new()));
 
-    tauri::Builder::default()
+    if let Err(e) = tauri::Builder::default()
         .plugin(tauri_plugin_sql::Builder::new().build())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_fs::init())
@@ -414,5 +414,19 @@ pub fn run() {
             http_proxy::http_proxy_stream,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+    {
+        eprintln!("Fatal: Failed to start application: {}", e);
+        #[cfg(target_os = "macos")]
+        {
+            use std::process::Command;
+            let _ = Command::new("osascript")
+                .arg("-e")
+                .arg(format!(
+                    r#"display dialog "Sessions failed to start:\n\n{}" with title "Sessions" buttons {{"OK"}} default button "OK" with icon stop"#,
+                    e.to_string().replace('"', "'")
+                ))
+                .output();
+        }
+        std::process::exit(1);
+    }
 }
