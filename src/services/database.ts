@@ -156,6 +156,15 @@ export async function initDatabase(): Promise<void> {
       db = await Database.load('sqlite:sessions.db');
       console.log('[DATABASE] Database connection established');
 
+      // Quick integrity check
+      try {
+        await db.select<Array<{ integrity_check: string }>>('PRAGMA integrity_check');
+      } catch (integrityError) {
+        console.error('[DATABASE] Database integrity check failed:', integrityError);
+        db = null;
+        throw new Error('Database appears corrupted. Please contact support or delete the database file to start fresh.');
+      }
+
       // Enable foreign key constraints (required for CASCADE deletes to work)
       await db.execute('PRAGMA foreign_keys = ON');
 
@@ -199,9 +208,17 @@ export async function initDatabase(): Promise<void> {
     } catch (error) {
       console.error('[DATABASE] Failed to initialize database:', error);
       db = null;
-      // Re-throw with more context
+      // Re-throw with actionable error messages
       const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Database initialization failed: ${message}. Make sure you're running the app with 'npm run tauri dev'.`);
+      if (message.includes('disk') || message.includes('full')) {
+        throw new Error('Disk is full. Free up space and restart the app.');
+      } else if (message.includes('locked') || message.includes('busy')) {
+        throw new Error('Database is locked by another process. Close other instances and retry.');
+      } else if (message.includes('corrupt')) {
+        throw new Error('Database appears corrupted. Please contact support or delete the database file to start fresh.');
+      } else {
+        throw new Error(`Database initialization failed: ${message}`);
+      }
     } finally {
       initPromise = null;
     }
