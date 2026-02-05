@@ -1,12 +1,12 @@
 /**
  * useSessionIntelligence Hook
  *
- * Connects React components to the session coordinator.
+ * Connects React components to the session bridge (which forwards worker events).
  * Provides real-time updates for summary, insights, and mode.
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { sessionCoordinator } from '../services/session-coordinator';
+import { sessionBridge } from '../services/session-bridge';
 import { getRollingSummary, getInsights, getAnalysisState, pinInsight } from '../services/database';
 import type { DbInsight } from '../types/database';
 
@@ -46,7 +46,7 @@ export function useSessionIntelligence(sessionId: string | null) {
         setState({
           summary: summary?.content || '',
           insights,
-          analysisMode: (analysisState?.mode as 'ambient' | 'deep') || 'ambient',
+          analysisMode: analysisState?.mode === 'deep' ? 'deep' : 'ambient',
           isLoading: false,
           error: null,
         });
@@ -62,17 +62,17 @@ export function useSessionIntelligence(sessionId: string | null) {
     loadInitialData();
   }, [sessionId]);
 
-  // Subscribe to coordinator events
+  // Subscribe to session bridge events (forwarded from worker)
   useEffect(() => {
     if (!sessionId) return;
 
-    const unsubSummary = sessionCoordinator.on('summary-updated', (data) => {
+    const unsubSummary = sessionBridge.on('summary-updated', (data) => {
       if (data.sessionId === sessionId) {
         setState(s => ({ ...s, summary: data.summary }));
       }
     });
 
-    const unsubInsight = sessionCoordinator.on('insight-created', async (data) => {
+    const unsubInsight = sessionBridge.on('insight-created', async (data) => {
       if (data.sessionId === sessionId) {
         // Reload insights to get the new one
         const insights = await getInsights(sessionId);
@@ -80,13 +80,13 @@ export function useSessionIntelligence(sessionId: string | null) {
       }
     });
 
-    const unsubMode = sessionCoordinator.on('mode-changed', (data) => {
+    const unsubMode = sessionBridge.on('mode-changed', (data) => {
       if (data.sessionId === sessionId) {
         setState(s => ({ ...s, analysisMode: data.mode }));
       }
     });
 
-    const unsubError = sessionCoordinator.on('error', (data) => {
+    const unsubError = sessionBridge.on('error', (data) => {
       if (data.sessionId === sessionId) {
         setState(s => ({ ...s, error: data.error }));
       }
@@ -103,7 +103,7 @@ export function useSessionIntelligence(sessionId: string | null) {
   // Actions
   const setAnalysisMode = useCallback(async (mode: 'ambient' | 'deep') => {
     if (!sessionId) return;
-    await sessionCoordinator.setAnalysisMode(sessionId, mode);
+    await sessionBridge.setAnalysisMode(sessionId, mode);
   }, [sessionId]);
 
   const handlePinInsight = useCallback(async (insightId: string, pinned: boolean) => {

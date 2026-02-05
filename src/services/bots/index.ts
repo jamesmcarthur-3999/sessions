@@ -1,16 +1,29 @@
 /**
- * Session Intelligence Bots
+ * Session Intelligence Bots - Streamlined API
  *
- * Export all bots and their utilities.
+ * Exports types, input builders, pipeline factories, and config utilities.
  */
 
+// Types (includes all Zod schemas and inferred types)
 export * from './types';
-export { createSummarizerBot, buildSummarizerInput } from './summarizer';
-export { createActivityDetectorBot, buildActivityDetectorInput } from './activity-detector';
-export { createAnalysisControllerBot, buildAnalysisControllerInput, type ActivityMetrics } from './analysis-controller';
-export { createQABot, buildQAInput } from './qa-bot';
-export { createFinalSummaryBot, buildFinalSummaryInput, type FinalSummaryInput, type FinalSummary } from './final-summary';
-export { createCaptureBot, buildCaptureInput, type CaptureResult } from './capture';
+
+// Input builders (consolidated from individual bot files)
+export * from './input-builders';
+
+// Pipeline factories (use these directly - they handle caching internally)
+export {
+  BOT_DEFINITIONS,
+  createActivityDetectorPipeline,
+  createSummarizerPipeline,
+  createAnalysisControllerPipeline,
+  createQABotPipeline,
+  createFinalSummaryPipeline,
+  createCapturePipeline,
+  createCaptureTimingPipeline,
+  resetPipelines,
+} from './pipelines';
+
+// Config utilities
 export {
   initializeBots,
   updateApiKeys,

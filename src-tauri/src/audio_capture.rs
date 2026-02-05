@@ -5,17 +5,19 @@
  * - System audio capture using cpal
  * - Configurable chunk buffering (matches screenshot interval)
  * - WAV encoding with hound
- * - Base64 transmission to frontend
+ * - File-based storage (returns file paths, not base64)
  * - State management (recording/paused/stopped)
  */
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, SampleFormat, Stream, StreamConfig};
 use hound::{WavSpec, WavWriter};
+use std::fs;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 /// Audio level event payload for frontend visualization
 #[derive(Clone, serde::Serialize)]
@@ -74,6 +76,9 @@ pub struct AudioRecorder {
     stream: Arc<Mutex<Option<Stream>>>,
     session_id: Arc<Mutex<Option<String>>>,
     app_handle: Arc<Mutex<Option<AppHandle>>>,
+    audio_dir: Arc<Mutex<Option<PathBuf>>>,
+    chunk_counter: Arc<AtomicU32>,
+    chunk_processor_handle: Arc<Mutex<Option<std::thread::JoinHandle<()>>>>,
     #[allow(dead_code)]
     sample_rate: u32,
 }
@@ -87,10 +92,13 @@ impl AudioRecorder {
     pub fn new() -> Self {
         Self {
             state: Arc::new(Mutex::new(RecordingState::Stopped)),
-            buffer: Arc::new(Mutex::new(AudioBuffer::new(120))), // Default 120s, will be reset on start
+            buffer: Arc::new(Mutex::new(AudioBuffer::new(10))), // Default 10s chunks for faster transcription
             stream: Arc::new(Mutex::new(None)),
             session_id: Arc::new(Mutex::new(None)),
             app_handle: Arc::new(Mutex::new(None)),
+            audio_dir: Arc::new(Mutex::new(None)),
+            chunk_counter: Arc::new(AtomicU32::new(0)),
+            chunk_processor_handle: Arc::new(Mutex::new(None)),
             sample_rate: 44100, // Default sample rate
         }
     }
@@ -103,7 +111,7 @@ impl AudioRecorder {
     }
 
     /// Start recording audio
-    pub fn start_recording(&self, session_id: String, chunk_duration_secs: u64, device_id: Option<String>) -> Result<(), String> {
+    pub fn start_recording(&self, session_id: String, chunk_duration_secs: u64, device_id: Option<String>, app_handle: &AppHandle) -> Result<(), String> {
         println!("🎤 [AUDIO CAPTURE] Starting recording for session: {} (chunk duration: {}s, device: {:?})", session_id, chunk_duration_secs, device_id);
 
         // Check if already recording
@@ -113,6 +121,25 @@ impl AudioRecorder {
             println!("⚠️  [AUDIO CAPTURE] Already recording");
             return Ok(());
         }
+
+        // Set up audio directory: {appDataDir}/audio/{sessionId}/
+        let app_data_dir = app_handle.path().app_data_dir()
+            .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+        let audio_base_dir = app_data_dir.join("audio");
+        let session_audio_dir = audio_base_dir.join(&session_id);
+
+        // Create directories if they don't exist
+        fs::create_dir_all(&session_audio_dir)
+            .map_err(|e| format!("Failed to create audio directory: {}", e))?;
+
+        println!("🎤 [AUDIO CAPTURE] Audio directory: {:?}", session_audio_dir);
+
+        // Store audio directory
+        *self.audio_dir.lock()
+            .map_err(|e| format!("Failed to lock audio_dir: {}", e))? = Some(session_audio_dir);
+
+        // Reset chunk counter
+        self.chunk_counter.store(0, Ordering::SeqCst);
 
         // Store session ID
         *self.session_id.lock()
@@ -345,8 +372,10 @@ impl AudioRecorder {
         let state = self.state.clone();
         let app_handle = self.app_handle.clone();
         let session_id = self.session_id.clone();
+        let audio_dir = self.audio_dir.clone();
+        let chunk_counter = self.chunk_counter.clone();
 
-        std::thread::spawn(move || {
+        let handle = std::thread::spawn(move || {
             loop {
                 std::thread::sleep(Duration::from_secs(1)); // Check every second
 
@@ -383,9 +412,25 @@ impl AudioRecorder {
 
                 println!("🎤 [AUDIO CAPTURE] Processing chunk: {} samples", samples.len());
 
-                // Convert to WAV and base64
-                match Self::samples_to_wav_base64(&samples, sample_rate, 1) {
-                    Ok(base64_data) => {
+                // Get audio directory
+                let dir = match audio_dir.lock() {
+                    Ok(d) => d.clone(),
+                    Err(_) => continue,
+                };
+
+                let Some(dir) = dir else {
+                    eprintln!("❌ [AUDIO CAPTURE] No audio directory set");
+                    continue;
+                };
+
+                // Generate chunk filename with counter
+                let chunk_num = chunk_counter.fetch_add(1, Ordering::SeqCst);
+                let chunk_id = format!("chunk_{:04}", chunk_num);
+                let file_path = dir.join(format!("{}.wav", chunk_id));
+
+                // Save WAV file to disk
+                match Self::samples_to_wav_file(&samples, sample_rate, 1, &file_path) {
+                    Ok(()) => {
                         // Get app handle and session ID
                         let app = match app_handle.lock() {
                             Ok(h) => h.clone(),
@@ -399,29 +444,35 @@ impl AudioRecorder {
                         if let (Some(app), Some(sid)) = (app, sess_id) {
                             // Calculate duration
                             let duration = samples.len() as f64 / sample_rate as f64;
+                            let file_path_str = file_path.to_string_lossy().to_string();
 
-                            // Emit audio-chunk event to frontend
+                            // Emit audio-chunk event to frontend with file path (not base64)
                             let payload = serde_json::json!({
                                 "sessionId": sid,
-                                "audioBase64": base64_data,
+                                "chunkId": chunk_id,
+                                "audioPath": file_path_str,
                                 "duration": duration,
                             });
 
                             if let Err(e) = app.emit("audio-chunk", payload) {
                                 eprintln!("❌ [AUDIO CAPTURE] Failed to emit audio-chunk event: {}", e);
                             } else {
-                                println!("✅ [AUDIO CAPTURE] Emitted audio chunk ({:.1}s)", duration);
+                                println!("✅ [AUDIO CAPTURE] Saved audio chunk: {} ({:.1}s)", file_path_str, duration);
                             }
                         }
                     }
                     Err(e) => {
-                        eprintln!("❌ [AUDIO CAPTURE] Failed to encode audio: {}", e);
+                        eprintln!("❌ [AUDIO CAPTURE] Failed to save audio file: {}", e);
                     }
                 }
             }
 
             println!("🛑 [AUDIO CAPTURE] Chunk processor thread exiting");
         });
+
+        if let Ok(mut h) = self.chunk_processor_handle.lock() {
+            *h = Some(handle);
+        }
     }
 
     /// Resample audio from source sample rate to 16kHz using linear interpolation
@@ -430,14 +481,19 @@ impl AudioRecorder {
             return samples.to_vec(); // Already 16kHz
         }
 
-        let target_rate = 16000;
-        let ratio = source_rate as f64 / target_rate as f64;
+        let ratio = source_rate as f64 / 16000.0;
         let output_length = (samples.len() as f64 / ratio) as usize;
         let mut resampled = Vec::with_capacity(output_length);
 
         for i in 0..output_length {
-            let src_idx = (i as f64 * ratio) as usize;
-            if src_idx < samples.len() {
+            let src_pos = i as f64 * ratio;
+            let src_idx = src_pos as usize;
+            let frac = (src_pos - src_idx as f64) as f32;
+
+            if src_idx + 1 < samples.len() {
+                // Linear interpolation between adjacent samples
+                resampled.push(samples[src_idx] * (1.0 - frac) + samples[src_idx + 1] * frac);
+            } else if src_idx < samples.len() {
                 resampled.push(samples[src_idx]);
             }
         }
@@ -445,42 +501,37 @@ impl AudioRecorder {
         resampled
     }
 
-    /// Convert audio samples to WAV format and encode as base64
-    fn samples_to_wav_base64(samples: &[f32], sample_rate: u32, channels: u16) -> Result<String, String> {
-        let mut wav_buffer = Vec::new();
-
+    /// Save audio samples directly to WAV file
+    /// Resamples to 16kHz for optimal speech recognition
+    fn samples_to_wav_file(samples: &[f32], sample_rate: u32, channels: u16, file_path: &PathBuf) -> Result<(), String> {
         // Resample to 16kHz for optimal speech recognition
         let resampled = Self::resample_to_16khz(samples, sample_rate);
         let target_rate = 16000;
 
-        {
-            let spec = WavSpec {
-                channels,
-                sample_rate: target_rate, // Use 16kHz
-                bits_per_sample: 16,
-                sample_format: hound::SampleFormat::Int,
-            };
+        let spec = WavSpec {
+            channels,
+            sample_rate: target_rate,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
 
-            let mut writer = WavWriter::new(std::io::Cursor::new(&mut wav_buffer), spec)
-                .map_err(|e| format!("Failed to create WAV writer: {}", e))?;
+        let mut writer = WavWriter::create(file_path, spec)
+            .map_err(|e| format!("Failed to create WAV file: {}", e))?;
 
-            // Convert f32 samples to i16 and write
-            for &sample in &resampled { // Use resampled data
-                let amplitude = i16::MAX as f32;
-                let sample_i16 = (sample * amplitude) as i16;
-                writer
-                    .write_sample(sample_i16)
-                    .map_err(|e| format!("Failed to write sample: {}", e))?;
-            }
-
+        // Convert f32 samples to i16 and write
+        for &sample in &resampled {
+            let amplitude = i16::MAX as f32;
+            let sample_i16 = (sample * amplitude) as i16;
             writer
-                .finalize()
-                .map_err(|e| format!("Failed to finalize WAV: {}", e))?;
+                .write_sample(sample_i16)
+                .map_err(|e| format!("Failed to write sample: {}", e))?;
         }
 
-        // Encode to base64
-        let base64_data = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &wav_buffer);
-        Ok(format!("data:audio/wav;base64,{}", base64_data))
+        writer
+            .finalize()
+            .map_err(|e| format!("Failed to finalize WAV: {}", e))?;
+
+        Ok(())
     }
 
     /// Pause recording
@@ -526,6 +577,17 @@ impl AudioRecorder {
         *self.session_id.lock()
             .map_err(|e| format!("Failed to lock session_id: {}", e))? = None;
 
+        // Clear audio directory
+        *self.audio_dir.lock()
+            .map_err(|e| format!("Failed to lock audio_dir: {}", e))? = None;
+
+        // Join chunk processor thread to prevent leak
+        if let Ok(mut handle) = self.chunk_processor_handle.lock() {
+            if let Some(h) = handle.take() {
+                let _ = h.join();
+            }
+        }
+
         println!("✅ [AUDIO CAPTURE] Recording stopped");
         Ok(())
     }
@@ -559,6 +621,13 @@ impl Drop for AudioRecorder {
         // Drop the stream to stop audio capture
         if let Ok(mut stream) = self.stream.lock() {
             *stream = None;
+        }
+
+        // Join chunk processor thread
+        if let Ok(mut handle) = self.chunk_processor_handle.lock() {
+            if let Some(h) = handle.take() {
+                let _ = h.join();
+            }
         }
 
         println!("AudioRecorder dropped, resources cleaned up");

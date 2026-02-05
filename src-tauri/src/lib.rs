@@ -3,7 +3,6 @@ mod audio_capture;
 mod http_proxy;
 mod video_recording;
 
-use tauri::Manager;
 use activity_monitor::ActivityMonitor;
 use screenshots::{Screen, image::ImageFormat};
 use std::io::Cursor;
@@ -132,6 +131,63 @@ fn capture_screenshot(screen_id: Option<String>) -> Result<String, String> {
     }, 3)
 }
 
+/// Captures an optimized screenshot for session recording
+/// - Resizes to max 1920px width (retina displays are huge otherwise)
+/// - Uses JPEG encoding for ~10x smaller file size than PNG
+/// - Returns base64-encoded JPEG data
+#[tauri::command]
+fn capture_screenshot_optimized(
+    screen_id: Option<String>,
+    max_width: Option<u32>,
+    quality: Option<u8>,
+) -> Result<String, String> {
+    capture_with_retry(|| {
+        let screens = Screen::all().map_err(|e| format!("Failed to get screens: {}", e))?;
+
+        if screens.is_empty() {
+            return Err("No screens found".to_string());
+        }
+
+        let screen_idx: usize = screen_id
+            .as_ref()
+            .and_then(|id| id.parse().ok())
+            .unwrap_or(0);
+
+        let screen = screens.get(screen_idx).unwrap_or(&screens[0]);
+        let image = screen.capture().map_err(|e| format!("Failed to capture screen: {}", e))?;
+
+        // Default to 1920px width max (good balance of quality vs size)
+        let target_width = max_width.unwrap_or(1920);
+        // Default JPEG quality 80 (good quality, reasonable size)
+        let jpeg_quality = quality.unwrap_or(80);
+
+        // Resize if larger than target
+        let final_image = if image.width() > target_width {
+            let scale = target_width as f32 / image.width() as f32;
+            let new_height = (image.height() as f32 * scale) as u32;
+            screenshots::image::imageops::resize(
+                &image,
+                target_width,
+                new_height,
+                screenshots::image::imageops::FilterType::Triangle,
+            )
+        } else {
+            image.clone()
+        };
+
+        // Encode as JPEG (much smaller than PNG)
+        let mut bytes: Vec<u8> = Vec::new();
+        let mut cursor = Cursor::new(&mut bytes);
+
+        let encoder = screenshots::image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, jpeg_quality);
+        final_image.write_with_encoder(encoder)
+            .map_err(|e| format!("Failed to encode JPEG: {}", e))?;
+
+        let base64_data = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
+        Ok(format!("data:image/jpeg;base64,{}", base64_data))
+    }, 3)
+}
+
 /// Captures a test screenshot and returns a smaller thumbnail for preview
 #[tauri::command]
 fn test_capture_screenshot(screen_id: Option<String>) -> Result<String, String> {
@@ -226,6 +282,7 @@ fn check_screen_recording_permission() -> Result<bool, String> {
 
 #[tauri::command]
 fn start_audio_recording(
+    app_handle: tauri::AppHandle,
     session_id: String,
     chunk_duration_secs: Option<u64>,
     device_id: Option<String>,
@@ -233,7 +290,8 @@ fn start_audio_recording(
 ) -> Result<(), String> {
     let recorder = recorder.lock()
         .map_err(|e| format!("Failed to lock audio recorder: {}", e))?;
-    recorder.start_recording(session_id, chunk_duration_secs.unwrap_or(120), device_id)
+    // Default to 10-second chunks for faster transcription feedback
+    recorder.start_recording(session_id, chunk_duration_secs.unwrap_or(10), device_id, &app_handle)
 }
 
 #[tauri::command]
@@ -331,6 +389,7 @@ pub fn run() {
             get_screens,
             // Screenshot
             capture_screenshot,
+            capture_screenshot_optimized,
             test_capture_screenshot,
             // Permissions
             request_screen_recording_permission,

@@ -123,10 +123,9 @@ export function PeripheralGlow({
             duration: analysisMode === 'deep' ? 1 : 2,
             repeat: Infinity,
           }}
-          className={`w-3 h-3 rounded-full ${
-            analysisMode === 'ambient' ? 'bg-amber-400' : 'bg-blue-400'
-          }`}
+          className="w-3 h-3 rounded-full"
           style={{
+            backgroundColor: analysisMode === 'ambient' ? 'var(--mode-ambient)' : 'var(--mode-deep)',
             boxShadow: `0 0 10px ${colorWithAlpha(0.5)}`,
           }}
         />

@@ -21,9 +21,9 @@ export function useKeyboardShortcuts(shortcuts: Shortcut[]) {
       if (isTyping) return
 
       for (const shortcut of shortcuts) {
-        const metaMatches = shortcut.metaKey ? e.metaKey : !e.metaKey
-        const ctrlMatches = shortcut.ctrlKey ? e.ctrlKey : !e.ctrlKey
-        const shiftMatches = shortcut.shiftKey ? e.shiftKey : !e.shiftKey
+        const metaMatches = shortcut.metaKey === undefined ? true : (shortcut.metaKey === e.metaKey)
+        const ctrlMatches = shortcut.ctrlKey === undefined ? true : (shortcut.ctrlKey === e.ctrlKey)
+        const shiftMatches = shortcut.shiftKey === undefined ? true : (shortcut.shiftKey === e.shiftKey)
 
         if (
           e.key.toLowerCase() === shortcut.key.toLowerCase() &&
@@ -55,16 +55,16 @@ export function useGlobalShortcuts(callbacks: {
 }) {
   useKeyboardShortcuts([
     ...(callbacks.onNewCapture
-      ? [{ key: 'n', metaKey: true, callback: callbacks.onNewCapture }]
+      ? [{ key: 'n', metaKey: true, shiftKey: false, callback: callbacks.onNewCapture }]
       : []),
     ...(callbacks.onNewSession
       ? [{ key: 'n', metaKey: true, shiftKey: true, callback: callbacks.onNewSession }]
       : []),
     ...(callbacks.onGoHome
-      ? [{ key: 'h', metaKey: true, callback: callbacks.onGoHome }]
+      ? [{ key: 'h', metaKey: true, shiftKey: false, callback: callbacks.onGoHome }]
       : []),
     ...(callbacks.onSearch
-      ? [{ key: 'k', metaKey: true, callback: callbacks.onSearch }]
+      ? [{ key: 'k', metaKey: true, shiftKey: false, callback: callbacks.onSearch }]
       : []),
   ])
 }

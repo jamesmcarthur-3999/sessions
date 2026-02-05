@@ -8,6 +8,9 @@
     "build": "node scripts/ensure-baleybots.mjs && tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "baleybots:ensure": "node scripts/ensure-baleybots.mjs",
     "baleybots:update": "scripts/update-baleybots.sh",
     "boot": "scripts/boot.sh",
@@ -20,6 +23,7 @@
     "@baleybots/chat": "file:./vendor/baleybots/typescript/packages/chat",
     "@baleybots/core": "file:./vendor/baleybots/typescript/packages/core",
     "@baleybots/react": "file:./vendor/baleybots/typescript/packages/react",
+    "@baleybots/tools": "file:./vendor/baleybots/typescript/packages/tools",
     "@tauri-apps/api": "^2.9.1",
     "@tauri-apps/plugin-fs": "^2.4.5",
     "@tauri-apps/plugin-shell": "^2.3.4",
@@ -40,15 +44,18 @@
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
+    "@vitest/coverage-v8": "^3.2.4",
     "autoprefixer": "^10.4.24",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
+    "jsdom": "^28.0.0",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.18",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.4",
-    "vite": "^7.2.4"
+    "vite": "^7.2.4",
+    "vitest": "^3.2.4"
   }
 }

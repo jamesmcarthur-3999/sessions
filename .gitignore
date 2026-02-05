@@ -22,3 +22,21 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Environment files
+.env
+.env.*
+
+# Binary / media files
+*.mp4
+*.wav
+*.mp3
+
+# Claude Code
+.claude/settings.local.json
+
+# Tauri build artifacts
+src-tauri/target/
+
+# OS files
+Thumbs.db

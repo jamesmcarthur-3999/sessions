@@ -4,8 +4,8 @@ import { Video, Feather, ChevronRight, Settings, Sparkles } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { hasApiKey } from '../services/bots'
 import { generateId } from '../utils/id'
-import { RecordingSettings, defaultRecordingConfig, type RecordingConfig } from './RecordingSettings'
-import type { Session } from '../types'
+import { SessionSetup } from './SessionSetup'
+import type { Session, RecordingConfig } from '../types'
 
 type View = 'home' | 'summary' | 'history' | 'capture' | 'recording' | 'settings'
 
@@ -68,30 +68,42 @@ export function Home({ onNavigate, onSessionSelect }: HomeProps) {
   const { state, dispatch } = useApp()
   const recentSessions = state.sessions.slice(0, 5)
   const [apiKeyConfigured, setApiKeyConfigured] = useState(false)
-  const [showRecordingSettings, setShowRecordingSettings] = useState(false)
-  const [recordingConfig, setRecordingConfig] = useState<RecordingConfig>(defaultRecordingConfig)
+  const [showSetup, setShowSetup] = useState(false)
 
   // Check API key status on mount
   useEffect(() => {
     hasApiKey().then(setApiKeyConfigured)
   }, [])
 
-  const handleOpenRecordingSettings = () => {
-    setShowRecordingSettings(true)
+  const handleOpenSetup = () => {
+    setShowSetup(true)
   }
 
-  const handleStartSession = () => {
-    setShowRecordingSettings(false)
+  const handleCloseSetup = () => {
+    setShowSetup(false)
+  }
+
+  const handleStartRecording = (config: RecordingConfig) => {
     const session: Session = {
       id: generateId(),
       type: 'session',
       title: 'New Session',
       createdAt: new Date().toISOString(),
-      recordingConfig,
+      recordingConfig: config,
       status: 'recording',
     }
     dispatch({ type: 'START_RECORDING', payload: session })
     onNavigate('recording')
+  }
+
+  // Show inline setup when triggered
+  if (showSetup) {
+    return (
+      <SessionSetup
+        onBack={handleCloseSetup}
+        onStartRecording={handleStartRecording}
+      />
+    )
   }
 
   return (
@@ -152,7 +164,7 @@ export function Home({ onNavigate, onSessionSelect }: HomeProps) {
         <motion.div variants={itemVariants} className="w-full max-w-lg space-y-4">
           {/* Start Session Card */}
           <motion.button
-            onClick={handleOpenRecordingSettings}
+            onClick={handleOpenSetup}
             whileHover={{ y: -2 }}
             whileTap={{ scale: 0.98 }}
             className="w-full group"
@@ -309,14 +321,6 @@ export function Home({ onNavigate, onSessionSelect }: HomeProps) {
         </div>
       </motion.footer>
 
-      {/* Recording Settings Modal */}
-      <RecordingSettings
-        isOpen={showRecordingSettings}
-        onClose={() => setShowRecordingSettings(false)}
-        config={recordingConfig}
-        onConfigChange={setRecordingConfig}
-        onStartRecording={handleStartSession}
-      />
     </motion.div>
   )
 }

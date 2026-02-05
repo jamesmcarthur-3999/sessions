@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { ArrowLeft, Sparkles, Paperclip, X, Image as ImageIcon, FileText, Feather } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { createCaptureBot, buildCaptureInput, initializeBots, isBotsReady, testApiKey, type CaptureResult } from '../services/bots'
+import { createCapturePipeline, buildCaptureInput, initializeBots, isBotsReady, testApiKey, type CaptureResult } from '../services/bots'
 import { getSecureItem } from '../services/secure-storage'
 import { persistCaptureAttachments } from '../services/attachments'
 import { generateId } from '../utils/id'
@@ -69,9 +69,9 @@ export function QuickCapture({ onBack, onComplete }: QuickCaptureProps) {
           }
         }
 
-        // Use Capture Bot
-        console.log('[QuickCapture] Creating capture bot...')
-        const captureBot = await createCaptureBot()
+        // Use Capture Pipeline
+        console.log('[QuickCapture] Creating capture pipeline...')
+        const captureBot = createCapturePipeline()
 
         // Build attachment descriptions
         const attachmentDescriptions = attachments.map(f =>

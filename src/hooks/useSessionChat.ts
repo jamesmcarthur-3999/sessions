@@ -1,11 +1,11 @@
 /**
  * useSessionChat Hook
  *
- * Manages chat interactions with the session Q&A bot.
+ * Manages chat interactions with the session Q&A bot via worker.
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { sessionCoordinator } from '../services/session-coordinator';
+import { sessionBridge } from '../services/session-bridge';
 import { getChatHistory } from '../services/database';
 import { generateId } from '../utils/id';
 import type { DbChatMessage } from '../types/database';
@@ -58,7 +58,7 @@ export function useSessionChat(sessionId: string | null) {
   useEffect(() => {
     if (!sessionId) return;
 
-    const unsub = sessionCoordinator.on('chat-response', async (data) => {
+    const unsub = sessionBridge.on('chat-response', async (data) => {
       if (data.sessionId === sessionId) {
         // Reload messages to get the new response
         const messages = await getChatHistory(sessionId);
@@ -90,8 +90,8 @@ export function useSessionChat(sessionId: string | null) {
     }));
 
     try {
-      // Send to coordinator (response will come via event)
-      await sessionCoordinator.handleChatMessage(sessionId, message);
+      // Send to session bridge (response will come via event)
+      await sessionBridge.handleChatMessage(sessionId, message);
     } catch (error) {
       setState(s => ({
         ...s,

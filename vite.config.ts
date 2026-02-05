@@ -28,4 +28,15 @@ export default defineConfig({
     // These are shimmed to browser-safe versions
     exclude: [],
   },
+  // Worker configuration for AI worker
+  worker: {
+    format: 'es',
+    plugins: () => [react()],
+    rollupOptions: {
+      output: {
+        // Ensure workers get proper chunk names
+        entryFileNames: 'assets/[name]-[hash].js',
+      },
+    },
+  },
 })

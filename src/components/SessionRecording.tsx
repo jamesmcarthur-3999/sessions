@@ -1,74 +1,104 @@
+/**
+ * SessionRecording
+ *
+ * Live session recording view with real-time dashboard.
+ * Features:
+ * - Fixed timer header with controls
+ * - Scrollable dashboard with Activity, Transcript, and Insights
+ * - Inline confirmation for ending session
+ * - Light theme matching app design
+ */
+
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { Square, Pause, Play, Camera, Mic, AlertCircle, Video, Monitor, Sparkles } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { AlertCircle, RefreshCw } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { SessionTimer } from './SessionTimer'
+import { LiveDashboard } from './LiveDashboard'
 import { sessionRecorder, isTauri, checkScreenRecordingPermission, requestScreenRecordingPermission, type RecordingOptions } from '../services/recording'
 import { createSession, updateSessionStatus, updateSessionTitle, updateSessionVideoPath, saveSessionSummary, getRollingSummary, getInsights, getAudioChunks, getScreenshots } from '../services/database'
-import { sessionCoordinator } from '../services/session-coordinator'
+import { sessionBridge } from '../services/session-bridge'
 import { smartCapture } from '../services/smart-capture'
-import { createFinalSummaryBot, buildFinalSummaryInput, initializeBots, isBotsReady, type FinalSummary } from '../services/bots'
+import { createFinalSummaryPipeline, buildFinalSummaryInput, initializeBots, isBotsReady, type FinalSummary } from '../services/bots'
 import { generateId } from '../utils/id'
-import { useSessionIntelligence } from '../hooks/useSessionIntelligence'
-import { LiveSessionPanel } from './LiveSessionPanel'
-import { PeripheralGlow } from './PeripheralGlow'
 import { useToast } from './Toast'
-import { ConfirmDialog } from './ConfirmDialog'
-import type { Session, Summary } from '../types'
+import type { Session, Summary, RecordingConfig } from '../types'
 
 interface SessionRecordingProps {
   onComplete: (session: Session) => void
   onCancel: () => void
 }
 
-function formatTime(seconds: number): string {
-  const hrs = Math.floor(seconds / 3600)
-  const mins = Math.floor((seconds % 3600) / 60)
-  const secs = seconds % 60
-
-  if (hrs > 0) {
-    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
-  }
-  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+// Helper to check if config is the new simplified format
+function isSimplifiedConfig(config: unknown): config is RecordingConfig {
+  return (
+    typeof config === 'object' &&
+    config !== null &&
+    'selectedScreens' in config &&
+    Array.isArray((config as RecordingConfig).selectedScreens)
+  )
 }
 
 export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps) {
   const { state, addSession, dispatch } = useApp()
   const { showToast } = useToast()
+
+  // Recording state
   const [isPaused, setIsPaused] = useState(false)
   const [isEnding, setIsEnding] = useState(false)
-  const [showEndConfirm, setShowEndConfirm] = useState(false)
-  const [processingStep, setProcessingStep] = useState<string>('')
+  const [showConfirmation, setShowConfirmation] = useState(false)
+  const [processingStep, setProcessingStep] = useState('')
   const [processingPercent, setProcessingPercent] = useState(0)
   const [duration, setDuration] = useState(0)
   const [sessionTitle, setSessionTitle] = useState('')
-  const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [screenshotCount, setScreenshotCount] = useState(0)
   const [permissionError, setPermissionError] = useState<string | null>(null)
   const [fatalError, setFatalError] = useState<string | null>(null)
-  const [showIntelligence, setShowIntelligence] = useState(false)
   const [audioLevel, setAudioLevel] = useState(0)
   const [transcriptionStatus, setTranscriptionStatus] = useState<'idle' | 'transcribing' | 'success' | 'error'>('idle')
-  const [captureFlash, setCaptureFlash] = useState(false)
+
+  // Refs
   const startTimeRef = useRef(Date.now())
   const pausedTimeRef = useRef(0)
   const pauseStartRef = useRef(0)
-  const inputRef = useRef<HTMLInputElement>(null)
   const sessionIdRef = useRef(state.activeSession?.id ?? generateId())
   const isPausedRef = useRef(false)
+  const showToastRef = useRef(showToast)
+  const isMountedRef = useRef(true)
 
-  // Get session intelligence state
-  const { analysisMode } = useSessionIntelligence(sessionIdRef.current)
+  // Track mount state for async safety
+  useEffect(() => {
+    return () => { isMountedRef.current = false }
+  }, [])
+
+  // Keep showToast ref in sync
+  useEffect(() => {
+    showToastRef.current = showToast
+  }, [showToast])
 
   // Get recording config from active session
   const recordingConfig = state.activeSession?.recordingConfig
 
-  // Keep isPausedRef in sync with state for use in event listeners
+  // Determine if audio is enabled based on config format
+  const audioEnabled = recordingConfig
+    ? isSimplifiedConfig(recordingConfig)
+      ? recordingConfig.selectedMicrophone !== null
+      : recordingConfig.enableAudio ?? false
+    : false
+
+  // Keep isPausedRef in sync
   useEffect(() => {
     isPausedRef.current = isPaused
   }, [isPaused])
 
-  // Check permissions and start recording on mount
+  // Initialize recording on mount
+  // IMPORTANT: This effect should only run ONCE on mount.
+  // We track whether recording actually started to avoid cleaning up prematurely.
   useEffect(() => {
+    // Track whether we successfully started the session (for cleanup decision)
+    let sessionStarted = false
+    let isCleaningUp = false
+
     async function initRecording() {
       // Generate default title
       const now = new Date()
@@ -76,128 +106,171 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
       const defaultTitle = `Session at ${timeStr}`
       setSessionTitle(defaultTitle)
 
-      // Convert RecordingConfig to RecordingOptions
-      const recordingOptions: Partial<RecordingOptions> = recordingConfig ? {
-        enableScreenshots: recordingConfig.enableScreenshots,
-        enableAudio: recordingConfig.enableAudio,
-        enableVideo: recordingConfig.enableVideo,
-        screenshotIntervalMs: recordingConfig.screenshotInterval * 60 * 1000, // Convert minutes to ms
-        selectedMicrophone: recordingConfig.selectedMicrophone,
-        selectedScreen: recordingConfig.selectedScreen,
-        smartCaptureEnabled: recordingConfig.smartCaptureEnabled,
-      } : {}
+      // Build recording options from config
+      const config = recordingConfig
+      let recordingOptions: Partial<RecordingOptions> = {}
 
-      // Determine initial analysis mode from config
-      // 'adaptive' starts in 'ambient' and AI adjusts; otherwise use user selection
-      const initialAnalysisMode: 'ambient' | 'deep' =
-        recordingConfig?.analysisMode === 'adaptive' || recordingConfig?.analysisMode === 'ambient'
-          ? 'ambient'
-          : recordingConfig?.analysisMode === 'deep' ? 'deep' : 'ambient'
+      if (config) {
+        if (isSimplifiedConfig(config)) {
+          // New simplified config - map to full options
+          recordingOptions = {
+            enableScreenshots: true, // Always enabled
+            enableAudio: config.selectedMicrophone !== null,
+            enableVideo: true, // Always enabled
+            screenshotIntervalMs: 30000, // Smart capture handles timing
+            selectedMicrophone: config.selectedMicrophone,
+            selectedScreen: config.selectedScreens[0] ?? null, // Use first screen
+            smartCaptureEnabled: true, // Always smart
+          }
+        } else {
+          // Legacy config format
+          recordingOptions = {
+            enableScreenshots: config.enableScreenshots,
+            enableAudio: config.enableAudio,
+            enableVideo: config.enableVideo,
+            screenshotIntervalMs: config.screenshotInterval * 60 * 1000,
+            selectedMicrophone: config.selectedMicrophone,
+            selectedScreen: config.selectedScreen,
+            smartCaptureEnabled: config.smartCaptureEnabled,
+          }
+        }
+      }
 
-      // Check if we're in Tauri
+      // Always use deep analysis mode
+      const analysisMode: 'ambient' | 'deep' = 'deep'
+
       if (isTauri()) {
         try {
-          // Permission already validated in RecordingSettings
-          // Just verify it's still valid (edge case: user revoked mid-transition)
+          // Check for early cleanup
+          if (isCleaningUp) return
+
+          // Verify permission
           const permitted = await checkScreenRecordingPermission()
+          if (isCleaningUp) return
+
           if (!permitted) {
             setPermissionError('Screen recording permission was revoked. Please grant permission again.')
             return
           }
 
-          // Create database session with the same ID as the recording
-          await createSession(sessionIdRef.current, 'session', defaultTitle, initialAnalysisMode)
+          // Create database session
+          await createSession(sessionIdRef.current, 'session', defaultTitle, analysisMode)
+          if (isCleaningUp) return
 
           // Start session coordinator for AI analysis
-          await sessionCoordinator.startSession(sessionIdRef.current)
+          await sessionBridge.startSession(sessionIdRef.current)
+          if (isCleaningUp) return
 
-          // Start recording with config options (after session exists)
+          // Start recording - this is the point of no return
           const result = await sessionRecorder.startRecording(sessionIdRef.current, recordingOptions)
 
-          // Show warnings for partial failures
-          if (result.errors.length > 0) {
-            for (const error of result.errors) {
-              showToast(error, 'error', 5000)
-            }
+          // Mark session as successfully started
+          sessionStarted = true
+
+          if (isCleaningUp) {
+            // Cleanup was triggered while we were starting - clean up now
+            console.log('[SessionRecording] Cleanup triggered during init, stopping')
+            await sessionRecorder.stopRecording().catch(() => {})
+            await sessionBridge.stopSession(sessionIdRef.current).catch(() => {})
+            return
           }
 
+          // Show warnings for partial failures (use ref to avoid dep)
+          for (const error of result.errors) {
+            showToastRef.current(error, 'error', 5000)
+          }
+
+          console.log('[SessionRecording] Recording started successfully')
         } catch (e) {
+          // Don't show errors if we're cleaning up
+          if (isCleaningUp) return
+
           console.error('Failed to start recording:', e)
+          const errorMessage = e instanceof Error ? e.message : 'Failed to start recording'
+
+          // Try to clean up the partial state
           try {
             await updateSessionStatus(sessionIdRef.current, 'error')
-          } catch (statusError) {
-            console.error('Failed to update session status after start error:', statusError)
+          } catch {
+            // Ignore
           }
           try {
-            await sessionCoordinator.stopSession(sessionIdRef.current)
-          } catch (stopError) {
-            console.error('Failed to stop coordinator after start error:', stopError)
+            await sessionBridge.stopSession(sessionIdRef.current)
+          } catch {
+            // Ignore
           }
-          setPermissionError(e instanceof Error ? e.message : 'Failed to start recording')
+          try {
+            if (sessionRecorder.isRecording()) {
+              await sessionRecorder.stopRecording()
+            }
+          } catch {
+            // Ignore
+          }
+
+          // Set error state - this will show the error UI
+          setFatalError(errorMessage)
         }
-      } else {
-        // Not in Tauri - browser only mode
-        console.log('Running in browser mode - no native recording')
       }
     }
 
     initRecording()
 
-    // Cleanup on unmount
+    // Cleanup function
     return () => {
-      const cleanup = async () => {
-        try {
-          if (sessionRecorder.isRecording()) {
-            await sessionRecorder.stopRecording()
-          }
-        } catch (err) {
-          console.error('Failed to stop recording:', err)
-        }
-        try {
-          await sessionCoordinator.stopSession(sessionIdRef.current)
-        } catch (err) {
-          console.error('Failed to stop coordinator:', err)
-        }
+      isCleaningUp = true
+
+      // Only clean up if the session was actually started
+      // This prevents React StrictMode's double-mount from stopping the session prematurely
+      if (sessionStarted || sessionRecorder.isRecording()) {
+        const sessionId = sessionIdRef.current
+        console.log('[SessionRecording] Cleanup: stopping session', sessionId)
+
+        // Fire-and-forget cleanup (we can't await in cleanup)
+        Promise.all([
+          sessionRecorder.isRecording()
+            ? sessionRecorder.stopRecording().catch(() => {})
+            : Promise.resolve(),
+          sessionBridge.stopSession(sessionId).catch(() => {}),
+        ]).catch(() => {
+          // Ignore all cleanup errors
+        })
+      } else {
+        console.log('[SessionRecording] Cleanup: session not started, skipping')
       }
-      cleanup()
     }
-  }, [recordingConfig])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally run once on mount
+  }, [])
 
   // Timer
   useEffect(() => {
     if (isPaused || isEnding) return
 
     const interval = setInterval(() => {
+      if (!isMountedRef.current) return
       const elapsed = Math.floor((Date.now() - startTimeRef.current - pausedTimeRef.current) / 1000)
       setDuration(elapsed)
 
-      // Update screenshot count
-      const state = sessionRecorder.getState()
-      if (state) {
-        setScreenshotCount(state.screenshots.length)
+      const recState = sessionRecorder.getState()
+      if (recState) {
+        setScreenshotCount(recState.screenshotCount)
       }
     }, 1000)
 
     return () => clearInterval(interval)
   }, [isPaused, isEnding])
 
-  // Listen for capture events (immediate) from smart capture
+  // Listen for capture events
   useEffect(() => {
     const unsubCapture = smartCapture.on('capture', () => {
-      setCaptureFlash(true)
-      setTimeout(() => setCaptureFlash(false), 100)
+      // Could trigger flash animation here
     })
-
-    return () => {
-      unsubCapture()
-    }
+    return () => unsubCapture()
   }, [])
 
-  // Listen for real-time audio level events from Rust
-  // Note: isPaused is checked via ref inside callback to avoid listener remounting
+  // Audio level events
   useEffect(() => {
-    if (!isTauri() || !recordingConfig?.enableAudio) {
-      setAudioLevel(0) // Immediately reset when audio disabled
+    if (!isTauri() || !audioEnabled) {
+      setAudioLevel(0)
       return
     }
 
@@ -207,12 +280,9 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
     const setupListener = async () => {
       try {
         const { listen } = await import('@tauri-apps/api/event')
-
-        // Check if we were cancelled during the import
         if (cancelled) return
 
         unlisten = await listen<{ level: number }>('audio-level', (event) => {
-          // Check pause state via ref to avoid effect remount on pause toggle
           if (!isPausedRef.current && !cancelled) {
             setAudioLevel(event.payload.level)
           }
@@ -229,52 +299,53 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
       unlisten?.()
       setAudioLevel(0)
     }
-  }, [recordingConfig?.enableAudio]) // isPaused intentionally excluded - uses ref
+  }, [audioEnabled])
 
-  // Listen for coordinator events (errors and transcription status)
+  // Coordinator events
   useEffect(() => {
-    const unsubError = sessionCoordinator.on('error', ({ error }) => {
-      showToast(error, 'error', 5000)
+    let statusResetTimer: ReturnType<typeof setTimeout> | null = null
 
-      // Track transcription errors
+    const unsubError = sessionBridge.on('error', ({ error }) => {
+      showToast(error, 'error', 5000)
       if (error.includes('transcription')) {
         setTranscriptionStatus('error')
       }
     })
 
-    const unsubTranscriptionStart = sessionCoordinator.on('transcription-start', () => {
+    const unsubTranscriptionStart = sessionBridge.on('transcription-start', () => {
       setTranscriptionStatus('transcribing')
     })
 
-    const unsubTranscriptionComplete = sessionCoordinator.on('transcription-complete', () => {
+    const unsubTranscriptionComplete = sessionBridge.on('transcription-complete', () => {
       setTranscriptionStatus('success')
-      // Reset to idle after showing success briefly
-      setTimeout(() => setTranscriptionStatus('idle'), 2000)
+      statusResetTimer = setTimeout(() => {
+        if (isMountedRef.current) setTranscriptionStatus('idle')
+      }, 2000)
     })
 
     return () => {
       unsubError()
       unsubTranscriptionStart()
       unsubTranscriptionComplete()
+      if (statusResetTimer) clearTimeout(statusResetTimer)
     }
   }, [showToast])
 
+  // Pause/resume handler
   const handlePauseResume = useCallback(async () => {
     if (isPaused) {
-      // Resume - add paused duration to total paused time
       pausedTimeRef.current += Date.now() - pauseStartRef.current
       try {
         await sessionRecorder.resumeRecording()
-        sessionCoordinator.resumeSession(sessionIdRef.current)
+        sessionBridge.resumeSession(sessionIdRef.current)
       } catch (e) {
         console.error('Failed to resume:', e)
       }
     } else {
-      // Pause - record when pause started
       pauseStartRef.current = Date.now()
       try {
         await sessionRecorder.pauseRecording()
-        sessionCoordinator.pauseSession(sessionIdRef.current)
+        sessionBridge.pauseSession(sessionIdRef.current)
       } catch (e) {
         console.error('Failed to pause:', e)
       }
@@ -282,51 +353,52 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
     setIsPaused(prev => !prev)
   }, [isPaused])
 
+  // Title change handler
+  const handleTitleChange = useCallback((newTitle: string) => {
+    setSessionTitle(newTitle)
+    if (isTauri()) {
+      updateSessionTitle(sessionIdRef.current, newTitle).catch(console.error)
+    }
+  }, [])
+
+  // End session handler
   const handleEndSession = useCallback(async () => {
     setIsEnding(true)
+    setShowConfirmation(false)
     setProcessingStep('Stopping recording...')
     setProcessingPercent(10)
 
-    // Check if we're in Tauri mode (where actual recording happens)
     const inTauri = isTauri()
 
     try {
-      // Stop session coordinator (only in Tauri mode)
       if (inTauri) {
         setProcessingStep('Stopping AI analysis...')
         setProcessingPercent(20)
-        await sessionCoordinator.stopSession(sessionIdRef.current)
+        await sessionBridge.stopSession(sessionIdRef.current)
       }
 
-      // Stop recording and get captured data
       setProcessingStep('Finalizing captures...')
       setProcessingPercent(30)
-      let screenshots: string[] = []
+
       let videoPath: string | undefined
       let stopWarnings: string[] = []
+
       if (sessionRecorder.isRecording()) {
         const recordingState = await sessionRecorder.stopRecording()
-        screenshots = recordingState.screenshots
         videoPath = recordingState.videoPath
         stopWarnings = recordingState.stopErrors || []
-        console.log('Captured ' + screenshots.length + ' screenshots')
 
-        // Show warnings for stop errors (but continue processing)
-        if (stopWarnings.length > 0) {
-          for (const warning of stopWarnings) {
-            showToast(warning, 'error', 5000)
-          }
+        for (const warning of stopWarnings) {
+          showToast(warning, 'error', 5000)
         }
       }
 
-      // Database operations only in Tauri mode
       let rollingSummary = null
       let insights: Awaited<ReturnType<typeof getInsights>> = []
       let audioChunks: Awaited<ReturnType<typeof getAudioChunks>> = []
       let dbScreenshots: Awaited<ReturnType<typeof getScreenshots>> = []
 
       if (inTauri) {
-        // Update database session status
         setProcessingStep('Gathering session data...')
         setProcessingPercent(40)
         await updateSessionStatus(sessionIdRef.current, 'processing', duration)
@@ -334,12 +406,11 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
         if (videoPath) {
           try {
             await updateSessionVideoPath(sessionIdRef.current, videoPath)
-          } catch (error) {
-            console.error('[DATABASE] Failed to save video path:', error)
+          } catch {
+            console.error('[DATABASE] Failed to save video path')
           }
         }
 
-        // Gather all Baleybots intelligence from the database
         setProcessingPercent(50)
         ;[rollingSummary, insights, audioChunks, dbScreenshots] = await Promise.all([
           getRollingSummary(sessionIdRef.current),
@@ -349,15 +420,12 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
         ])
       }
 
-      // Generate final summary using Baleybots
       setProcessingStep('Generating AI summary...')
       setProcessingPercent(60)
-      let summary: Summary
 
-      // Ensure bots are initialized
+      let summary: Summary
       await initializeBots()
 
-      // Check if we have enough content for AI processing
       const hasContent =
         rollingSummary?.content ||
         (insights && insights.length > 0) ||
@@ -365,8 +433,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
         (dbScreenshots && dbScreenshots.some(s => s.analysis))
 
       if (isBotsReady() && (hasContent || duration >= 60)) {
-        // Use Final Summary Bot with all accumulated intelligence
-        const finalBot = createFinalSummaryBot()
+        const finalBot = createFinalSummaryPipeline()
         const input = buildFinalSummaryInput({
           rollingSummary,
           insights: insights || [],
@@ -393,17 +460,25 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
           generatedAt: new Date().toISOString(),
         }
       } else {
-        // Fallback when no API key or insufficient content
-        const fallbackText = !isBotsReady()
-          ? `Session recorded for ${Math.floor(duration / 60)} minutes. Configure your Claude API key in Settings to enable AI-powered summaries.`
-          : duration < 60
-          ? `Brief session recorded for ${duration} seconds. No significant activity captured.`
-          : rollingSummary?.content || `Session recorded for ${Math.floor(duration / 60)} minutes.`
+        // Build fallback summary from accumulated data even without active API
+        const transcriptText = audioChunks
+          ?.filter(c => c.transcript)
+          ?.map(c => c.transcript)
+          ?.join(' ') || ''
+
+        const summaryText = rollingSummary?.content
+          || (transcriptText
+            ? `Session transcript: ${transcriptText.slice(0, 1000)}...`
+            : `Session recorded for ${Math.floor(duration / 60)} minutes.`)
+
+        const apiNote = !isBotsReady()
+          ? '\n\nConfigure your Claude API key in Settings to enable AI-powered summaries.'
+          : ''
 
         summary = {
-          text: fallbackText,
+          text: summaryText + apiNote,
           tasks: [],
-          notes: (insights || []).slice(0, 5).map(i => ({
+          notes: (insights || []).slice(0, 10).map(i => ({
             id: generateId(),
             content: i.content,
           })),
@@ -411,23 +486,21 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
         }
       }
 
-      // Persist final summary to database (only in Tauri mode)
       if (inTauri) {
         try {
           await saveSessionSummary(sessionIdRef.current, summary)
-        } catch (error) {
-          console.error('[DATABASE] Failed to save session summary:', error)
+        } catch {
+          console.error('[DATABASE] Failed to save session summary')
         }
       }
 
-      // Update database session status to complete (only in Tauri mode)
       setProcessingStep('Saving session...')
       setProcessingPercent(90)
+
       if (inTauri) {
         await updateSessionStatus(sessionIdRef.current, 'complete', duration)
       }
 
-      // Create session
       const session: Session = {
         id: sessionIdRef.current,
         type: 'session',
@@ -439,7 +512,6 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
         status: 'complete',
       }
 
-      // Save and navigate
       await addSession(session)
 
       setProcessingStep('Complete!')
@@ -450,16 +522,14 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
     } catch (error) {
       console.error('Failed to end session:', error)
 
-      // Update database status to error state (only in Tauri mode)
       if (inTauri) {
         try {
           await updateSessionStatus(sessionIdRef.current, 'error', duration)
-        } catch (dbError) {
-          console.error('Failed to update session status:', dbError)
+        } catch {
+          // Ignore
         }
       }
 
-      // Determine specific error message
       let errorMessage = 'Failed to process session.'
       if (error instanceof Error) {
         if (error.message.includes('API key')) {
@@ -471,7 +541,6 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
         }
       }
 
-      // Show error state instead of returning to recording
       setFatalError(errorMessage)
       setIsEnding(false)
       setProcessingStep('')
@@ -479,40 +548,15 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
     }
   }, [duration, sessionTitle, addSession, dispatch, onComplete, showToast])
 
-  const handleTitleClick = () => {
-    setIsEditingTitle(true)
-    setTimeout(() => inputRef.current?.focus(), 0)
-  }
-
-  const handleTitleBlur = () => {
-    setIsEditingTitle(false)
-    if (isTauri() && sessionTitle.trim()) {
-      updateSessionTitle(sessionIdRef.current, sessionTitle.trim()).catch((error) => {
-        console.error('[DATABASE] Failed to update session title:', error)
-      })
-    }
-  }
-
-  const handleTitleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      setIsEditingTitle(false)
-      if (isTauri() && sessionTitle.trim()) {
-        updateSessionTitle(sessionIdRef.current, sessionTitle.trim()).catch((error) => {
-          console.error('[DATABASE] Failed to update session title:', error)
-        })
-      }
-    }
-  }
-
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't handle shortcuts when editing title
-      if (isEditingTitle || isEnding) return
+      if (isEnding) return
 
-      // Space: Pause/Resume (only when not focused on interactive elements)
       const activeTag = document.activeElement?.tagName.toLowerCase()
       const isInteractive = activeTag === 'input' || activeTag === 'button' || activeTag === 'textarea'
+
+      // Space: Pause/Resume
       if (e.code === 'Space' && !e.metaKey && !e.ctrlKey && !isInteractive) {
         e.preventDefault()
         handlePauseResume()
@@ -521,79 +565,193 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
       // Cmd+Enter: End session
       if (e.metaKey && e.key === 'Enter') {
         e.preventDefault()
-        handleEndSession()
+        if (showConfirmation) {
+          handleEndSession()
+        } else {
+          setShowConfirmation(true)
+        }
       }
 
-      // Cmd+I: Toggle intelligence panel
-      if (e.metaKey && e.key === 'i') {
-        e.preventDefault()
-        setShowIntelligence(prev => !prev)
-      }
-
-      // Cmd+/: Focus chat input (opens panel if closed)
-      if (e.metaKey && e.key === '/') {
-        e.preventDefault()
-        setShowIntelligence(true)
-      }
-
-      // Escape: Close intelligence panel
-      if (e.key === 'Escape' && showIntelligence) {
-        setShowIntelligence(false)
+      // Escape: Cancel confirmation
+      if (e.key === 'Escape' && showConfirmation) {
+        setShowConfirmation(false)
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isEditingTitle, isEnding, showIntelligence, handlePauseResume, handleEndSession])
+  }, [isEnding, showConfirmation, handlePauseResume, handleEndSession])
 
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="min-h-screen flex flex-col items-center justify-center bg-[var(--ink)] text-[var(--paper)]"
-    >
-      {/* Peripheral Glow */}
-      {!isEnding && !permissionError && (
-        <PeripheralGlow
-          analysisMode={analysisMode}
-          audioLevel={audioLevel}
-          onCapture={captureFlash}
-        />
-      )}
+  // Auto-dismiss confirmation after 5 seconds
+  useEffect(() => {
+    if (!showConfirmation) return
 
-      {/* Intelligence Panel Toggle */}
-      {!isEnding && !permissionError && (
-        <button
-          onClick={() => setShowIntelligence(true)}
-          className="fixed top-4 right-4 p-3 rounded-xl bg-[var(--paper)]/10 hover:bg-[var(--paper)]/20 transition-colors z-50"
-          title="Toggle Intelligence Panel (⌘I)"
-        >
-          <Sparkles className="w-5 h-5 text-[var(--paper)]" />
-        </button>
-      )}
+    const timeout = setTimeout(() => {
+      setShowConfirmation(false)
+    }, 5000)
 
-      {/* Live Session Panel */}
-      <AnimatePresence>
-        {showIntelligence && !isEnding && (
-          <LiveSessionPanel
-            sessionId={sessionIdRef.current}
-            isExpanded={showIntelligence}
-            onToggleExpand={() => setShowIntelligence(false)}
-          />
-        )}
-      </AnimatePresence>
+    return () => clearTimeout(timeout)
+  }, [showConfirmation])
 
-      {isEnding ? (
-        /* Ending state - Elegant processing */
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="text-center"
-        >
-          {/* Geometric animation */}
-          <div className="relative w-32 h-32 mx-auto mb-10">
-            {/* Orbiting rings */}
+  // Permission error state
+  if (permissionError) {
+    return (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="min-h-screen flex items-center justify-center bg-[var(--paper)] p-6"
+      >
+        <div className="max-w-md text-center">
+          <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-[var(--error-muted)] flex items-center justify-center">
+            <AlertCircle className="w-8 h-8 text-[var(--error)]" />
+          </div>
+          <h2 className="text-2xl font-medium text-[var(--ink)] mb-3">
+            Permission Required
+          </h2>
+          <p className="text-[var(--ink-muted)] mb-6">
+            {permissionError}
+          </p>
+          <div className="flex gap-4 justify-center">
+            <button
+              onClick={onCancel}
+              className="px-5 py-2.5 rounded-xl border border-[var(--border-medium)] text-[var(--ink)] hover:bg-[var(--paper-warm)] transition-colors"
+            >
+              Go Back
+            </button>
+            <button
+              onClick={() => requestScreenRecordingPermission().then(() => window.location.reload())}
+              className="px-5 py-2.5 rounded-xl bg-[var(--accent)] text-white hover:bg-[var(--accent-light)] transition-colors"
+            >
+              Grant Permission
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    )
+  }
+
+  // Fatal error state - handles both initialization and processing failures
+  if (fatalError) {
+    // Check if recording actually started (determines what cleanup is needed)
+    const recordingStarted = sessionRecorder.isRecording() || duration > 0
+
+    const handleGoBack = async () => {
+      // Clean up any partial state
+      try {
+        if (sessionRecorder.isRecording()) {
+          await sessionRecorder.stopRecording()
+        }
+      } catch {
+        // Ignore
+      }
+      try {
+        await sessionBridge.stopSession(sessionIdRef.current)
+      } catch {
+        // Ignore
+      }
+      dispatch({ type: 'STOP_RECORDING' })
+      onCancel()
+    }
+
+    const handleRetry = () => {
+      // Reset state and reinitialize via reload
+      setFatalError(null)
+      window.location.reload()
+    }
+
+    const handleSavePartial = async () => {
+      // Try to save whatever we have
+      try {
+        if (sessionRecorder.isRecording()) {
+          await sessionRecorder.stopRecording()
+        }
+      } catch {
+        // Ignore
+      }
+      try {
+        await sessionBridge.stopSession(sessionIdRef.current)
+      } catch {
+        // Ignore
+      }
+
+      const fallbackSession: Session = {
+        id: sessionIdRef.current,
+        type: 'session',
+        title: sessionTitle || 'Untitled Session',
+        createdAt: new Date().toISOString(),
+        duration,
+        summary: {
+          text: duration > 0
+            ? `Session recorded for ${Math.floor(duration / 60)} minutes. AI processing failed: ${fatalError}`
+            : `Session could not be started: ${fatalError}`,
+          tasks: [],
+          notes: [],
+          generatedAt: new Date().toISOString(),
+        },
+        status: 'complete',
+      }
+      addSession(fallbackSession)
+      dispatch({ type: 'STOP_RECORDING' })
+      onComplete(fallbackSession)
+    }
+
+    return (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="min-h-screen flex items-center justify-center bg-[var(--paper)] p-6"
+      >
+        <div className="max-w-md text-center">
+          <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-[var(--error-muted)] flex items-center justify-center">
+            <AlertCircle className="w-8 h-8 text-[var(--error)]" />
+          </div>
+          <h2 className="text-2xl font-medium text-[var(--ink)] mb-3">
+            {recordingStarted ? 'Recording Error' : 'Failed to Start'}
+          </h2>
+          <p className="text-[var(--ink-muted)] mb-6">
+            {fatalError}
+          </p>
+          <div className="flex flex-col gap-3">
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={handleRetry}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[var(--accent)] text-white hover:bg-[var(--accent-light)] transition-colors"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Try Again
+              </button>
+              <button
+                onClick={handleGoBack}
+                className="px-5 py-2.5 rounded-xl border border-[var(--border-medium)] text-[var(--ink)] hover:bg-[var(--paper-warm)] transition-colors"
+              >
+                Go Back
+              </button>
+            </div>
+            {recordingStarted && (
+              <button
+                onClick={handleSavePartial}
+                className="px-5 py-2.5 rounded-xl text-[var(--ink-muted)] hover:text-[var(--ink)] hover:bg-[var(--paper-warm)] transition-colors text-sm"
+              >
+                Save partial recording
+              </button>
+            )}
+          </div>
+        </div>
+      </motion.div>
+    )
+  }
+
+  // Processing state
+  if (isEnding) {
+    return (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="min-h-screen flex items-center justify-center bg-[var(--paper)] p-6"
+      >
+        <div className="text-center max-w-md">
+          {/* Processing animation */}
+          <div className="relative w-24 h-24 mx-auto mb-8">
             <motion.div
               animate={{ rotate: 360 }}
               transition={{ duration: 8, repeat: Infinity, ease: 'linear' }}
@@ -602,7 +760,6 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
               <div className="absolute inset-0 rounded-full border border-[var(--accent)]/30" />
               <div className="absolute top-0 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-[var(--accent)]" />
             </motion.div>
-
             <motion.div
               animate={{ rotate: -360 }}
               transition={{ duration: 5, repeat: Infinity, ease: 'linear' }}
@@ -611,26 +768,20 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
               <div className="absolute inset-0 rounded-full border border-[var(--accent)]/40" />
               <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-[var(--accent)]" />
             </motion.div>
-
-            {/* Center pulse */}
             <motion.div
               animate={{ scale: [0.8, 1, 0.8], opacity: [0.6, 1, 0.6] }}
-              transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-              className="absolute inset-10 rounded-full bg-[var(--accent)]"
+              transition={{ duration: 2, repeat: Infinity }}
+              className="absolute inset-8 rounded-full bg-[var(--accent)]"
             />
           </div>
 
-          <motion.h2
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="font-display text-2xl text-[var(--paper)] mb-3"
-          >
+          <h2 className="text-xl font-medium text-[var(--ink)] mb-3">
             {processingStep || 'Processing your session'}
-          </motion.h2>
+          </h2>
 
           {/* Progress bar */}
-          <div className="w-64 mx-auto mb-4">
-            <div className="h-1.5 bg-[var(--paper)]/20 rounded-full overflow-hidden">
+          <div className="w-full max-w-xs mx-auto mb-4">
+            <div className="h-1.5 bg-[var(--paper-dark)] rounded-full overflow-hidden">
               <motion.div
                 className="h-full bg-[var(--accent)]"
                 initial={{ width: 0 }}
@@ -638,270 +789,66 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
                 transition={{ duration: 0.3 }}
               />
             </div>
-            <p className="text-xs text-[var(--paper)]/40 mt-2">{processingPercent}%</p>
+            <p className="text-xs text-[var(--ink-muted)] mt-2">{processingPercent}%</p>
           </div>
 
-          <p className="text-[var(--paper)]/60">
-            Analyzing {formatTime(duration)} of work
+          <p className="text-sm text-[var(--ink-muted)]">
+            Analyzing {Math.floor(duration / 60)} minutes of work
           </p>
-        </motion.div>
-      ) : permissionError ? (
-        /* Permission error state */
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="text-center max-w-md px-6"
-        >
-          <div className="w-16 h-16 mx-auto mb-8 rounded-2xl bg-[var(--error)]/20 flex items-center justify-center">
-            <AlertCircle className="w-8 h-8 text-[var(--error)]" />
-          </div>
-          <h2 className="font-display text-2xl text-[var(--paper)] mb-3">
-            Permission Required
-          </h2>
-          <p className="text-[var(--paper)]/60 mb-8">
-            {permissionError}
-          </p>
-          <div className="flex gap-4 justify-center">
-            <button
-              onClick={onCancel}
-              className="px-6 py-3 rounded-xl border border-[var(--paper)]/20 text-[var(--paper)]/80 hover:bg-[var(--paper)]/10 transition-colors"
-            >
-              Go Back
-            </button>
-            <button
-              onClick={() => requestScreenRecordingPermission().then(() => window.location.reload())}
-              className="px-6 py-3 rounded-xl bg-[var(--accent)] text-white hover:bg-[var(--accent-light)] transition-colors"
-            >
-              Grant Permission
-            </button>
-          </div>
-        </motion.div>
-      ) : fatalError ? (
-        /* Fatal error state */
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="text-center max-w-md px-6"
-        >
-          <div className="w-16 h-16 mx-auto mb-8 rounded-2xl bg-[var(--error)]/20 flex items-center justify-center">
-            <AlertCircle className="w-8 h-8 text-[var(--error)]" />
-          </div>
-          <h2 className="font-display text-2xl text-[var(--paper)] mb-3">
-            Processing Failed
-          </h2>
-          <p className="text-[var(--paper)]/60 mb-8">
-            {fatalError}
-          </p>
-          <div className="flex gap-4 justify-center">
-            <button
-              onClick={() => {
-                setFatalError(null)
-                handleEndSession()
-              }}
-              className="px-6 py-3 rounded-xl bg-[var(--accent)] text-white hover:bg-[var(--accent)]/80 transition-colors"
-            >
-              Try Again
-            </button>
-            <button
-              onClick={() => {
-                // Save session with fallback summary
-                const fallbackSession: Session = {
-                  id: sessionIdRef.current,
-                  type: 'session',
-                  title: sessionTitle || 'Untitled Session',
-                  createdAt: new Date().toISOString(),
-                  duration,
-                  summary: {
-                    text: `Session recorded for ${Math.floor(duration / 60)} minutes. AI processing failed - please try regenerating the summary.`,
-                    tasks: [],
-                    notes: [],
-                    generatedAt: new Date().toISOString(),
-                  },
-                  status: 'complete',
-                }
-                addSession(fallbackSession)
-                dispatch({ type: 'STOP_RECORDING' })
-                onComplete(fallbackSession)
-              }}
-              className="px-6 py-3 rounded-xl border border-[var(--paper)]/20 text-[var(--paper)]/80 hover:bg-[var(--paper)]/10 transition-colors"
-            >
-              Save Without AI Summary
-            </button>
-          </div>
-        </motion.div>
-      ) : (
-        /* Recording state */
-        <div className="text-center">
-          {/* Recording indicator */}
-          <motion.div
-            animate={{ opacity: isPaused ? 0.5 : [1, 0.5, 1] }}
-            transition={{ duration: 2, repeat: isPaused ? 0 : Infinity }}
-            className="flex items-center justify-center gap-3 mb-6"
-          >
-            <div className={`w-3 h-3 rounded-full ${isPaused ? 'bg-[var(--accent)]' : 'bg-[var(--session-recording)]'}`} />
-            <span className="label-section !text-[var(--paper)]/60">
-              {isPaused ? 'Paused' : 'Recording'}
-            </span>
-          </motion.div>
-
-          {/* Capture stats */}
-          {isTauri() && (
-            <div className="flex items-center justify-center gap-6 mb-10 text-sm text-[var(--paper)]/50">
-              {(recordingConfig?.enableScreenshots !== false) && (
-                <div className="flex items-center gap-2">
-                  <Camera className="w-4 h-4 text-[var(--success)]" />
-                  <span>{screenshotCount} screenshots</span>
-                </div>
-              )}
-              {recordingConfig?.enableAudio && (
-                <div className="flex items-center gap-2">
-                  <Mic className={`w-4 h-4 ${
-                    transcriptionStatus === 'error'
-                      ? 'text-[var(--error)]'
-                      : transcriptionStatus === 'transcribing'
-                        ? 'text-[var(--accent)] animate-pulse'
-                        : transcriptionStatus === 'success'
-                          ? 'text-[var(--success)]'
-                          : audioLevel > 0.1
-                            ? 'text-[var(--success)]'
-                            : 'text-[var(--ink-muted)]'
-                  }`} />
-                  <span>
-                    {transcriptionStatus === 'error'
-                      ? 'Transcription failed'
-                      : transcriptionStatus === 'transcribing'
-                        ? 'Transcribing...'
-                        : transcriptionStatus === 'success'
-                          ? 'Transcribed'
-                          : 'Audio'}
-                  </span>
-                  {/* Audio level indicator */}
-                  {audioLevel > 0 && (
-                    <div className="flex items-center gap-0.5">
-                      {[0.2, 0.4, 0.6, 0.8].map((threshold) => (
-                        <div
-                          key={threshold}
-                          className={`w-1 h-3 rounded-full transition-colors ${
-                            audioLevel >= threshold ? 'bg-[var(--success)]' : 'bg-[var(--paper)]/20'
-                          }`}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-              {recordingConfig?.enableVideo && (
-                <div className="flex items-center gap-2">
-                  <Monitor className="w-4 h-4 text-[var(--success)]" />
-                  <span>Video</span>
-                </div>
-              )}
-              {!recordingConfig?.enableScreenshots && !recordingConfig?.enableAudio && !recordingConfig?.enableVideo && (
-                <div className="flex items-center gap-2 text-[var(--paper)]/30">
-                  <span>No capture enabled</span>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Session icon */}
-          <div className="flex items-center justify-center gap-3 mb-4">
-            <div className="w-12 h-12 rounded-xl bg-[var(--session-recording)]/20 flex items-center justify-center">
-              <Video className="w-6 h-6 text-[var(--session-recording)]" />
-            </div>
-          </div>
-
-          {/* Title */}
-          <div className="mb-4 px-4">
-            {isEditingTitle ? (
-              <input
-                ref={inputRef}
-                type="text"
-                value={sessionTitle}
-                onChange={(e) => setSessionTitle(e.target.value)}
-                onBlur={handleTitleBlur}
-                onKeyDown={handleTitleKeyDown}
-                className="w-full max-w-xs sm:max-w-sm md:max-w-md bg-transparent text-center text-lg text-[var(--paper)]/80 placeholder:text-[var(--paper)]/40 outline-none border-b border-[var(--paper)]/20 focus:border-[var(--paper)]/40 pb-1 font-display"
-              />
-            ) : (
-              <button
-                onClick={handleTitleClick}
-                className="font-display text-2xl text-[var(--paper)] hover:text-[var(--paper)]/80 transition-colors"
-              >
-                {sessionTitle}
-              </button>
-            )}
-          </div>
-
-          {/* Timer */}
-          <motion.div
-            key={duration}
-            initial={{ scale: 1.02 }}
-            animate={{ scale: 1 }}
-            className="font-mono text-6xl sm:text-7xl md:text-8xl text-[var(--paper)] tracking-tight mb-14 tabular-nums"
-          >
-            {formatTime(duration)}
-          </motion.div>
-
-          {/* Controls */}
-          <div className="flex items-center justify-center gap-6" role="group" aria-label="Recording controls">
-            <motion.button
-              onClick={handlePauseResume}
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              aria-label={isPaused ? 'Resume recording' : 'Pause recording'}
-              className="w-16 h-16 rounded-2xl bg-[var(--paper)]/10 hover:bg-[var(--paper)]/20 flex items-center justify-center transition-colors border border-[var(--paper)]/10"
-            >
-              {isPaused ? (
-                <Play className="w-6 h-6 text-[var(--paper)] ml-1" />
-              ) : (
-                <Pause className="w-6 h-6 text-[var(--paper)]" />
-              )}
-            </motion.button>
-
-            <motion.button
-              onClick={() => setShowEndConfirm(true)}
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              aria-label="End recording"
-              className="w-16 h-16 rounded-2xl bg-[var(--session-recording)] hover:bg-[var(--session-recording)]/80 flex items-center justify-center transition-colors shadow-lg shadow-[var(--session-recording)]/30"
-            >
-              <Square className="w-5 h-5 text-white" />
-            </motion.button>
-          </div>
-
-          {/* Keyboard shortcuts hint */}
-          <div className="flex items-center justify-center gap-4 text-xs text-[var(--paper)]/30 mt-10">
-            <span className="flex items-center gap-1">
-              <kbd className="px-1.5 py-0.5 rounded bg-[var(--paper)]/10">Space</kbd>
-              {isPaused ? 'Resume' : 'Pause'}
-            </span>
-            <span className="flex items-center gap-1">
-              <kbd className="px-1.5 py-0.5 rounded bg-[var(--paper)]/10">⌘I</kbd>
-              Intelligence
-            </span>
-            <span className="flex items-center gap-1">
-              <kbd className="px-1.5 py-0.5 rounded bg-[var(--paper)]/10">⌘↵</kbd>
-              End
-            </span>
-          </div>
         </div>
-      )}
+      </motion.div>
+    )
+  }
 
-      {/* End Session Confirmation */}
-      <ConfirmDialog
-        isOpen={showEndConfirm}
-        title="End Session?"
-        message="Recording will stop and AI will process your session. This may take a moment."
-        confirmText="End Session"
-        cancelText="Keep Recording"
-        confirmVariant="danger"
-        onConfirm={() => {
-          setShowEndConfirm(false)
-          handleEndSession()
-        }}
-        onCancel={() => setShowEndConfirm(false)}
+  // Main recording view
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="min-h-screen flex flex-col bg-[var(--paper)]"
+    >
+      {/* Fixed timer header */}
+      <SessionTimer
+        duration={duration}
+        isPaused={isPaused}
+        isEnding={isEnding}
+        title={sessionTitle}
+        onTitleChange={handleTitleChange}
+        onPauseResume={handlePauseResume}
+        onStop={() => setShowConfirmation(true)}
+        screenshotCount={screenshotCount}
+        transcriptionStatus={transcriptionStatus}
+        videoEnabled={true}
+        audioEnabled={audioEnabled}
+        audioLevel={audioLevel}
+        showConfirmation={showConfirmation}
+        onConfirmEnd={handleEndSession}
+        onCancelEnd={() => setShowConfirmation(false)}
       />
+
+      {/* Scrollable dashboard */}
+      <div className="flex-1 overflow-y-auto p-6">
+        <div className="max-w-6xl mx-auto h-full">
+          <LiveDashboard
+            sessionId={sessionIdRef.current}
+            audioEnabled={audioEnabled}
+          />
+        </div>
+      </div>
+
+      {/* Keyboard hints footer */}
+      <footer className="px-6 py-3 border-t border-[var(--border-subtle)]">
+        <div className="flex items-center justify-center gap-6 text-xs text-[var(--ink-muted)]">
+          <span className="flex items-center gap-1">
+            <kbd className="px-1.5 py-0.5 rounded bg-[var(--paper-dark)]">Space</kbd>
+            {isPaused ? 'Resume' : 'Pause'}
+          </span>
+          <span className="flex items-center gap-1">
+            <kbd className="px-1.5 py-0.5 rounded bg-[var(--paper-dark)]">⌘↵</kbd>
+            End
+          </span>
+        </div>
+      </footer>
     </motion.div>
   )
 }

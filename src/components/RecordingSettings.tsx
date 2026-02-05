@@ -271,14 +271,14 @@ export function RecordingSettings({
               <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200"
+                className="flex items-start gap-3 p-4 rounded-xl bg-[var(--warning-muted)] border border-[var(--warning)]/30"
               >
-                <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <AlertCircle className="w-5 h-5 text-[var(--warning)] flex-shrink-0 mt-0.5" />
                 <div className="flex-1">
-                  <p className="text-sm font-medium text-amber-800">
+                  <p className="text-sm font-medium text-[var(--warning-text)]">
                     AI features require Claude API key
                   </p>
-                  <p className="text-xs text-amber-600 mt-1">
+                  <p className="text-xs text-[var(--warning)] mt-1">
                     Without it, you'll get basic recording but no intelligent summaries or insights.
                   </p>
                 </div>
@@ -289,14 +289,14 @@ export function RecordingSettings({
               <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200"
+                className="flex items-start gap-3 p-4 rounded-xl bg-[var(--warning-muted)] border border-[var(--warning)]/30"
               >
-                <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <AlertCircle className="w-5 h-5 text-[var(--warning)] flex-shrink-0 mt-0.5" />
                 <div className="flex-1">
-                  <p className="text-sm font-medium text-amber-800">
+                  <p className="text-sm font-medium text-[var(--warning-text)]">
                     Audio transcription requires OpenAI API key
                   </p>
-                  <p className="text-xs text-amber-600 mt-1">
+                  <p className="text-xs text-[var(--warning)] mt-1">
                     Audio will be recorded but not transcribed. Add your key in Settings.
                   </p>
                 </div>
@@ -619,15 +619,15 @@ export function RecordingSettings({
                   onClick={() => onConfigChange({ ...config, analysisMode: 'ambient' })}
                   className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-colors ${
                     config.analysisMode === 'ambient'
-                      ? 'border-amber-400 bg-amber-50'
+                      ? 'border-[var(--mode-ambient)] bg-[var(--mode-ambient-bg)]'
                       : 'border-[var(--border-subtle)] hover:bg-[var(--paper-warm)]'
                   }`}
                 >
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                    config.analysisMode === 'ambient' ? 'bg-amber-100' : 'bg-[var(--paper-dark)]'
+                    config.analysisMode === 'ambient' ? 'bg-[var(--mode-ambient-muted)]' : 'bg-[var(--paper-dark)]'
                   }`}>
                     <Sun className={`w-4 h-4 ${
-                      config.analysisMode === 'ambient' ? 'text-amber-600' : 'text-[var(--ink-muted)]'
+                      config.analysisMode === 'ambient' ? 'text-[var(--mode-ambient)]' : 'text-[var(--ink-muted)]'
                     }`} />
                   </div>
                   <div className="text-left flex-1">
@@ -638,7 +638,7 @@ export function RecordingSettings({
                     <div className="text-xs text-[var(--ink-muted)]">Light analysis, less intrusive</div>
                   </div>
                   {config.analysisMode === 'ambient' && (
-                    <Check className="w-5 h-5 text-amber-600" />
+                    <Check className="w-5 h-5 text-[var(--mode-ambient)]" />
                   )}
                 </button>
 
@@ -646,15 +646,15 @@ export function RecordingSettings({
                   onClick={() => onConfigChange({ ...config, analysisMode: 'deep' })}
                   className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-colors ${
                     config.analysisMode === 'deep'
-                      ? 'border-blue-400 bg-blue-50'
+                      ? 'border-[var(--mode-deep)] bg-[var(--mode-deep-bg)]'
                       : 'border-[var(--border-subtle)] hover:bg-[var(--paper-warm)]'
                   }`}
                 >
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                    config.analysisMode === 'deep' ? 'bg-blue-100' : 'bg-[var(--paper-dark)]'
+                    config.analysisMode === 'deep' ? 'bg-[var(--mode-deep-muted)]' : 'bg-[var(--paper-dark)]'
                   }`}>
                     <Moon className={`w-4 h-4 ${
-                      config.analysisMode === 'deep' ? 'text-blue-600' : 'text-[var(--ink-muted)]'
+                      config.analysisMode === 'deep' ? 'text-[var(--mode-deep)]' : 'text-[var(--ink-muted)]'
                     }`} />
                   </div>
                   <div className="text-left flex-1">
@@ -665,7 +665,7 @@ export function RecordingSettings({
                     <div className="text-xs text-[var(--ink-muted)]">Full analysis, real-time insights</div>
                   </div>
                   {config.analysisMode === 'deep' && (
-                    <Check className="w-5 h-5 text-blue-600" />
+                    <Check className="w-5 h-5 text-[var(--mode-deep)]" />
                   )}
                 </button>
               </div>

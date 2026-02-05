@@ -10,6 +10,32 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use tauri::ipc::Channel;
 
+/// Allowed destination hosts for the HTTP proxy.
+/// Only HTTPS requests to these domains are permitted.
+const ALLOWED_HOSTS: &[&str] = &[
+    "api.anthropic.com",
+    "api.openai.com",
+];
+
+/// Validate that a proxy URL is allowed (HTTPS only, whitelisted host).
+fn validate_proxy_url(url: &str) -> Result<(), String> {
+    let parsed = url::Url::parse(url)
+        .map_err(|e| format!("Invalid URL: {}", e))?;
+
+    if parsed.scheme() != "https" {
+        return Err(format!("Only HTTPS URLs allowed, got: {}", parsed.scheme()));
+    }
+
+    let host = parsed.host_str()
+        .ok_or_else(|| "URL has no host".to_string())?;
+
+    if !ALLOWED_HOSTS.iter().any(|allowed| host == *allowed) {
+        return Err(format!("Host not allowed: {}. Allowed: {:?}", host, ALLOWED_HOSTS));
+    }
+
+    Ok(())
+}
+
 /// Request payload from frontend
 #[derive(Debug, Deserialize)]
 pub struct ProxyRequest {
@@ -37,9 +63,8 @@ pub struct StreamChunk {
 /// Make an HTTP request and return the full response
 #[tauri::command]
 pub async fn http_proxy(request: ProxyRequest) -> Result<ProxyResponse, String> {
-    println!("[http_proxy] URL: {}", request.url);
-    println!("[http_proxy] Method: {}", request.method);
-    println!("[http_proxy] Headers: {:?}", request.headers.keys().collect::<Vec<_>>());
+    validate_proxy_url(&request.url)?;
+    println!("[http_proxy] {} {}", request.method, request.url);
 
     let client = reqwest::Client::new();
 
@@ -61,7 +86,6 @@ pub async fn http_proxy(request: ProxyRequest) -> Result<ProxyResponse, String> 
     let mut req = client.request(method, &request.url).headers(headers);
 
     if let Some(ref body) = request.body {
-        println!("[http_proxy] Body length: {}", body.len());
         req = req.body(body.clone());
     }
 
@@ -102,6 +126,7 @@ pub async fn http_proxy_stream(
     request: ProxyRequest,
     on_chunk: Channel<StreamChunk>,
 ) -> Result<(), String> {
+    validate_proxy_url(&request.url)?;
     let client = reqwest::Client::new();
 
     // Build headers

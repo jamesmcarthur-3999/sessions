@@ -8,8 +8,27 @@
  * without needing a separate proxy server.
  */
 
-import { invoke } from '@tauri-apps/api/core';
 import { isTauri } from './recording';
+
+// Dynamic import cache for invoke function
+// We use dynamic import to avoid loading @tauri-apps/api/core before Tauri is ready
+let invokeFunction: typeof import('@tauri-apps/api/core').invoke | null = null;
+
+/**
+ * Get the Tauri invoke function, loading it dynamically if needed
+ */
+async function getInvoke(): Promise<typeof import('@tauri-apps/api/core').invoke> {
+  if (!invokeFunction) {
+    try {
+      const tauriCore = await import('@tauri-apps/api/core');
+      invokeFunction = tauriCore.invoke;
+    } catch (error) {
+      console.error('[TauriFetch] Failed to load @tauri-apps/api/core:', error);
+      throw new Error('Tauri API not available');
+    }
+  }
+  return invokeFunction;
+}
 
 interface ProxyRequest {
   url: string;
@@ -114,16 +133,10 @@ export async function tauriFetch(
 
   try {
     console.log('[TauriFetch] Calling http_proxy:', url, method);
-    console.log('[TauriFetch] Headers:', JSON.stringify(headers, null, 2));
-    if (body) {
-      try {
-        const bodyObj = JSON.parse(body);
-        console.log('[TauriFetch] Body model:', bodyObj.model);
-        console.log('[TauriFetch] Body keys:', Object.keys(bodyObj));
-      } catch {
-        console.log('[TauriFetch] Body (raw):', body.slice(0, 200));
-      }
-    }
+    console.log('[TauriFetch] Headers:', Object.keys(headers).join(', '));
+
+    // Get invoke dynamically to ensure Tauri is ready
+    const invoke = await getInvoke();
 
     // Call Tauri backend
     const response = await invoke<ProxyResponse>('http_proxy', { request });

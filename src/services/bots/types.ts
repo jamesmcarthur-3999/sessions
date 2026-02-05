@@ -52,7 +52,24 @@ export const FinalSummarySchema = z.object({
 
 export type FinalSummary = z.infer<typeof FinalSummarySchema>;
 
-// CaptureResult is now defined in capture.ts using the v6 Output pattern
+// Capture output (for QuickCapture)
+export const CaptureSchema = z.object({
+  title: z.string().describe('A concise 2-6 word title for the capture'),
+  summary: z.string().describe('A brief paragraph summarizing the captured content'),
+  tasks: z.array(z.string()).describe('Action items as clear, actionable strings (start with verbs)'),
+  notes: z.array(z.string()).describe('Key insights or notes worth remembering'),
+});
+
+export type CaptureResult = z.infer<typeof CaptureSchema>;
+
+// Capture timing decision (AI-driven adaptive capture)
+export const CaptureTimingSchema = z.object({
+  recommendedWaitSeconds: z.number().min(5).max(180),
+  reason: z.string(),
+  activityLevel: z.enum(['high', 'medium', 'low']),
+});
+
+export type CaptureTimingDecision = z.infer<typeof CaptureTimingSchema>;
 
 // Session context for bots
 export interface SessionContext {

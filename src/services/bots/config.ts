@@ -8,6 +8,7 @@
 import { getSecureItem, setSecureItem, removeSecureItem } from '../secure-storage'
 import { isTauri } from '../recording'
 import { createTauriFetch } from '../tauri-fetch'
+import { resetPipelines } from './pipelines'
 
 export interface BotConfig {
   claudeApiKey?: string;
@@ -82,7 +83,7 @@ export async function initializeBots(): Promise<boolean> {
     if (claudeKey) {
       setDefaultApiKey('anthropic', claudeKey);
       hasAnyKey = true;
-      console.log('[Baleybots] AI service configured with key:', claudeKey.substring(0, 10) + '...');
+      console.log('[Baleybots] AI service configured');
     } else {
       console.warn('[Baleybots] No Claude API key found');
     }
@@ -167,9 +168,12 @@ export async function hasApiKey(): Promise<boolean> {
 
 /**
  * Reset initialization state (for testing or key changes)
+ * Also resets cached pipelines to pick up new configuration
  */
 export function resetBots(): void {
   isInitialized = false;
+  // Reset cached pipelines so they pick up new configuration
+  resetPipelines();
 }
 
 /**

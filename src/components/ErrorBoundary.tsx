@@ -4,6 +4,10 @@ import { AlertTriangle, RefreshCw } from 'lucide-react'
 interface Props {
   children: ReactNode
   fallback?: ReactNode
+  /** Called when an error is caught - use for cleanup */
+  onError?: (error: Error) => void
+  /** Called when reset is clicked */
+  onReset?: () => void
 }
 
 interface State {
@@ -23,9 +27,12 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('ErrorBoundary caught:', error, errorInfo)
+    // Call onError callback for cleanup
+    this.props.onError?.(error)
   }
 
   handleReset = () => {
+    this.props.onReset?.()
     this.setState({ hasError: false, error: null })
   }
 
@@ -36,26 +43,26 @@ export class ErrorBoundary extends Component<Props, State> {
       }
 
       return (
-        <div className="min-h-screen flex items-center justify-center bg-neutral-50 dark:bg-neutral-950 p-6">
+        <div className="min-h-screen flex items-center justify-center bg-[var(--paper)] p-6">
           <div className="max-w-md text-center">
-            <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-              <AlertTriangle className="w-8 h-8 text-red-600 dark:text-red-400" />
+            <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-[var(--error-muted)] flex items-center justify-center">
+              <AlertTriangle className="w-8 h-8 text-[var(--error)]" />
             </div>
 
-            <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100 mb-2">
+            <h1 className="text-2xl font-semibold text-[var(--ink)] mb-2">
               Something went wrong
             </h1>
 
-            <p className="text-neutral-500 mb-6">
+            <p className="text-[var(--ink-muted)] mb-6">
               The app encountered an unexpected error. Your data is safe.
             </p>
 
             {this.state.error && (
               <details className="mb-6 text-left">
-                <summary className="cursor-pointer text-sm text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300">
+                <summary className="cursor-pointer text-sm text-[var(--ink-muted)] hover:text-[var(--ink-light)]">
                   Technical details
                 </summary>
-                <pre className="mt-2 p-3 rounded-lg bg-neutral-100 dark:bg-neutral-900 text-xs text-neutral-600 dark:text-neutral-400 overflow-auto">
+                <pre className="mt-2 p-3 rounded-lg bg-[var(--paper-warm)] text-xs text-[var(--ink-muted)] overflow-auto">
                   {this.state.error.message}
                 </pre>
               </details>
@@ -63,7 +70,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
             <button
               onClick={this.handleReset}
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium hover:bg-neutral-800 dark:hover:bg-neutral-200 transition-colors"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-[var(--ink)] text-[var(--paper)] font-medium hover:opacity-90 transition-colors"
             >
               <RefreshCw className="w-4 h-4" />
               Try again

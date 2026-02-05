@@ -57,63 +57,83 @@ impl ActivityMonitor {
         std::thread::spawn(move || {
             let mut last_app: Option<String> = None;
             let mut last_window: Option<String> = None;
+            // Adaptive polling: 3s normally, 1.5s after app switch for 10s
+            let mut poll_interval_ms: u64 = 3000;
+            let mut fast_poll_until: Option<std::time::Instant> = None;
 
             // Continue until stop flag is set
             while !stop_flag.load(Ordering::SeqCst) {
-                // Poll every 1000ms
-                std::thread::sleep(Duration::from_millis(1000));
+                std::thread::sleep(Duration::from_millis(poll_interval_ms));
 
                 // Check stop flag again after sleep
                 if stop_flag.load(Ordering::SeqCst) {
                     break;
                 }
 
+                // Return to normal polling after fast-poll window expires
+                if let Some(until) = fast_poll_until {
+                    if std::time::Instant::now() > until {
+                        poll_interval_ms = 3000;
+                        fast_poll_until = None;
+                    }
+                }
+
                 // Get frontmost application (macOS)
-                if let Some((app_name, window_title)) = get_frontmost_app() {
-                    let now = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_millis() as u64;
+                let frontmost = match get_frontmost_app() {
+                    Some(result) => result,
+                    None => {
+                        continue;
+                    }
+                };
+                let (app_name, window_title) = frontmost;
 
-                    // Check for app switch
-                    let app_switched = last_app.as_ref() != Some(&app_name);
-                    let window_changed = last_window.as_ref() != Some(&window_title);
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
 
-                    if app_switched {
-                        println!("[ACTIVITY MONITOR] App switch: {:?} -> {}", last_app, app_name);
+                // Check for app switch
+                let app_switched = last_app.as_ref() != Some(&app_name);
+                let window_changed = last_window.as_ref() != Some(&window_title);
 
-                        let event = ActivityEvent {
-                            event_type: "app_switch".to_string(),
-                            app_name: Some(app_name.clone()),
-                            window_title: Some(window_title.clone()),
-                            timestamp: now,
-                        };
+                if app_switched {
+                    println!("[ACTIVITY MONITOR] App switch: {:?} -> {}", last_app, app_name);
 
-                        if let Err(e) = app_handle.emit("activity-event", event) {
-                            eprintln!("[ACTIVITY MONITOR] Failed to emit event: {}", e);
-                        }
+                    let event = ActivityEvent {
+                        event_type: "app_switch".to_string(),
+                        app_name: Some(app_name.clone()),
+                        window_title: Some(window_title.clone()),
+                        timestamp: now,
+                    };
 
-                        last_app = Some(app_name.clone());
+                    if let Err(e) = app_handle.emit("activity-event", event) {
+                        eprintln!("[ACTIVITY MONITOR] Failed to emit event: {}", e);
                     }
 
-                    if window_changed && !app_switched {
-                        // Only emit window change if app didn't switch (to avoid duplicate events)
-                        let event = ActivityEvent {
-                            event_type: "window_change".to_string(),
-                            app_name: Some(app_name.clone()),
-                            window_title: Some(window_title.clone()),
-                            timestamp: now,
-                        };
+                    // Enter fast-polling mode for 10s after an app switch
+                    poll_interval_ms = 1500;
+                    fast_poll_until = Some(std::time::Instant::now() + Duration::from_secs(10));
 
-                        if let Err(e) = app_handle.emit("activity-event", event) {
-                            eprintln!("[ACTIVITY MONITOR] Failed to emit event: {}", e);
-                        }
-                    }
+                    last_app = Some(app_name.clone());
+                }
 
-                    last_window = Some(window_title);
-                    if last_app.is_none() {
-                        last_app = Some(app_name);
+                if window_changed && !app_switched {
+                    // Only emit window change if app didn't switch (to avoid duplicate events)
+                    let event = ActivityEvent {
+                        event_type: "window_change".to_string(),
+                        app_name: Some(app_name.clone()),
+                        window_title: Some(window_title.clone()),
+                        timestamp: now,
+                    };
+
+                    if let Err(e) = app_handle.emit("activity-event", event) {
+                        eprintln!("[ACTIVITY MONITOR] Failed to emit event: {}", e);
                     }
+                }
+
+                last_window = Some(window_title);
+                if last_app.is_none() {
+                    last_app = Some(app_name);
                 }
             }
 
@@ -144,7 +164,7 @@ fn get_frontmost_app() -> Option<(String, String)> {
     use std::process::Command;
 
     // Use AppleScript to get frontmost app
-    let output = Command::new("osascript")
+    let output = match Command::new("osascript")
         .arg("-e")
         .arg(r#"
             tell application "System Events"
@@ -159,7 +179,13 @@ fn get_frontmost_app() -> Option<(String, String)> {
             end tell
         "#)
         .output()
-        .ok()?;
+    {
+        Ok(output) => output,
+        Err(e) => {
+            eprintln!("[ACTIVITY MONITOR] osascript failed: {}", e);
+            return None;
+        }
+    };
 
     let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
     let parts: Vec<&str> = result.splitn(2, '|').collect();

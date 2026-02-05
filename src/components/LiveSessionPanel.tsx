@@ -120,7 +120,7 @@ export function LiveSessionPanel({
             aria-label="Set analysis mode to ambient (light analysis, less intrusive)"
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm transition-colors ${
               analysisMode === 'ambient'
-                ? 'bg-amber-100 text-amber-700'
+                ? 'bg-[var(--mode-ambient-muted)] text-[var(--mode-ambient)]'
                 : 'bg-[var(--paper-warm)] text-[var(--ink-muted)]'
             }`}
           >
@@ -133,7 +133,7 @@ export function LiveSessionPanel({
             aria-label="Set analysis mode to deep (full analysis, real-time insights)"
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm transition-colors ${
               analysisMode === 'deep'
-                ? 'bg-blue-100 text-blue-700'
+                ? 'bg-[var(--mode-deep-muted)] text-[var(--mode-deep)]'
                 : 'bg-[var(--paper-warm)] text-[var(--ink-muted)]'
             }`}
           >
@@ -147,18 +147,18 @@ export function LiveSessionPanel({
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {/* AI Not Configured Warning */}
         {!aiConfigured && (
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+          <div className="bg-[var(--warning-muted)] border border-[var(--warning)]/30 rounded-xl p-4">
             <div className="flex items-start gap-3">
-              <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <AlertTriangle className="w-5 h-5 text-[var(--warning)] flex-shrink-0 mt-0.5" />
               <div className="flex-1">
-                <p className="text-sm font-medium text-amber-800">
+                <p className="text-sm font-medium text-[var(--warning-text)]">
                   AI Features Disabled
                 </p>
-                <p className="text-xs text-amber-600 mt-1">
+                <p className="text-xs text-[var(--warning)] mt-1">
                   Add your Claude API key in Settings to enable live summaries, insights, and chat.
                 </p>
                 <button
-                  className="mt-2 flex items-center gap-1.5 text-xs font-medium text-amber-700 hover:text-amber-900 transition-colors"
+                  className="mt-2 flex items-center gap-1.5 text-xs font-medium text-[var(--warning-text)] hover:text-[var(--warning)] transition-colors"
                   onClick={() => {
                     // Navigate to settings - this will need to be wired up
                     window.dispatchEvent(new CustomEvent('navigate-to-settings'));
@@ -173,7 +173,7 @@ export function LiveSessionPanel({
         )}
 
         {/* Rolling Summary Card */}
-        <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl p-4 border-l-4 border-[var(--accent)]">
+        <div className="bg-[var(--accent-muted)] rounded-xl p-4 border-l-4 border-[var(--accent)]">
           <div className="flex items-center gap-2 mb-2">
             <Sparkles className="w-4 h-4 text-[var(--accent)]" />
             <span className="text-xs font-medium text-[var(--accent)] uppercase tracking-wide">

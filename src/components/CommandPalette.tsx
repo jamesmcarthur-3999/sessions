@@ -19,6 +19,7 @@ interface CommandPaletteProps {
   onNewCapture: () => void
   onNewSession: () => void
   onGoToHistory: () => void
+  onGoHome: () => void
 }
 
 interface Command {
@@ -39,6 +40,7 @@ export function CommandPalette({
   onNewCapture,
   onNewSession,
   onGoToHistory,
+  onGoHome,
 }: CommandPaletteProps) {
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
@@ -91,7 +93,7 @@ export function CommandPalette({
         icon: <Home className="w-4 h-4" />,
         title: 'Go Home',
         shortcut: '⌘H',
-        onSelect: onClose,
+        onSelect: onGoHome,
       },
     ]
 

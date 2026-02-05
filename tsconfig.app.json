@@ -22,7 +22,14 @@
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
-    "noUncheckedSideEffectImports": true
+    "noUncheckedSideEffectImports": true,
+    "baseUrl": ".",
+    "paths": {
+      "is-wsl": ["./src/shims/is-wsl.ts"],
+      "wsl-utils": ["./src/shims/wsl-utils.ts"],
+      "open": ["./src/shims/open.ts"],
+      "@baleybots/auth": ["./src/shims/baleybots-auth.ts"]
+    }
   },
   "include": ["src"]
 }

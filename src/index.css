@@ -1,3 +1,5 @@
+/* Google Fonts must be imported before Tailwind */
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,400;0,8..60,500;0,8..60,600;1,8..60,400&display=swap');
 @import "tailwindcss";
 
 /* Sessions - Editorial Luxury Design System */
@@ -7,8 +9,6 @@
    Using Source Serif for display (intellectual, refined)
    System sans-serif for UI (clean, functional)
    ============================================================================ */
-
-@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,400;0,8..60,500;0,8..60,600;1,8..60,400&display=swap');
 
 :root {
   /* Typography Scale */
@@ -38,8 +38,23 @@
   /* Semantic */
   --success: #2d5016;
   --success-muted: rgba(45, 80, 22, 0.1);
+  --warning: #92400e;
+  --warning-muted: rgba(146, 64, 14, 0.08);
+  --warning-text: #78350f;
   --error: #8b0000;
   --error-muted: rgba(139, 0, 0, 0.1);
+  --info: #1d4ed8;
+  --info-muted: rgba(59, 130, 246, 0.08);
+  --speech: #6d28d9;
+  --speech-muted: rgba(139, 92, 246, 0.08);
+
+  /* Analysis Mode Colors */
+  --mode-ambient: #d97706;
+  --mode-ambient-muted: rgba(217, 119, 6, 0.1);
+  --mode-ambient-bg: #fffbeb;
+  --mode-deep: #2563eb;
+  --mode-deep-muted: rgba(37, 99, 235, 0.1);
+  --mode-deep-bg: #eff6ff;
 
   /* Shadows - Soft, natural */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.06);
@@ -86,8 +101,23 @@
 
     --success: #6abf4d;
     --success-muted: rgba(106, 191, 77, 0.15);
+    --warning: #fbbf24;
+    --warning-muted: rgba(251, 191, 36, 0.15);
+    --warning-text: #fcd34d;
     --error: #e85a5a;
     --error-muted: rgba(232, 90, 90, 0.15);
+    --info: #60a5fa;
+    --info-muted: rgba(96, 165, 250, 0.15);
+    --speech: #a78bfa;
+    --speech-muted: rgba(167, 139, 250, 0.15);
+
+    /* Analysis Mode Colors */
+    --mode-ambient: #fbbf24;
+    --mode-ambient-muted: rgba(251, 191, 36, 0.2);
+    --mode-ambient-bg: rgba(251, 191, 36, 0.1);
+    --mode-deep: #60a5fa;
+    --mode-deep-muted: rgba(96, 165, 250, 0.2);
+    --mode-deep-bg: rgba(96, 165, 250, 0.1);
 
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.4);
     --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.3), 0 2px 4px rgba(0, 0, 0, 0.4);
@@ -97,6 +127,9 @@
     --border-subtle: rgba(255, 255, 255, 0.06);
     --border-medium: rgba(255, 255, 255, 0.1);
     --border-strong: rgba(255, 255, 255, 0.15);
+
+    /* Focus ring - blue for visibility on dark backgrounds */
+    --focus-ring: #60a5fa;
   }
 }
 
@@ -167,13 +200,19 @@ body {
 }
 
 *:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus-ring, var(--accent));
   outline-offset: 2px;
 }
 
 /* ============================================================================
    CUSTOM SCROLLBAR - Refined
    ============================================================================ */
+
+/* Firefox scrollbar styling */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-medium) transparent;
+}
 
 ::-webkit-scrollbar {
   width: 6px;

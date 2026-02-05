@@ -1,10 +1,10 @@
 /**
  * AI Service
  *
- * @deprecated This service is deprecated. Use Baleybots instead:
- * - For captures: use createCaptureBot() from './bots'
- * - For sessions: use createFinalSummaryBot() from './bots'
- * - For chat: use createQABot() from './bots'
+ * @deprecated This service is deprecated. Use Baleybots pipelines instead:
+ * - For captures: use createCapturePipeline() from './bots'
+ * - For sessions: use createFinalSummaryPipeline() from './bots'
+ * - For chat: use createQABotPipeline() from './bots'
  *
  * This file is kept for reference but should not be used for new code.
  *
@@ -525,6 +525,14 @@ If the user asks about integrations (Linear, Notion, Slack, etc.), explain what 
       }
 
       this.chatHistories.set(sessionId, history)
+
+      // LRU eviction: remove oldest entries if over limit
+      const MAX_CHAT_HISTORIES = 20
+      if (this.chatHistories.size > MAX_CHAT_HISTORIES) {
+        const firstKey = this.chatHistories.keys().next().value
+        if (firstKey) this.chatHistories.delete(firstKey)
+      }
+
       return response
     } catch (error) {
       // Remove the user message we just added
@@ -542,11 +550,3 @@ If the user asks about integrations (Linear, Notion, Slack, etc.), explain what 
 }
 
 export const ai = new AIService()
-
-// Initialize from localStorage on load
-if (typeof window !== 'undefined') {
-  const savedKey = localStorage.getItem('sessions_api_key')
-  if (savedKey) {
-    ai.setApiKey(savedKey)
-  }
-}

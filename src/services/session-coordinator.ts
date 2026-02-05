@@ -9,8 +9,12 @@
  */
 
 import { EventEmitter } from './event-emitter';
-import type { SessionContext, ActivityDetection, RollingSummary, AnalysisModeDecision, QAResponse } from './bots/types';
-import type { ActivityMetrics } from './bots/analysis-controller';
+import type { SessionContext, ActivityDetection, RollingSummary, AnalysisModeDecision, QAResponse, CaptureTimingDecision } from './bots/types';
+import type { ActivityMetrics, CaptureTimingMetrics } from './bots/input-builders';
+
+// Capture timing fallback constants
+const DEFAULT_CAPTURE_TIMING_MS = 60000;   // 60s - used when no API key
+const FALLBACK_CAPTURE_TIMING_MS = 90000;  // 90s - used on errors/invalid responses
 import {
   getSession,
   getScreenshots,
@@ -22,11 +26,9 @@ import {
   updateAnalysisMode,
   updateScreenshotAnalysis,
   saveChatMessage,
-  saveAudioChunk,
-  updateAudioTranscript,
 } from './database';
+import { loadScreenshotData } from './screenshot-storage';
 import type { DbScreenshot } from '../types/database';
-import { transcriptionService } from './transcription';
 import { withBotRetry } from '../utils/retry';
 
 // Re-export for use by other modules
@@ -38,6 +40,7 @@ export type CoordinatorEvents = {
   'insight-created': { sessionId: string; type: string; content: string };
   'mode-changed': { sessionId: string; mode: 'ambient' | 'deep'; reason: string };
   'activity-detected': { sessionId: string; activity: ActivityDetection };
+  'capture-timing': { sessionId: string; recommendedWaitMs: number; activityLevel: string; reason: string };
   'chat-response': { sessionId: string; message: string };
   'error': { sessionId: string; error: string };
   'transcription-start': { sessionId: string };
@@ -64,13 +67,12 @@ class SessionCoordinatorService {
   // Pause state for sessions
   private pausedSessions = new Set<string>();
 
-  // Bot instances (created lazily to avoid loading Node.js dependencies at startup)
-  private summarizerBot: Awaited<ReturnType<typeof import('./bots').createSummarizerBot>> | null = null;
-  private activityBot: Awaited<ReturnType<typeof import('./bots').createActivityDetectorBot>> | null = null;
-  private analysisControllerBot: Awaited<ReturnType<typeof import('./bots').createAnalysisControllerBot>> | null = null;
-  private qaBot: Awaited<ReturnType<typeof import('./bots').createQABot>> | null = null;
+  // Bots module (loaded lazily to avoid loading Node.js dependencies at startup)
   private botsModule: typeof import('./bots') | null = null;
   private botInitPromise: Promise<typeof import('./bots')> | null = null;
+
+  // Track last activity type for capture timing decisions
+  private lastActivityType = new Map<string, string>();
 
   /**
    * Lazily load bots module and create bot instances
@@ -102,22 +104,7 @@ class SessionCoordinatorService {
       return module;
     })();
 
-    const module = await this.botInitPromise;
-
-    // Create bot instances after module is loaded
-    if (!this.summarizerBot) {
-      this.summarizerBot = module.createSummarizerBot();
-    }
-    if (!this.activityBot) {
-      this.activityBot = module.createActivityDetectorBot();
-    }
-    if (!this.analysisControllerBot) {
-      this.analysisControllerBot = module.createAnalysisControllerBot();
-    }
-    if (!this.qaBot) {
-      this.qaBot = module.createQABot();
-    }
-    return module;
+    return this.botInitPromise;
   }
 
   /**
@@ -165,6 +152,7 @@ class SessionCoordinatorService {
     this.activeSessions.delete(sessionId);
     this.activityTracking.delete(sessionId);
     this.pausedSessions.delete(sessionId);
+    this.lastActivityType.delete(sessionId);
 
     console.log('Session coordinator stopped for ' + sessionId);
   }
@@ -214,23 +202,30 @@ class SessionCoordinatorService {
         return;
       }
 
+      // Load screenshot data from file
+      const screenshotBase64 = await loadScreenshotData(screenshot.file_path);
+
       // Run activity detection with multimodal input
       // Compare with the most recent previous screenshot (last element since sorted ASC)
       const mostRecentPrevious = context.recentScreenshots[context.recentScreenshots.length - 1];
       const input = bots.buildActivityDetectorInput(
-        screenshot.data_base64,
+        screenshotBase64,
         mostRecentPrevious?.analysis || undefined
       );
 
       // Pass multimodal content to the activity bot
       // Baleybots combine() returns the correct format
       // Use retry wrapper to handle rate limits
-      const result = await withBotRetry(() => this.activityBot!.process(input)) as unknown as ActivityDetection | null;
+      const result = await withBotRetry(() => bots.createActivityDetectorPipeline().process(input)) as unknown as ActivityDetection | null;
 
       // Validate bot response structure
       if (!result || typeof result !== 'object') {
         console.error('[COORDINATOR] Invalid activity bot response:', result);
         await updateScreenshotAnalysis(screenshot.id, 'Analysis failed - invalid response');
+        this.emitter.emit('error', {
+          sessionId,
+          error: 'Screenshot analysis returned invalid response',
+        });
         return;
       }
 
@@ -257,6 +252,14 @@ class SessionCoordinatorService {
       if (result.hasSignificantChange) {
         await this.updateSummary(sessionId);
       }
+
+      // Track activity type for timing decisions
+      if (result.activityType) {
+        this.lastActivityType.set(sessionId, result.activityType);
+      }
+
+      // Get AI recommendation for next capture timing
+      await this.recommendCaptureTiming(sessionId, result.currentContext ?? null);
     } catch (error) {
       console.error('Screenshot processing error:', error);
       this.emitter.emit('error', {
@@ -278,70 +281,19 @@ class SessionCoordinatorService {
     await this.updateSummary(sessionId);
   }
 
-  /**
-   * Process a new audio chunk (save, transcribe, update)
-   */
-  async processAudioChunk(
-    sessionId: string,
-    audioBase64: string,
-    durationSeconds: number
-  ): Promise<void> {
-    // Skip processing if session is paused (saves API credits)
-    if (this.pausedSessions.has(sessionId)) {
-      console.log('[COORDINATOR] Skipping audio chunk processing - session paused');
-      return;
-    }
-
-    const now = new Date();
-    const startTime = new Date(now.getTime() - durationSeconds * 1000).toISOString();
-    const endTime = now.toISOString();
-
-    // Save audio chunk to database
-    const chunk = await saveAudioChunk(
-      sessionId,
-      startTime,
-      endTime,
-      durationSeconds,
-      audioBase64
-    );
-
-    console.log('[COORDINATOR] Audio chunk saved:', chunk.id);
-
-    // Transcribe audio
-    try {
-      // Notify UI that transcription is starting
-      this.emitter.emit('transcription-start', { sessionId });
-
-      const result = await transcriptionService.transcribe(audioBase64);
-
-      if (result.text) {
-        // Update chunk with transcript
-        await updateAudioTranscript(chunk.id, result.text);
-
-        // Track activity (word count affects mode)
-        this.trackAudioActivity(sessionId, result.text);
-
-        // Trigger summary update with new transcript
-        await this.processTranscript(sessionId, result.text);
-
-        // Notify UI that transcription completed
-        this.emitter.emit('transcription-complete', { sessionId, text: result.text });
-
-        console.log('[COORDINATOR] Audio transcribed:', result.text.substring(0, 100) + '...');
-      }
-    } catch (error) {
-      console.error('[COORDINATOR] Transcription failed:', error);
-      this.emitter.emit('error', {
-        sessionId,
-        error: 'Audio transcription failed. Check your OpenAI API key in Settings.',
-      });
-    }
-  }
+  // NOTE: Audio chunk processing now happens in recording.ts -> ai-worker.ts
+  // The worker handles transcription and emits events that session-bridge forwards to UI.
 
   /**
    * Track app switch activity
    */
   trackAppSwitch(sessionId: string, appName: string): void {
+    // Only track for active sessions to prevent orphan entries
+    if (!this.activeSessions.has(sessionId)) return;
+
+    // Maximum app switches to track (bounded to prevent memory growth)
+    const MAX_APP_SWITCHES = 100;
+
     let tracking = this.activityTracking.get(sessionId);
     const now = Date.now();
 
@@ -362,19 +314,11 @@ class SessionCoordinatorService {
       tracking.currentApp = appName;
       tracking.focusStartTime = now;
 
-      // Keep only last 2 minutes of switches
-      const twoMinutesAgo = now - 120000;
-      tracking.appSwitches = tracking.appSwitches.filter(s => s.timestamp > twoMinutesAgo);
-    }
-  }
-
-  /**
-   * Track audio activity (for word count metrics)
-   */
-  private trackAudioActivity(sessionId: string, _transcript: string): void {
-    const tracking = this.activityTracking.get(sessionId);
-    if (tracking) {
-      tracking.lastActivityTime = Date.now();
+      // Keep bounded: drop oldest if at capacity (O(1) check, occasional O(n) splice)
+      if (tracking.appSwitches.length > MAX_APP_SWITCHES) {
+        // Remove first 20% when at capacity (amortized O(1))
+        tracking.appSwitches.splice(0, Math.floor(MAX_APP_SWITCHES * 0.2));
+      }
     }
   }
 
@@ -410,6 +354,87 @@ class SessionCoordinatorService {
   }
 
   /**
+   * Get AI recommendation for next capture timing
+   * This enables adaptive screenshot frequency based on content analysis
+   */
+  private async recommendCaptureTiming(
+    sessionId: string,
+    lastScreenshotAnalysis: string | null
+  ): Promise<void> {
+    // Check if session is still active before processing
+    if (!this.activeSessions.has(sessionId)) {
+      return;
+    }
+
+    const bots = await this.ensureBots();
+
+    // Skip if no API key or bots not ready
+    if (!bots.isBotsReady()) {
+      this.emitter.emit('capture-timing', {
+        sessionId,
+        recommendedWaitMs: DEFAULT_CAPTURE_TIMING_MS,
+        activityLevel: 'medium',
+        reason: 'Default timing (no API key)',
+      });
+      return;
+    }
+
+    try {
+      const tracking = this.activityTracking.get(sessionId);
+      const session = await getSession(sessionId);
+
+      const metrics: CaptureTimingMetrics = {
+        appSwitchCount: tracking?.appSwitches.length ?? 0,
+        timeSinceLastCapture: 0, // Just captured, so 0
+        lastActivityType: this.lastActivityType.get(sessionId) ?? 'unknown',
+        analysisMode: session?.analysis_mode === 'deep' ? 'deep' : 'ambient',
+      };
+
+      const input = bots.buildCaptureTimingInput(lastScreenshotAnalysis, metrics);
+
+      // Use retry wrapper to handle rate limits
+      const result = await withBotRetry(() => bots.createCaptureTimingPipeline().process(input)) as unknown as CaptureTimingDecision | null;
+
+      // Validate response and extract timing
+      if (result && typeof result.recommendedWaitSeconds === 'number') {
+        // Clamp to valid range (5-180 seconds)
+        const clampedSeconds = Math.max(5, Math.min(180, result.recommendedWaitSeconds));
+        const waitMs = clampedSeconds * 1000;
+
+        this.emitter.emit('capture-timing', {
+          sessionId,
+          recommendedWaitMs: waitMs,
+          activityLevel: result.activityLevel ?? 'medium',
+          reason: result.reason ?? 'AI timing recommendation',
+        });
+
+        console.log('[COORDINATOR] Capture timing recommendation:', {
+          waitSeconds: clampedSeconds,
+          activityLevel: result.activityLevel,
+          reason: result.reason,
+        });
+      } else {
+        // Fall back if AI response is invalid
+        this.emitter.emit('capture-timing', {
+          sessionId,
+          recommendedWaitMs: FALLBACK_CAPTURE_TIMING_MS,
+          activityLevel: 'medium',
+          reason: 'Default timing (invalid AI response)',
+        });
+      }
+    } catch (error) {
+      console.error('[COORDINATOR] Capture timing error for session', sessionId, ':', error);
+      // Fall back on error
+      this.emitter.emit('capture-timing', {
+        sessionId,
+        recommendedWaitMs: FALLBACK_CAPTURE_TIMING_MS,
+        activityLevel: 'medium',
+        reason: 'Default timing (error)',
+      });
+    }
+  }
+
+  /**
    * Handle a chat message from the user
    */
   async handleChatMessage(sessionId: string, message: string): Promise<string> {
@@ -434,7 +459,7 @@ class SessionCoordinatorService {
     try {
       const input = bots.buildQAInput(message, context);
       // Use retry wrapper to handle rate limits
-      const result = await withBotRetry(() => this.qaBot!.process(input)) as unknown as QAResponse | null;
+      const result = await withBotRetry(() => bots.createQABotPipeline().process(input)) as unknown as QAResponse | null;
 
       // Validate bot response structure
       const answer = result?.answer ?? 'Sorry, I was unable to generate a response. Please try again.';
@@ -513,7 +538,7 @@ class SessionCoordinatorService {
     try {
       const input = bots.buildSummarizerInput(context);
       // Use retry wrapper to handle rate limits
-      const result = await withBotRetry(() => this.summarizerBot!.process(input)) as unknown as RollingSummary | null;
+      const result = await withBotRetry(() => bots.createSummarizerPipeline().process(input)) as unknown as RollingSummary | null;
 
       // Validate bot response structure
       const summary = result?.summary;
@@ -553,7 +578,7 @@ class SessionCoordinatorService {
     try {
       const input = bots.buildAnalysisControllerInput(context, metrics);
       // Use retry wrapper to handle rate limits
-      const result = await withBotRetry(() => this.analysisControllerBot!.process(input)) as unknown as AnalysisModeDecision | null;
+      const result = await withBotRetry(() => bots.createAnalysisControllerPipeline().process(input)) as unknown as AnalysisModeDecision | null;
 
       // Validate bot response structure
       if (!result || typeof result.confidence !== 'number' || !result.recommendedMode) {
@@ -608,7 +633,7 @@ class SessionCoordinatorService {
         .map(c => c.transcript!),
       recentInsights: insights.slice(0, 10).map(i => i.content),
       durationSeconds: session.duration_seconds || 0,
-      analysisMode: session.analysis_mode as 'ambient' | 'deep',
+      analysisMode: session.analysis_mode === 'deep' ? 'deep' : 'ambient',
     };
   }
 }

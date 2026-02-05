@@ -4,7 +4,25 @@
  * Simple, flat types. No over-engineering.
  */
 
-import type { RecordingConfig } from '../components/RecordingSettings';
+// Legacy import for backward compatibility during migration
+import type { RecordingConfig as LegacyRecordingConfig } from '../components/RecordingSettings';
+
+/**
+ * Simplified recording configuration (v2)
+ * Everything else is automatic - screenshot timing, analysis mode, etc.
+ */
+export interface RecordingConfig {
+  /** Array of screen IDs to record (multi-screen support) */
+  selectedScreens: string[];
+  /** Microphone device ID, or null for no audio */
+  selectedMicrophone: string | null;
+}
+
+/** Default configuration for new recordings */
+export const defaultRecordingConfig: RecordingConfig = {
+  selectedScreens: [],
+  selectedMicrophone: null,
+};
 
 export interface Session {
   id: string;
@@ -23,7 +41,8 @@ export interface Session {
   summary?: Summary;
 
   // Recording configuration (for session type)
-  recordingConfig?: RecordingConfig;
+  // Supports both legacy (LegacyRecordingConfig) and new simplified (RecordingConfig)
+  recordingConfig?: RecordingConfig | LegacyRecordingConfig;
 }
 
 export interface Summary {
@@ -73,8 +92,10 @@ export interface RecordingStopResult {
   sessionId: string;
   isRecording: boolean;
   isPaused: boolean;
-  screenshots: string[];
-  audioChunks: string[];
+  /** Count of screenshots captured (data stored on disk, not in memory) */
+  screenshotCount: number;
+  /** Count of audio chunks captured (data stored on disk, not in memory) */
+  audioChunkCount: number;
   videoPath?: string;
   startTime: number;
   options: {

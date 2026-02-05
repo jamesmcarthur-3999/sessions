@@ -25,6 +25,7 @@ import { useApp } from '../context/AppContext'
 import { ScreenshotGallery } from './ScreenshotGallery'
 import { TranscriptViewer } from './TranscriptViewer'
 import { TypingIndicator } from './TypingIndicator'
+import { ConfirmDialog } from './ConfirmDialog'
 import { getScreenshots, getAudioChunks } from '../services/database'
 import { isTauri } from '../services/recording'
 import { useSessionChat } from '../hooks/useSessionChat'
@@ -116,6 +117,7 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
     clearError,
   } = useSessionChat(session.id)
   const [showMenu, setShowMenu] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [showTypewriter, setShowTypewriter] = useState(true)
   const [screenshots, setScreenshots] = useState<DbScreenshot[]>([])
   const [audioChunks, setAudioChunks] = useState<DbAudioChunk[]>([])
@@ -125,6 +127,7 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
   const [editedTitle, setEditedTitle] = useState(session.title)
   const [showSaved, setShowSaved] = useState(false)
   const titleInputRef = useRef<HTMLInputElement>(null)
+  const chatInputRef = useRef<HTMLInputElement>(null)
   const [openError, setOpenError] = useState<string | null>(null)
 
   // Show "Saved" indicator briefly when session has summary
@@ -135,6 +138,17 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
       return () => clearTimeout(timer)
     }
   }, [session?.id, session?.summary])
+
+  // Escape key to go back (unless editing title)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !isEditingTitle) {
+        onBack()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onBack, isEditingTitle])
 
   // Load screenshots and audio chunks for sessions
   useEffect(() => {
@@ -202,15 +216,16 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
   }
 
   const handleDelete = async () => {
-    if (confirm('Delete this session? This cannot be undone.')) {
-      await deleteSession(session.id)
-      onBack()
-    }
+    await deleteSession(session.id)
+    setShowDeleteConfirm(false)
+    onBack()
   }
 
   const handleSuggestionClick = async (prompt: string) => {
     clearError()
     await sendMessage(prompt)
+    // Focus input for follow-up after response
+    chatInputRef.current?.focus()
   }
 
   const handleOpenPath = async (path: string | undefined) => {
@@ -295,7 +310,10 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
                     className="absolute right-0 top-full mt-2 z-20 w-48 py-2 rounded-xl bg-[var(--paper-warm)] border border-[var(--border-medium)] shadow-[var(--shadow-lg)]"
                   >
                     <button
-                      onClick={handleDelete}
+                      onClick={() => {
+                        setShowMenu(false)
+                        setShowDeleteConfirm(true)
+                      }}
                       className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-[var(--error)] hover:bg-[var(--error-muted)] transition-colors"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -586,7 +604,7 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5, delay: 0.35, ease: [0.16, 1, 0.3, 1] }}
               >
-                <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700">
+                <div className="p-4 rounded-xl bg-[var(--error-muted)] border border-[var(--error)]/30 text-[var(--error)]">
                   <p className="text-sm">{mediaError}</p>
                   <button
                     onClick={() => {
@@ -825,6 +843,7 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
               <div className="flex items-center gap-3">
                 <label htmlFor="chat-input" className="sr-only">Ask a question about this session</label>
                 <input
+                  ref={chatInputRef}
                   id="chat-input"
                   type="text"
                   value={chatInput}
@@ -892,6 +911,18 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
           </motion.div>
         )}
       </main>
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={showDeleteConfirm}
+        title="Delete Session"
+        message="This will permanently delete this session and all its data. This cannot be undone."
+        confirmText="Delete"
+        cancelText="Keep"
+        confirmVariant="danger"
+        onConfirm={handleDelete}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
     </motion.div>
   )
 }

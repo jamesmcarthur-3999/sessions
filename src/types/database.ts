@@ -23,7 +23,8 @@ export interface DbScreenshot {
   trigger: 'interval' | 'app_switch' | 'activity' | 'manual' | 'session_start' | 'session_end';
   app_name: string | null;
   window_title: string | null;
-  data_base64: string;
+  /** File path to screenshot on disk */
+  file_path: string;
   analysis: string | null; // JSON string of AI analysis
 }
 
@@ -34,7 +35,8 @@ export interface DbAudioChunk {
   start_time: string;
   end_time: string;
   duration_seconds: number;
-  data_base64: string;
+  /** File path to audio WAV file on disk */
+  file_path: string;
   transcript: string | null;
 }
 

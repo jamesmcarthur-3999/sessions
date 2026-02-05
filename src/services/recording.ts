@@ -8,15 +8,17 @@
  */
 
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { saveScreenshot } from './database'
-import { sessionCoordinator } from './session-coordinator'
+import { saveScreenshot, saveAudioChunk } from './database'
+import { aiWorker } from './worker'
 import { smartCapture } from './smart-capture'
+import { loadAudioBinary } from './audio-storage'
+import { loadScreenshotBinary } from './screenshot-storage'
 import type { RecordingStopResult } from '../types'
 
 // Type-safe invoke wrapper
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  // Check if we're in Tauri environment
-  if (typeof window !== 'undefined' && '__TAURI__' in window) {
+  // Check if we're in Tauri environment (check both globals for v2 compatibility)
+  if (typeof window !== 'undefined' && ('__TAURI__' in window || '__TAURI_INTERNALS__' in window)) {
     const { invoke: tauriInvoke } = await import('@tauri-apps/api/core')
     return tauriInvoke<T>(cmd, args)
   }
@@ -29,7 +31,7 @@ async function invokeWithTimeout<T>(
   args?: Record<string, unknown>,
   timeoutMs: number = 10000
 ): Promise<T> {
-  if (typeof window === 'undefined' || !('__TAURI__' in window)) {
+  if (typeof window === 'undefined' || !('__TAURI__' in window || '__TAURI_INTERNALS__' in window)) {
     throw new Error('Not running in Tauri environment')
   }
 
@@ -60,6 +62,24 @@ export function isTauri(): boolean {
 
 export async function captureScreenshot(screenId?: string | null): Promise<string> {
   return invoke<string>('capture_screenshot', { screenId: screenId ?? null })
+}
+
+/**
+ * Capture an optimized screenshot for session recording
+ * - Resizes to maxWidth (default 1920px) to avoid huge retina captures
+ * - Uses JPEG encoding (~10x smaller than PNG)
+ * - Returns base64 data URL
+ */
+export async function captureScreenshotOptimized(
+  screenId?: string | null,
+  maxWidth?: number,
+  quality?: number
+): Promise<string> {
+  return invoke<string>('capture_screenshot_optimized', {
+    screenId: screenId ?? null,
+    maxWidth: maxWidth ?? null,
+    quality: quality ?? null,
+  })
 }
 
 export async function testCaptureScreenshot(screenId?: string | null): Promise<string> {
@@ -182,8 +202,10 @@ export interface SessionRecordingState {
   sessionId: string
   isRecording: boolean
   isPaused: boolean
-  screenshots: string[]
-  audioChunks: string[]
+  /** Count of screenshots captured (data stored on disk, not in memory) */
+  screenshotCount: number
+  /** Count of audio chunks captured (data stored on disk, not in memory) */
+  audioChunkCount: number
   videoPath?: string
   startTime: number
   options: RecordingOptions
@@ -228,8 +250,8 @@ class SessionRecordingController {
       sessionId,
       isRecording: true,
       isPaused: false,
-      screenshots: [],
-      audioChunks: [],
+      screenshotCount: 0,
+      audioChunkCount: 0,
       startTime: Date.now(),
       options: mergedOptions,
     }
@@ -245,27 +267,46 @@ class SessionRecordingController {
       // Start audio recording if enabled
       if (mergedOptions.enableAudio) {
         try {
-          await startAudioRecording(sessionId, 120, mergedOptions.selectedMicrophone)
+          // Use 10-second chunks for faster transcription feedback
+          await startAudioRecording(sessionId, 10, mergedOptions.selectedMicrophone)
           console.log('🎤 Audio recording started')
 
-          // Listen for audio chunk events from Rust
+          // Listen for audio chunk events from Rust (file-based)
           this.audioChunkListener = await listen<{
             sessionId: string;
-            audioBase64: string;
+            chunkId: string;
+            audioPath: string;
             duration: number;
           }>('audio-chunk', async (event) => {
-            const { sessionId: sid, audioBase64, duration } = event.payload;
+            const { sessionId: sid, chunkId, audioPath, duration } = event.payload;
 
-            // Process through coordinator for transcription
+            // Save audio chunk to database (fast - just stores path)
             try {
-              await sessionCoordinator.processAudioChunk(
+              const now = new Date();
+              const startTime = new Date(now.getTime() - duration * 1000).toISOString();
+              const endTime = now.toISOString();
+
+              const chunk = await saveAudioChunk(
                 sid,
-                audioBase64,
+                chunkId,
+                audioPath,
+                startTime,
+                endTime,
                 duration
               );
+
+              console.log('[RECORDING] Audio chunk saved:', chunk.id, audioPath);
+
+              // Load audio binary from file and send to AI Worker for transcription (zero-copy)
+              try {
+                const audioData = await loadAudioBinary(audioPath);
+                aiWorker.transcribeAudioBinary(sid, chunk.id, audioData).catch((e) => {
+                  console.error('Audio transcription request error:', e);
+                });
+              } catch (loadError) {
+                console.error('Failed to load audio for transcription:', loadError);
+              }
             } catch (e) {
-              // Error is already handled/emitted by coordinator
-              // Just log here to prevent unhandled rejection
               console.error('Audio chunk processing error:', e);
             }
           });
@@ -282,9 +323,7 @@ class SessionRecordingController {
         try {
           if (mergedOptions.smartCaptureEnabled) {
             // Use smart capture (event-driven) - activity monitor started inside
-            await smartCapture.start(sessionId, mergedOptions.selectedScreen, {
-              maxIntervalMs: mergedOptions.screenshotIntervalMs,
-            })
+            await smartCapture.start(sessionId, mergedOptions.selectedScreen)
             console.log('Smart capture started')
           } else {
             // Use interval-based capture - still start activity monitor for app tracking
@@ -356,23 +395,36 @@ class SessionRecordingController {
     if (!this.state || !isTauri()) return
 
     try {
-      const screenshot = await captureScreenshot(this.state.options.selectedScreen)
-      this.state.screenshots.push(screenshot)
+      // Use optimized capture: 1920px max width, JPEG encoding (~10x smaller than full-res PNG)
+      const screenshot = await captureScreenshotOptimized(this.state.options.selectedScreen, 1920, 80)
+      this.state.screenshotCount++
 
-      // Save to database and notify coordinator
+      // Save to database (screenshot data stored on disk, not in memory)
       try {
         const dbScreenshot = await saveScreenshot(
           this.state.sessionId,
           screenshot,
           'interval' // This method is only used for interval-based capture; smart capture handles its own triggers
         )
-        // Notify coordinator for analysis (fire and forget)
-        sessionCoordinator.processScreenshot(this.state.sessionId, dbScreenshot).catch(console.error)
+        // Load binary from file for zero-copy transfer to worker
+        try {
+          const imageData = await loadScreenshotBinary(dbScreenshot.file_path)
+          // Send to AI Worker for analysis using binary transfer (non-blocking)
+          aiWorker.analyzeScreenshotBinary(
+            this.state.sessionId,
+            dbScreenshot.id,
+            imageData,
+            'interval',
+            null // No previous analysis for interval-based capture
+          ).catch(console.error)
+        } catch (loadError) {
+          console.error('Failed to load screenshot binary for analysis:', loadError)
+        }
       } catch (dbError) {
         console.error('Failed to save screenshot to database:', dbError)
       }
 
-      console.log('Screenshot captured (' + this.state.screenshots.length + ' total)')
+      console.log('Screenshot captured (' + this.state.screenshotCount + ' total)')
     } catch (e) {
       console.error('Failed to capture screenshot:', e)
     }
@@ -462,18 +514,20 @@ class SessionRecordingController {
     }
 
     // Stop audio recording if it was enabled
+    // IMPORTANT: Stop backend FIRST, then remove listener to avoid losing final chunks
     if (isTauri() && options.enableAudio) {
-      if (this.audioChunkListener) {
-        this.audioChunkListener()
-        this.audioChunkListener = null
-      }
-
       try {
         await stopAudioRecording()
         console.log('🎤 Audio recording stopped')
       } catch (e) {
         console.error('Failed to stop audio:', e)
         errors.push('Audio recording may still be active')
+      }
+
+      // Remove listener AFTER backend stops to catch any final chunks
+      if (this.audioChunkListener) {
+        this.audioChunkListener()
+        this.audioChunkListener = null
       }
     }
 
@@ -495,7 +549,7 @@ class SessionRecordingController {
       stopErrors: errors.length > 0 ? errors : undefined
     }
 
-    console.log(`📹 Session recording stopped: ${result.screenshots.length} screenshots`)
+    console.log(`📹 Session recording stopped: ${result.screenshotCount} screenshots`)
 
     this.state = null
 

@@ -7,6 +7,7 @@
 
 import Database from '@tauri-apps/plugin-sql';
 import { generateId } from '../utils/id';
+import { validateSummary, validateAttachments } from '../utils/validate';
 import type { Summary, Attachment } from '../types';
 import type {
   DbSession,
@@ -17,6 +18,8 @@ import type {
   DbChatMessage,
   DbAnalysisState,
 } from '../types/database';
+import { saveScreenshotToFile, deleteSessionScreenshots } from './screenshot-storage';
+import { deleteSessionAudio } from './audio-storage';
 
 let db: Database | null = null;
 let initPromise: Promise<void> | null = null;
@@ -36,6 +39,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 
 -- Screenshots table
+-- file_path stores the path to the screenshot file on disk (required)
 CREATE TABLE IF NOT EXISTS screenshots (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -43,20 +47,21 @@ CREATE TABLE IF NOT EXISTS screenshots (
   trigger TEXT NOT NULL CHECK (trigger IN ('interval', 'app_switch', 'activity', 'manual', 'session_start', 'session_end')),
   app_name TEXT,
   window_title TEXT,
-  data_base64 TEXT NOT NULL,
+  file_path TEXT NOT NULL,
   analysis TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_screenshots_session ON screenshots(session_id);
 CREATE INDEX IF NOT EXISTS idx_screenshots_time ON screenshots(captured_at);
 
 -- Audio chunks table
+-- file_path stores the path to the audio file on disk (required)
 CREATE TABLE IF NOT EXISTS audio_chunks (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   start_time TEXT NOT NULL,
   end_time TEXT NOT NULL,
   duration_seconds REAL NOT NULL,
-  data_base64 TEXT NOT NULL,
+  file_path TEXT NOT NULL,
   transcript TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_audio_session ON audio_chunks(session_id);
@@ -153,7 +158,15 @@ export async function initDatabase(): Promise<void> {
 
       // Enable foreign key constraints (required for CASCADE deletes to work)
       await db.execute('PRAGMA foreign_keys = ON');
-      console.log('[DATABASE] Foreign key constraints enabled');
+
+      // Performance optimizations for write-heavy workloads (screenshots, audio)
+      // WAL mode allows concurrent reads during writes
+      await db.execute('PRAGMA journal_mode = WAL');
+      // NORMAL sync is safe for most use cases and much faster than FULL
+      await db.execute('PRAGMA synchronous = NORMAL');
+      // Larger cache reduces disk I/O
+      await db.execute('PRAGMA cache_size = 10000');
+      console.log('[DATABASE] Foreign key constraints and performance optimizations enabled');
 
       // Create tables
       const statements = SCHEMA.split(';').filter(s => s.trim());
@@ -166,6 +179,20 @@ export async function initDatabase(): Promise<void> {
         await ensureColumn(db, 'sessions', 'video_path', 'video_path TEXT');
       } catch (error) {
         console.warn('[DATABASE] Failed to ensure sessions.video_path column:', error);
+      }
+
+      // Add file_path column for file-based screenshot storage
+      try {
+        await ensureColumn(db, 'screenshots', 'file_path', 'file_path TEXT');
+      } catch (error) {
+        console.warn('[DATABASE] Failed to ensure screenshots.file_path column:', error);
+      }
+
+      // Add file_path column for file-based audio storage
+      try {
+        await ensureColumn(db, 'audio_chunks', 'file_path', 'file_path TEXT');
+      } catch (error) {
+        console.warn('[DATABASE] Failed to ensure audio_chunks.file_path column:', error);
       }
 
       console.log('[DATABASE] Schema initialized successfully');
@@ -231,10 +258,10 @@ export async function createSession(
     analysis_mode: analysisMode,
   };
 
-  // Use transaction to ensure all inserts succeed or none do
+  // Insert session and related records
+  // Using individual inserts instead of transaction to avoid lock contention
+  // with async screenshot operations (WAL mode handles concurrent writes)
   try {
-    await db.execute('BEGIN TRANSACTION');
-
     await db.execute(
       `INSERT INTO sessions (id, type, title, created_at, updated_at, status, analysis_mode, video_path)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
@@ -263,11 +290,8 @@ export async function createSession(
        VALUES ($1, $2, $3, $4, $5)`,
       [generateId(), session.id, now, '', 1]
     );
-
-    await db.execute('COMMIT');
   } catch (error) {
-    await db.execute('ROLLBACK');
-    console.error('[DATABASE] Failed to create session, rolled back:', error);
+    console.error('[DATABASE] Failed to create session:', error);
     throw error;
   }
 
@@ -324,10 +348,14 @@ export async function updateSessionVideoPath(
 // Screenshots
 // ============================================================================
 
-// Maximum sizes for base64 data (in bytes)
-const MAX_SCREENSHOT_SIZE = 10 * 1024 * 1024; // 10MB
-const MAX_AUDIO_CHUNK_SIZE = 50 * 1024 * 1024; // 50MB
-
+/**
+ * Save a screenshot to file storage
+ *
+ * This function:
+ * 1. Saves screenshot to file (source of truth)
+ * 2. Stores file_path in DB
+ * 3. Returns screenshot object for AI analysis (caller has base64)
+ */
 export async function saveScreenshot(
   sessionId: string,
   dataBase64: string,
@@ -335,43 +363,68 @@ export async function saveScreenshot(
   appName?: string,
   windowTitle?: string
 ): Promise<DbScreenshot> {
-  // Validate base64 data size
-  if (dataBase64.length > MAX_SCREENSHOT_SIZE) {
-    console.error(`[DATABASE] Screenshot too large: ${dataBase64.length} bytes (max: ${MAX_SCREENSHOT_SIZE})`);
-    throw new Error(`Screenshot too large (${Math.round(dataBase64.length / 1024 / 1024)}MB). Max size is 10MB.`);
-  }
-
   const db = await ensureDb();
+  const screenshotId = generateId();
+  const capturedAt = new Date().toISOString();
+
+  // Save to file - this is the source of truth
+  const filePath = await saveScreenshotToFile(sessionId, screenshotId, dataBase64);
+
+  // Create screenshot object
   const screenshot: DbScreenshot = {
-    id: generateId(),
+    id: screenshotId,
     session_id: sessionId,
-    captured_at: new Date().toISOString(),
+    captured_at: capturedAt,
     trigger,
     app_name: appName ?? null,
     window_title: windowTitle ?? null,
-    data_base64: dataBase64,
+    file_path: filePath,
     analysis: null,
   };
 
+  // Insert with file_path only - fast, small write
   await db.execute(
-    `INSERT INTO screenshots (id, session_id, captured_at, trigger, app_name, window_title, data_base64)
+    `INSERT INTO screenshots (id, session_id, captured_at, trigger, app_name, window_title, file_path)
      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [screenshot.id, screenshot.session_id, screenshot.captured_at, screenshot.trigger, screenshot.app_name, screenshot.window_title, screenshot.data_base64]
+    [screenshot.id, screenshot.session_id, screenshot.captured_at, screenshot.trigger, screenshot.app_name, screenshot.window_title, screenshot.file_path]
   );
 
+  console.log(`[DATABASE] Screenshot saved: ${filePath} (${Math.round(dataBase64.length / 1024)}KB)`);
   return screenshot;
 }
 
+/**
+ * Get screenshots for a session
+ *
+ * Returns screenshot metadata. Image data is loaded from file_path
+ * using loadScreenshotData() from screenshot-storage.ts.
+ */
 export async function getScreenshots(
   sessionId: string,
   limit?: number
 ): Promise<DbScreenshot[]> {
   const db = await ensureDb();
+
   const query = limit
-    ? 'SELECT * FROM screenshots WHERE session_id = $1 ORDER BY captured_at ASC LIMIT $2'
-    : 'SELECT * FROM screenshots WHERE session_id = $1 ORDER BY captured_at ASC';
+    ? `SELECT * FROM screenshots WHERE session_id = $1 ORDER BY captured_at ASC LIMIT $2`
+    : `SELECT * FROM screenshots WHERE session_id = $1 ORDER BY captured_at ASC`;
   const params = limit ? [sessionId, limit] : [sessionId];
+
   return db.select<DbScreenshot[]>(query, params);
+}
+
+/**
+ * Get a single screenshot by ID
+ */
+export async function getScreenshotById(id: string): Promise<DbScreenshot | null> {
+  const db = await ensureDb();
+
+  const result = await db.select<DbScreenshot[]>(
+    `SELECT * FROM screenshots WHERE id = $1`,
+    [id]
+  );
+
+  return result[0] || null;
 }
 
 export async function updateScreenshotAnalysis(
@@ -389,36 +442,42 @@ export async function updateScreenshotAnalysis(
 // Audio Chunks
 // ============================================================================
 
+/**
+ * Save an audio chunk with file path (new file-based storage)
+ *
+ * @param sessionId - Session ID
+ * @param chunkId - Chunk ID (from Rust, e.g., "chunk_0001")
+ * @param filePath - Path to the WAV file on disk
+ * @param startTime - ISO timestamp when chunk started
+ * @param endTime - ISO timestamp when chunk ended
+ * @param durationSeconds - Duration in seconds
+ */
 export async function saveAudioChunk(
   sessionId: string,
+  chunkId: string,
+  filePath: string,
   startTime: string,
   endTime: string,
-  durationSeconds: number,
-  dataBase64: string
+  durationSeconds: number
 ): Promise<DbAudioChunk> {
-  // Validate base64 data size
-  if (dataBase64.length > MAX_AUDIO_CHUNK_SIZE) {
-    console.error(`[DATABASE] Audio chunk too large: ${dataBase64.length} bytes (max: ${MAX_AUDIO_CHUNK_SIZE})`);
-    throw new Error(`Audio chunk too large (${Math.round(dataBase64.length / 1024 / 1024)}MB). Max size is 50MB.`);
-  }
-
   const db = await ensureDb();
   const chunk: DbAudioChunk = {
-    id: generateId(),
+    id: chunkId,
     session_id: sessionId,
     start_time: startTime,
     end_time: endTime,
     duration_seconds: durationSeconds,
-    data_base64: dataBase64,
+    file_path: filePath,
     transcript: null,
   };
 
   await db.execute(
-    `INSERT INTO audio_chunks (id, session_id, start_time, end_time, duration_seconds, data_base64)
+    `INSERT INTO audio_chunks (id, session_id, start_time, end_time, duration_seconds, file_path)
      VALUES ($1, $2, $3, $4, $5, $6)`,
-    [chunk.id, chunk.session_id, chunk.start_time, chunk.end_time, chunk.duration_seconds, chunk.data_base64]
+    [chunk.id, chunk.session_id, chunk.start_time, chunk.end_time, chunk.duration_seconds, chunk.file_path]
   );
 
+  console.log(`[DATABASE] Audio chunk saved: ${filePath} (${durationSeconds.toFixed(1)}s)`);
   return chunk;
 }
 
@@ -560,7 +619,7 @@ export async function getSessionSummary(sessionId: string): Promise<Summary | nu
   if (!result[0]?.summary_json) return null;
 
   try {
-    return JSON.parse(result[0].summary_json) as Summary;
+    return validateSummary(JSON.parse(result[0].summary_json));
   } catch {
     return null;
   }
@@ -599,7 +658,7 @@ export async function getCapturePayload(sessionId: string): Promise<{ text: stri
   let attachments: Attachment[] = [];
   if (result[0].attachments_json) {
     try {
-      attachments = JSON.parse(result[0].attachments_json) as Attachment[];
+      attachments = validateAttachments(JSON.parse(result[0].attachments_json));
     } catch {
       attachments = [];
     }
@@ -682,7 +741,7 @@ export async function updateAnalysisMode(
 // ============================================================================
 
 /**
- * Delete all session data from database
+ * Delete all session data from database and files
  * Uses a transaction to ensure all deletes succeed or none do
  * Note: With foreign_keys=ON and CASCADE, deleting the session should cascade to related tables,
  * but we explicitly delete to ensure cleanup even if CASCADE fails
@@ -706,6 +765,14 @@ export async function deleteSessionData(sessionId: string): Promise<void> {
 
     await db.execute('COMMIT');
     console.log('[DATABASE] Deleted session data:', sessionId);
+
+    // Also delete media files (async, non-critical)
+    deleteSessionScreenshots(sessionId).catch(err => {
+      console.warn('[DATABASE] Failed to delete screenshot files:', err);
+    });
+    deleteSessionAudio(sessionId).catch(err => {
+      console.warn('[DATABASE] Failed to delete audio files:', err);
+    });
   } catch (error) {
     await db.execute('ROLLBACK');
     console.error('[DATABASE] Failed to delete session, rolled back:', error);

@@ -26,6 +26,8 @@ export function AudioLevelMeter({ deviceId, isActive }: AudioLevelMeterProps) {
   useEffect(() => {
     if (!isActive) {
       cleanup()
+      setLevel(0)
+      setIsListening(false)
       return
     }
 
@@ -42,12 +44,19 @@ export function AudioLevelMeter({ deviceId, isActive }: AudioLevelMeterProps) {
 
         if (deviceId) {
           try {
-            // Request permission first to get device labels
-            await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-              .then(s => s.getTracks().forEach(t => t.stop()))
+            // Try to enumerate devices first - if we already have permission, this will work
+            // without needing an extra getUserMedia call
+            let webDevices = await navigator.mediaDevices.enumerateDevices()
+            let audioInputs = webDevices.filter(d => d.kind === 'audioinput')
 
-            const webDevices = await navigator.mediaDevices.enumerateDevices()
-            const audioInputs = webDevices.filter(d => d.kind === 'audioinput')
+            // If labels are empty, we need permission first
+            if (audioInputs.length > 0 && !audioInputs[0].label) {
+              // Request permission to get device labels, then re-enumerate
+              const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+              tempStream.getTracks().forEach(t => t.stop())
+              webDevices = await navigator.mediaDevices.enumerateDevices()
+              audioInputs = webDevices.filter(d => d.kind === 'audioinput')
+            }
 
             // Try to find matching device by label (Tauri uses device name as ID)
             const matchingDevice = audioInputs.find(d =>
@@ -63,7 +72,7 @@ export function AudioLevelMeter({ deviceId, isActive }: AudioLevelMeterProps) {
           }
         }
 
-        // Get audio stream
+        // Get audio stream for level monitoring
         const constraints: MediaStreamConstraints = {
           audio: webDeviceId ? { deviceId: { exact: webDeviceId } } : true,
           video: false,
@@ -81,6 +90,11 @@ export function AudioLevelMeter({ deviceId, isActive }: AudioLevelMeterProps) {
 
         // Create audio context and analyser
         const audioContext = new AudioContext()
+        if (!isMounted) {
+          audioContext.close()
+          stream.getTracks().forEach(track => track.stop())
+          return
+        }
         audioContextRef.current = audioContext
 
         const analyser = audioContext.createAnalyser()
@@ -92,7 +106,7 @@ export function AudioLevelMeter({ deviceId, isActive }: AudioLevelMeterProps) {
 
         setIsListening(true)
 
-        // Start level monitoring
+        // Start level monitoring - throttled to 10fps for performance
         const dataArray = new Uint8Array(analyser.frequencyBinCount)
 
         function updateLevel() {
@@ -109,10 +123,11 @@ export function AudioLevelMeter({ deviceId, isActive }: AudioLevelMeterProps) {
           const normalizedLevel = Math.min(rms / 128, 1) // Normalize to 0-1
 
           setLevel(normalizedLevel)
-          animationRef.current = requestAnimationFrame(updateLevel)
         }
 
+        // Update 10 times per second instead of 60fps
         updateLevel()
+        animationRef.current = setInterval(updateLevel, 100) as unknown as number
       } catch (err) {
         if (!isMounted) return
         console.error('Failed to access microphone:', err)
@@ -131,7 +146,7 @@ export function AudioLevelMeter({ deviceId, isActive }: AudioLevelMeterProps) {
 
   function cleanup() {
     if (animationRef.current) {
-      cancelAnimationFrame(animationRef.current)
+      clearInterval(animationRef.current)
       animationRef.current = null
     }
     if (streamRef.current) {
@@ -143,8 +158,6 @@ export function AudioLevelMeter({ deviceId, isActive }: AudioLevelMeterProps) {
       audioContextRef.current = null
     }
     analyserRef.current = null
-    setLevel(0)
-    setIsListening(false)
   }
 
   if (!isActive) return null

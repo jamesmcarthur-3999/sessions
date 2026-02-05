@@ -14,6 +14,8 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { useGlobalShortcuts } from './hooks/useKeyboardShortcuts'
 import { generateId } from './utils/id'
 import { migrateToSecureStorage } from './services/secure-storage'
+import { sessionRecorder } from './services/recording'
+import { sessionBridge } from './services/session-bridge'
 import type { Session } from './types'
 
 type View = 'home' | 'summary' | 'history' | 'capture' | 'recording' | 'settings'
@@ -158,11 +160,32 @@ function AppContent() {
           />
         )}
         {view === 'recording' && (
-          <SessionRecording
-            key="recording"
-            onComplete={handleRecordingComplete}
-            onCancel={handleBack}
-          />
+          <ErrorBoundary
+            key="recording-boundary"
+            onError={(error) => {
+              console.error('[App] Recording error boundary caught:', error)
+              // Clean up recording state when error boundary catches
+              Promise.all([
+                sessionRecorder.isRecording()
+                  ? sessionRecorder.stopRecording().catch(() => {})
+                  : Promise.resolve(),
+                state.activeSession
+                  ? sessionBridge.stopSession(state.activeSession.id).catch(() => {})
+                  : Promise.resolve(),
+              ]).catch(() => {})
+            }}
+            onReset={() => {
+              // Go back to home on reset
+              dispatch({ type: 'STOP_RECORDING' })
+              setView('home')
+            }}
+          >
+            <SessionRecording
+              key="recording"
+              onComplete={handleRecordingComplete}
+              onCancel={handleBack}
+            />
+          </ErrorBoundary>
         )}
         {view === 'settings' && (
           <Settings
@@ -185,6 +208,12 @@ function AppContent() {
         onNewSession={handleStartSession}
         onGoToHistory={() => {
           setView('history')
+          setShowCommandPalette(false)
+        }}
+        onGoHome={() => {
+          setSelectedSession(null)
+          setView('home')
+          setShowSettingsOverlay(false)
           setShowCommandPalette(false)
         }}
       />
