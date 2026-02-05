@@ -215,9 +215,34 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
 
     initRecording()
 
+    // Protect against window close during recording
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (sessionStarted || sessionRecorder.isRecording()) {
+        e.preventDefault()
+        e.returnValue = 'Recording in progress. Are you sure you want to leave?'
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+
+    // Tauri-specific window close handler
+    let unlistenClose: (() => void) | undefined
+    if (isTauri()) {
+      import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
+        const appWindow = getCurrentWindow()
+        appWindow.onCloseRequested(async (event) => {
+          if (sessionStarted || sessionRecorder.isRecording()) {
+            event.preventDefault()
+            setShowConfirmation(true)
+          }
+        }).then(fn => { unlistenClose = fn })
+      }).catch(console.error)
+    }
+
     // Cleanup function
     return () => {
       isCleaningUp = true
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      unlistenClose?.()
 
       // Only clean up if the session was actually started
       // This prevents React StrictMode's double-mount from stopping the session prematurely
