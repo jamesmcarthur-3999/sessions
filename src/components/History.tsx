@@ -69,7 +69,7 @@ export function History({ onBack, onSessionSelect }: HistoryProps) {
     )
   }, [state.sessions, searchQuery])
 
-  const groupedSessions = groupByDate(filteredSessions)
+  const groupedSessions = useMemo(() => groupByDate(filteredSessions), [filteredSessions])
 
   return (
     <motion.div
