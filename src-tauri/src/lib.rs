@@ -6,9 +6,21 @@ mod video_recording;
 use activity_monitor::ActivityMonitor;
 use screenshots::{Screen, image::ImageFormat};
 use std::io::Cursor;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use audio_capture::AudioRecorder;
 use video_recording::VideoRecorder;
+
+/// Lock a mutex, recovering from poison by accepting the potentially-stale data.
+/// This is safe because our mutexes guard simple state values (not invariants).
+fn lock_or_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            eprintln!("⚠️ Recovered from poisoned mutex");
+            poisoned.into_inner()
+        }
+    }
+}
 
 // ============================================================================
 // Screenshot Capture
@@ -288,8 +300,7 @@ fn start_audio_recording(
     device_id: Option<String>,
     recorder: tauri::State<'_, Arc<Mutex<AudioRecorder>>>,
 ) -> Result<(), String> {
-    let recorder = recorder.lock()
-        .map_err(|e| format!("Failed to lock audio recorder: {}", e))?;
+    let recorder = lock_or_recover(&recorder);
     // Default to 10-second chunks for faster transcription feedback
     recorder.start_recording(session_id, chunk_duration_secs.unwrap_or(10), device_id, &app_handle)
 }
@@ -298,8 +309,7 @@ fn start_audio_recording(
 fn pause_audio_recording(
     recorder: tauri::State<'_, Arc<Mutex<AudioRecorder>>>,
 ) -> Result<(), String> {
-    let recorder = recorder.lock()
-        .map_err(|e| format!("Failed to lock audio recorder: {}", e))?;
+    let recorder = lock_or_recover(&recorder);
     recorder.pause_recording()
 }
 
@@ -307,8 +317,7 @@ fn pause_audio_recording(
 fn resume_audio_recording(
     recorder: tauri::State<'_, Arc<Mutex<AudioRecorder>>>,
 ) -> Result<(), String> {
-    let recorder = recorder.lock()
-        .map_err(|e| format!("Failed to lock audio recorder: {}", e))?;
+    let recorder = lock_or_recover(&recorder);
     recorder.resume_recording()
 }
 
@@ -316,8 +325,7 @@ fn resume_audio_recording(
 fn stop_audio_recording(
     recorder: tauri::State<'_, Arc<Mutex<AudioRecorder>>>,
 ) -> Result<(), String> {
-    let recorder = recorder.lock()
-        .map_err(|e| format!("Failed to lock audio recorder: {}", e))?;
+    let recorder = lock_or_recover(&recorder);
     recorder.stop_recording()
 }
 
@@ -332,8 +340,7 @@ fn start_activity_monitor(
     app_handle: tauri::AppHandle,
     monitor: tauri::State<'_, Arc<Mutex<ActivityMonitor>>>,
 ) -> Result<(), String> {
-    let monitor = monitor.lock()
-        .map_err(|e| format!("Failed to lock activity monitor: {}", e))?;
+    let monitor = lock_or_recover(&monitor);
     monitor.start(app_handle)
 }
 
@@ -341,8 +348,7 @@ fn start_activity_monitor(
 fn stop_activity_monitor(
     monitor: tauri::State<'_, Arc<Mutex<ActivityMonitor>>>,
 ) -> Result<(), String> {
-    let monitor = monitor.lock()
-        .map_err(|e| format!("Failed to lock activity monitor: {}", e))?;
+    let monitor = lock_or_recover(&monitor);
     monitor.stop();
     Ok(())
 }
