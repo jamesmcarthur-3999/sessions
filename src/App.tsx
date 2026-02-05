@@ -77,26 +77,26 @@ function AppContent() {
     setShowWelcome(false)
   }, [])
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts - disabled during modals and recording
   useGlobalShortcuts({
     onNewCapture: () => {
-      if (view !== 'recording') {
+      if (view !== 'recording' && !showCommandPalette && !showWelcome && !showSettingsOverlay) {
         setView('capture')
       }
     },
     onNewSession: () => {
-      if (view !== 'recording') {
+      if (view !== 'recording' && !showCommandPalette && !showWelcome && !showSettingsOverlay) {
         handleStartSession()
       }
     },
     onGoHome: () => {
-      if (view !== 'recording') {
+      if (view !== 'recording' && !showCommandPalette && !showWelcome && !showSettingsOverlay) {
         handleBack()
       }
     },
     onSearch: () => {
-      if (view !== 'recording') {
-        setShowCommandPalette(true)
+      if (!showWelcome && !showSettingsOverlay) {
+        setShowCommandPalette(prev => !prev)
       }
     },
   })
@@ -123,13 +123,23 @@ function AppContent() {
     }
   }, [view])
 
+  // Clear stale session reference if session was deleted
+  useEffect(() => {
+    if (selectedSession && !state.sessions.some(s => s.id === selectedSession.id)) {
+      setSelectedSession(null)
+      if (view === 'summary') {
+        setView('home')
+      }
+    }
+  }, [state.sessions, selectedSession, view])
+
   // Migrate API keys from localStorage to secure storage on startup
   useEffect(() => {
     migrateToSecureStorage().catch(console.error)
   }, [])
 
   return (
-    <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100">
+    <div className="min-h-screen bg-[var(--paper)] text-[var(--ink)]">
       <AnimatePresence mode="wait">
         {view === 'home' && (
           <Home
