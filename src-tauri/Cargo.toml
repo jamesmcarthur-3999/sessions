@@ -49,6 +49,9 @@ libc = "0.2"
 # URL parsing for proxy validation
 url = "2"
 
+# Process timeout for osascript
+wait-timeout = "0.2"
+
 # Async + HTTP for AI calls
 reqwest = { version = "0.12", features = ["json", "stream"] }
 tokio = { version = "1", features = ["full"] }

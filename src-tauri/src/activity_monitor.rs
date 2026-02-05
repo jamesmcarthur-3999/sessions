@@ -161,10 +161,11 @@ impl ActivityMonitor {
 /// Get the frontmost application name and window title (macOS)
 #[cfg(target_os = "macos")]
 fn get_frontmost_app() -> Option<(String, String)> {
-    use std::process::Command;
+    use std::process::{Command, Stdio};
+    use std::io::Read;
+    use wait_timeout::ChildExt;
 
-    // Use AppleScript to get frontmost app
-    let output = match Command::new("osascript")
+    let mut child = match Command::new("osascript")
         .arg("-e")
         .arg(r#"
             tell application "System Events"
@@ -178,19 +179,47 @@ fn get_frontmost_app() -> Option<(String, String)> {
                 return appName & "|" & winTitle
             end tell
         "#)
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
     {
-        Ok(output) => output,
+        Ok(child) => child,
         Err(e) => {
-            eprintln!("[ACTIVITY MONITOR] osascript failed: {}", e);
+            eprintln!("[ACTIVITY MONITOR] Failed to spawn osascript: {}", e);
             return None;
         }
     };
 
-    let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    // Wait with 3-second timeout
+    match child.wait_timeout(Duration::from_secs(3)) {
+        Ok(Some(status)) => {
+            if !status.success() {
+                return None;
+            }
+        }
+        Ok(None) => {
+            // Timeout - kill the process
+            let _ = child.kill();
+            let _ = child.wait();
+            eprintln!("[ACTIVITY MONITOR] osascript timed out after 3s");
+            return None;
+        }
+        Err(e) => {
+            eprintln!("[ACTIVITY MONITOR] Failed to wait for osascript: {}", e);
+            return None;
+        }
+    }
+
+    // Read stdout
+    let mut output = String::new();
+    if let Some(mut stdout) = child.stdout.take() {
+        stdout.read_to_string(&mut output).ok();
+    }
+
+    let result = output.trim().to_string();
     let parts: Vec<&str> = result.splitn(2, '|').collect();
 
-    if !parts.is_empty() {
+    if !parts.is_empty() && !parts[0].is_empty() {
         Some((
             parts[0].to_string(),
             parts.get(1).unwrap_or(&"").to_string(),

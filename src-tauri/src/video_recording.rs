@@ -65,6 +65,31 @@ pub struct VideoRecorder {
 unsafe impl Send for VideoRecorder {}
 unsafe impl Sync for VideoRecorder {}
 
+const MIN_DISK_SPACE_BYTES: u64 = 500 * 1024 * 1024; // 500MB minimum
+
+/// Check available disk space at the given path
+#[cfg(target_os = "macos")]
+fn check_disk_space(path: &std::path::Path) -> Result<u64, String> {
+    let dir = path.parent().unwrap_or(path);
+    let dir_str = dir.to_str().ok_or("Invalid path")?;
+    let c_path = std::ffi::CString::new(dir_str).map_err(|_| "Invalid path")?;
+
+    unsafe {
+        let mut stat: libc::statfs = std::mem::zeroed();
+        if libc::statfs(c_path.as_ptr(), &mut stat) == 0 {
+            let available = stat.f_bavail as u64 * stat.f_bsize as u64;
+            Ok(available)
+        } else {
+            Err("Failed to check disk space".to_string())
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn check_disk_space(_path: &std::path::Path) -> Result<u64, String> {
+    Ok(u64::MAX) // Skip check on other platforms
+}
+
 impl VideoRecorder {
     pub fn new() -> Self {
         VideoRecorder {
@@ -87,6 +112,16 @@ impl VideoRecorder {
             // Check if already recording
             if self.swift_recorder.is_some() {
                 return Err("Already recording".to_string());
+            }
+
+            // Check disk space
+            let available = check_disk_space(&output_path)?;
+            if available < MIN_DISK_SPACE_BYTES {
+                return Err(format!(
+                    "Not enough disk space for video recording. Available: {} MB, Required: {} MB",
+                    available / (1024 * 1024),
+                    MIN_DISK_SPACE_BYTES / (1024 * 1024)
+                ));
             }
 
             // Check permission
