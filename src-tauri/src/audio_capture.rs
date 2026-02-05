@@ -539,6 +539,13 @@ impl AudioRecorder {
         println!("⏸️  [AUDIO CAPTURE] Pausing recording");
         *self.state.lock()
             .map_err(|e| format!("Failed to lock state: {}", e))? = RecordingState::Paused;
+
+        // Pause the audio stream to save CPU
+        if let Ok(stream_opt) = self.stream.lock() {
+            if let Some(ref stream) = *stream_opt {
+                let _ = stream.pause();
+            }
+        }
         Ok(())
     }
 
@@ -552,6 +559,13 @@ impl AudioRecorder {
             return Err("Cannot resume - recording is stopped".to_string());
         }
 
+        // Resume the audio stream
+        if let Ok(stream_opt) = self.stream.lock() {
+            if let Some(ref stream) = *stream_opt {
+                let _ = stream.play();
+            }
+        }
+
         *self.state.lock()
             .map_err(|e| format!("Failed to lock state: {}", e))? = RecordingState::Recording;
         Ok(())
@@ -561,32 +575,30 @@ impl AudioRecorder {
     pub fn stop_recording(&self) -> Result<(), String> {
         println!("🛑 [AUDIO CAPTURE] Stopping recording");
 
-        // Update state first to signal threads to stop
+        // 1. Signal the chunk processor thread to stop
         *self.state.lock()
             .map_err(|e| format!("Failed to lock state: {}", e))? = RecordingState::Stopped;
 
-        // Drop the stream (this will stop it)
+        // 2. Join chunk processor thread FIRST (it checks state and exits)
+        if let Ok(mut handle) = self.chunk_processor_handle.lock() {
+            if let Some(h) = handle.take() {
+                if let Err(e) = h.join() {
+                    eprintln!("❌ [AUDIO CAPTURE] Chunk processor thread panicked: {:?}", e);
+                }
+            }
+        }
+
+        // 3. Now safe to drop the stream (thread is done)
         *self.stream.lock()
             .map_err(|e| format!("Failed to lock stream: {}", e))? = None;
 
-        // Clear buffer
+        // 4. Clear remaining state
         self.buffer.lock()
             .map_err(|e| format!("Failed to lock buffer: {}", e))?.clear();
-
-        // Clear session ID
         *self.session_id.lock()
             .map_err(|e| format!("Failed to lock session_id: {}", e))? = None;
-
-        // Clear audio directory
         *self.audio_dir.lock()
             .map_err(|e| format!("Failed to lock audio_dir: {}", e))? = None;
-
-        // Join chunk processor thread to prevent leak
-        if let Ok(mut handle) = self.chunk_processor_handle.lock() {
-            if let Some(h) = handle.take() {
-                let _ = h.join();
-            }
-        }
 
         println!("✅ [AUDIO CAPTURE] Recording stopped");
         Ok(())
@@ -611,23 +623,23 @@ impl AudioRecorder {
 
 impl Drop for AudioRecorder {
     fn drop(&mut self) {
-        // Ensure recording is stopped and thread is cleaned up
+        // 1. Signal stop
         if let Ok(mut state) = self.state.lock() {
             if *state != RecordingState::Stopped {
                 *state = RecordingState::Stopped;
             }
         }
 
-        // Drop the stream to stop audio capture
-        if let Ok(mut stream) = self.stream.lock() {
-            *stream = None;
-        }
-
-        // Join chunk processor thread
+        // 2. Join chunk processor thread FIRST
         if let Ok(mut handle) = self.chunk_processor_handle.lock() {
             if let Some(h) = handle.take() {
                 let _ = h.join();
             }
+        }
+
+        // 3. Now safe to drop the stream
+        if let Ok(mut stream) = self.stream.lock() {
+            *stream = None;
         }
 
         println!("AudioRecorder dropped, resources cleaned up");
