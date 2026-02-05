@@ -8,7 +8,20 @@ use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::time::Duration;
 use tauri::ipc::Channel;
+
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const MAX_RESPONSE_BYTES: usize = 50 * 1024 * 1024; // 50MB
+
+fn create_proxy_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .connect_timeout(CONNECT_TIMEOUT)
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))
+}
 
 /// Allowed destination hosts for the HTTP proxy.
 /// Only HTTPS requests to these domains are permitted.
@@ -66,7 +79,7 @@ pub async fn http_proxy(request: ProxyRequest) -> Result<ProxyResponse, String> 
     validate_proxy_url(&request.url)?;
     println!("[http_proxy] {} {}", request.method, request.url);
 
-    let client = reqwest::Client::new();
+    let client = create_proxy_client()?;
 
     // Build headers
     let mut headers = HeaderMap::new();
@@ -104,9 +117,15 @@ pub async fn http_proxy(request: ProxyRequest) -> Result<ProxyResponse, String> 
         }
     }
 
-    // Read body
-    let body = response.text().await
+    // Read body with size limit
+    let body_bytes = response.bytes().await
         .map_err(|e| format!("Failed to read response: {}", e))?;
+
+    if body_bytes.len() > MAX_RESPONSE_BYTES {
+        return Err(format!("Response too large: {} bytes (max {})", body_bytes.len(), MAX_RESPONSE_BYTES));
+    }
+
+    let body = String::from_utf8_lossy(&body_bytes).into_owned();
 
     // Log error responses for debugging
     if status >= 400 {
@@ -127,7 +146,7 @@ pub async fn http_proxy_stream(
     on_chunk: Channel<StreamChunk>,
 ) -> Result<(), String> {
     validate_proxy_url(&request.url)?;
-    let client = reqwest::Client::new();
+    let client = create_proxy_client()?;
 
     // Build headers
     let mut headers = HeaderMap::new();
