@@ -1,16 +1,18 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, lazy, Suspense } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { AppProvider, useApp } from './context/AppContext'
 import { Home } from './components/Home'
-import { SummaryView } from './components/SummaryView'
-import { History } from './components/History'
-import { QuickCapture } from './components/QuickCapture'
-import { SessionRecording } from './components/SessionRecording'
-import { CommandPalette } from './components/CommandPalette'
-import { Settings } from './components/Settings'
-import { WelcomeModal } from './components/WelcomeModal'
 import { ToastProvider } from './components/Toast'
 import { ErrorBoundary } from './components/ErrorBoundary'
+
+// Lazy loaded (only when navigated to)
+const SummaryView = lazy(() => import('./components/SummaryView').then(m => ({ default: m.SummaryView })))
+const History = lazy(() => import('./components/History').then(m => ({ default: m.History })))
+const QuickCapture = lazy(() => import('./components/QuickCapture').then(m => ({ default: m.QuickCapture })))
+const SessionRecording = lazy(() => import('./components/SessionRecording').then(m => ({ default: m.SessionRecording })))
+const CommandPalette = lazy(() => import('./components/CommandPalette').then(m => ({ default: m.CommandPalette })))
+const Settings = lazy(() => import('./components/Settings').then(m => ({ default: m.Settings })))
+const WelcomeModal = lazy(() => import('./components/WelcomeModal').then(m => ({ default: m.WelcomeModal })))
 import { useGlobalShortcuts } from './hooks/useKeyboardShortcuts'
 import { generateId } from './utils/id'
 import { migrateToSecureStorage } from './services/secure-storage'
@@ -141,100 +143,106 @@ function AppContent() {
 
   return (
     <div className="min-h-screen bg-[var(--paper)] text-[var(--ink)]">
-      <AnimatePresence mode="wait">
-        {view === 'home' && (
-          <Home
-            key="home"
-            onNavigate={setView}
-            onSessionSelect={handleSessionSelect}
-          />
-        )}
-        {view === 'summary' && selectedSession && (
-          <SummaryView
-            key="summary"
-            session={selectedSession}
-            onBack={handleBack}
-          />
-        )}
-        {view === 'history' && (
-          <History
-            key="history"
-            onBack={handleBack}
-            onSessionSelect={handleSessionSelect}
-          />
-        )}
-        {view === 'capture' && (
-          <QuickCapture
-            key="capture"
-            onBack={handleBack}
-            onComplete={handleCaptureComplete}
-          />
-        )}
-        {view === 'recording' && (
-          <ErrorBoundary
-            key="recording-boundary"
-            onError={(error) => {
-              logger.error('[App] Recording error boundary caught:', error)
-              // Clean up recording state when error boundary catches
-              Promise.all([
-                sessionRecorder.isRecording()
-                  ? sessionRecorder.stopRecording().catch(() => {})
-                  : Promise.resolve(),
-                state.activeSession
-                  ? sessionBridge.stopSession(state.activeSession.id).catch(() => {})
-                  : Promise.resolve(),
-              ]).catch(() => {})
-            }}
-            onReset={() => {
-              // Go back to home on reset
-              dispatch({ type: 'STOP_RECORDING' })
-              setView('home')
-            }}
-          >
-            <SessionRecording
-              key="recording"
-              onComplete={handleRecordingComplete}
-              onCancel={handleBack}
+      <Suspense fallback={null}>
+        <AnimatePresence mode="wait">
+          {view === 'home' && (
+            <Home
+              key="home"
+              onNavigate={setView}
+              onSessionSelect={handleSessionSelect}
             />
-          </ErrorBoundary>
-        )}
-        {view === 'settings' && (
-          <Settings
-            key="settings"
-            onBack={handleBack}
-          />
-        )}
-      </AnimatePresence>
+          )}
+          {view === 'summary' && selectedSession && (
+            <SummaryView
+              key="summary"
+              session={selectedSession}
+              onBack={handleBack}
+            />
+          )}
+          {view === 'history' && (
+            <History
+              key="history"
+              onBack={handleBack}
+              onSessionSelect={handleSessionSelect}
+            />
+          )}
+          {view === 'capture' && (
+            <QuickCapture
+              key="capture"
+              onBack={handleBack}
+              onComplete={handleCaptureComplete}
+            />
+          )}
+          {view === 'recording' && (
+            <ErrorBoundary
+              key="recording-boundary"
+              onError={(error) => {
+                logger.error('[App] Recording error boundary caught:', error)
+                // Clean up recording state when error boundary catches
+                Promise.all([
+                  sessionRecorder.isRecording()
+                    ? sessionRecorder.stopRecording().catch(() => {})
+                    : Promise.resolve(),
+                  state.activeSession
+                    ? sessionBridge.stopSession(state.activeSession.id).catch(() => {})
+                    : Promise.resolve(),
+                ]).catch(() => {})
+              }}
+              onReset={() => {
+                // Go back to home on reset
+                dispatch({ type: 'STOP_RECORDING' })
+                setView('home')
+              }}
+            >
+              <SessionRecording
+                key="recording"
+                onComplete={handleRecordingComplete}
+                onCancel={handleBack}
+              />
+            </ErrorBoundary>
+          )}
+          {view === 'settings' && (
+            <Settings
+              key="settings"
+              onBack={handleBack}
+            />
+          )}
+        </AnimatePresence>
+      </Suspense>
 
       {/* Command Palette */}
-      <CommandPalette
-        isOpen={showCommandPalette}
-        onClose={() => setShowCommandPalette(false)}
-        sessions={state.sessions}
-        onSessionSelect={handleSessionSelect}
-        onNewCapture={() => {
-          setView('capture')
-          setShowCommandPalette(false)
-        }}
-        onNewSession={handleStartSession}
-        onGoToHistory={() => {
-          setView('history')
-          setShowCommandPalette(false)
-        }}
-        onGoHome={() => {
-          setSelectedSession(null)
-          setView('home')
-          setShowSettingsOverlay(false)
-          setShowCommandPalette(false)
-        }}
-      />
+      <Suspense fallback={null}>
+        <CommandPalette
+          isOpen={showCommandPalette}
+          onClose={() => setShowCommandPalette(false)}
+          sessions={state.sessions}
+          onSessionSelect={handleSessionSelect}
+          onNewCapture={() => {
+            setView('capture')
+            setShowCommandPalette(false)
+          }}
+          onNewSession={handleStartSession}
+          onGoToHistory={() => {
+            setView('history')
+            setShowCommandPalette(false)
+          }}
+          onGoHome={() => {
+            setSelectedSession(null)
+            setView('home')
+            setShowSettingsOverlay(false)
+            setShowCommandPalette(false)
+          }}
+        />
+      </Suspense>
 
       {/* Welcome Modal (first-run) */}
-      <WelcomeModal
-        isOpen={showWelcome}
-        onAddApiKey={handleWelcomeAddApiKey}
-        onGetStarted={handleWelcomeGetStarted}
-      />
+      <Suspense fallback={null}>
+        <WelcomeModal
+          isOpen={showWelcome}
+          onAddApiKey={handleWelcomeAddApiKey}
+          onGetStarted={handleWelcomeGetStarted}
+        />
+      </Suspense>
 
       {/* Settings Overlay (while recording) */}
       {showSettingsOverlay && (
