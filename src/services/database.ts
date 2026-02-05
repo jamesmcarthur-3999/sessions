@@ -258,10 +258,10 @@ export async function createSession(
     analysis_mode: analysisMode,
   };
 
-  // Insert session and related records
-  // Using individual inserts instead of transaction to avoid lock contention
-  // with async screenshot operations (WAL mode handles concurrent writes)
+  // Insert session and related records in a transaction for consistency
   try {
+    await db.execute('BEGIN TRANSACTION');
+
     await db.execute(
       `INSERT INTO sessions (id, type, title, created_at, updated_at, status, analysis_mode, video_path)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
@@ -290,8 +290,11 @@ export async function createSession(
        VALUES ($1, $2, $3, $4, $5)`,
       [generateId(), session.id, now, '', 1]
     );
+
+    await db.execute('COMMIT');
   } catch (error) {
-    console.error('[DATABASE] Failed to create session:', error);
+    await db.execute('ROLLBACK').catch(() => {});
+    console.error('[DATABASE] Failed to create session, rolled back:', error);
     throw error;
   }
 
