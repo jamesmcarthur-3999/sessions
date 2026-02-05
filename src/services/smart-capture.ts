@@ -82,6 +82,11 @@ class SmartCaptureService {
   // Pending capture flag (prevents stacking)
   private capturePending = false;
 
+  // Circuit breaker for repeated failures
+  private consecutiveFailures = 0;
+  private static readonly MAX_CONSECUTIVE_FAILURES = 5;
+  private circuitBrokenUntil = 0;
+
   /**
    * Subscribe to events
    */
@@ -317,6 +322,11 @@ class SmartCaptureService {
   private async captureNow(trigger: string): Promise<void> {
     if (!this.sessionId || this.capturePending) return;
 
+    // Circuit breaker check
+    if (Date.now() < this.circuitBrokenUntil) {
+      return;
+    }
+
     // Skip in browser mode
     if (!isTauri()) {
       console.log('[SMART CAPTURE] Browser mode, skipping capture');
@@ -332,6 +342,7 @@ class SmartCaptureService {
       const screenshot = await captureScreenshotOptimized(this.screenId, 1920, 80);
       this.lastCaptureTime = Date.now();
       this.captureCount++;
+      this.consecutiveFailures = 0; // Reset on success
 
       // Emit capture event for UI
       this.emitter.emit('capture', { sessionId: this.sessionId, trigger });
@@ -367,6 +378,12 @@ class SmartCaptureService {
       });
     } catch (e) {
       console.error('[SMART CAPTURE] Capture failed:', e);
+      this.consecutiveFailures++;
+      if (this.consecutiveFailures >= SmartCaptureService.MAX_CONSECUTIVE_FAILURES) {
+        this.circuitBrokenUntil = Date.now() + 60_000;
+        this.consecutiveFailures = 0;
+        console.warn('[SMART CAPTURE] Circuit breaker triggered after repeated failures, pausing for 60s');
+      }
     } finally {
       this.capturePending = false;
     }

@@ -456,6 +456,10 @@ impl AudioRecorder {
 
                             if let Err(e) = app.emit("audio-chunk", payload) {
                                 eprintln!("❌ [AUDIO CAPTURE] Failed to emit audio-chunk event: {}", e);
+                                // Clean up orphaned file since frontend won't know about it
+                                if let Err(del_err) = std::fs::remove_file(&file_path) {
+                                    eprintln!("❌ [AUDIO CAPTURE] Failed to clean up orphaned file {}: {}", file_path.display(), del_err);
+                                }
                             } else {
                                 println!("✅ [AUDIO CAPTURE] Saved audio chunk: {} ({:.1}s)", file_path_str, duration);
                             }

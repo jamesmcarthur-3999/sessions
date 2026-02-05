@@ -85,6 +85,9 @@ class SessionBridgeService {
   // In-flight operation tracking (fixes D1)
   private inflightOps = new Map<string, Set<string>>();
 
+  // Prevent concurrent session starts
+  private isStarting = false;
+
   constructor() {
     this.setupWorkerListeners();
   }
@@ -105,25 +108,35 @@ class SessionBridgeService {
       return;
     }
 
-    this.activeSessions.add(sessionId);
-    this.inflightOps.set(sessionId, new Set());
-
-    // Proactive worker init (fixes D3)
-    try {
-      await aiWorker.initialize();
-      console.log('[SESSION BRIDGE] Worker initialized proactively');
-    } catch (error) {
-      console.warn('[SESSION BRIDGE] Proactive worker init failed:', error);
-      // Continue anyway - will try again on first use
+    if (this.isStarting) {
+      console.warn('[SESSION BRIDGE] Another session is starting, ignoring:', sessionId);
+      return;
     }
 
-    // Set up periodic analysis mode check (every 2 minutes)
-    const analysisInterval = setInterval(() => {
-      this.checkAnalysisMode(sessionId).catch(console.error);
-    }, 120000);
-    this.analysisCheckTimers.set(sessionId, analysisInterval);
+    this.isStarting = true;
+    try {
+      this.activeSessions.add(sessionId);
+      this.inflightOps.set(sessionId, new Set());
 
-    console.log('[SESSION BRIDGE] Started for session:', sessionId);
+      // Proactive worker init (fixes D3)
+      try {
+        await aiWorker.initialize();
+        console.log('[SESSION BRIDGE] Worker initialized proactively');
+      } catch (error) {
+        console.warn('[SESSION BRIDGE] Proactive worker init failed:', error);
+        // Continue anyway - will try again on first use
+      }
+
+      // Set up periodic analysis mode check (every 2 minutes)
+      const analysisInterval = setInterval(() => {
+        this.checkAnalysisMode(sessionId).catch(console.error);
+      }, 120000);
+      this.analysisCheckTimers.set(sessionId, analysisInterval);
+
+      console.log('[SESSION BRIDGE] Started for session:', sessionId);
+    } finally {
+      this.isStarting = false;
+    }
   }
 
   /**

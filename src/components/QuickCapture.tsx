@@ -142,8 +142,26 @@ export function QuickCapture({ onBack, onComplete }: QuickCaptureProps) {
     }
   }
 
+  const MAX_FILE_SIZE = 25 * 1024 * 1024 // 25MB per file
+  const MAX_TOTAL_SIZE = 50 * 1024 * 1024 // 50MB total
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
+
+    for (const file of files) {
+      if (file.size > MAX_FILE_SIZE) {
+        showToast(`${file.name} is too large (${Math.round(file.size / 1024 / 1024)}MB). Max: 25MB.`, 'error')
+        return
+      }
+    }
+
+    const currentTotal = attachments.reduce((sum, f) => sum + f.size, 0)
+    const newTotal = currentTotal + files.reduce((sum, f) => sum + f.size, 0)
+    if (newTotal > MAX_TOTAL_SIZE) {
+      showToast('Total attachment size exceeds 50MB limit.', 'error')
+      return
+    }
+
     setAttachments(prev => [...prev, ...files])
   }
 
