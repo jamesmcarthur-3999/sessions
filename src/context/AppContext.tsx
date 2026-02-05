@@ -1,4 +1,4 @@
-import { createContext, useContext, useReducer, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useReducer, useEffect, useState, useMemo, useCallback, type ReactNode } from 'react'
 import type { Session } from '../types'
 import { storage } from '../services/storage'
 import {
@@ -135,7 +135,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     load()
   }, [dbReady])
 
-  const addSession = async (session: Session) => {
+  const addSession = useCallback(async (session: Session) => {
     dispatch({ type: 'ADD_SESSION', payload: session })
     await storage.saveSession(session)
     if (isTauri()) {
@@ -160,9 +160,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
     }
-  }
+  }, [dispatch])
 
-  const updateSession = async (session: Session) => {
+  const updateSession = useCallback(async (session: Session) => {
     dispatch({ type: 'UPDATE_SESSION', payload: session })
     await storage.saveSession(session)
     if (isTauri()) {
@@ -188,9 +188,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
     }
-  }
+  }, [dispatch])
 
-  const deleteSession = async (id: string) => {
+  const deleteSession = useCallback(async (id: string) => {
     const errors: string[] = []
 
     // Try database deletion first (has the bulk of the data)
@@ -223,7 +223,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       logger.error('Delete completely failed')
       throw new Error('Failed to delete session')
     }
-  }
+  }, [dispatch])
+
+  const contextValue = useMemo(() => ({
+    state, dispatch, addSession, updateSession, deleteSession
+  }), [state, dispatch, addSession, updateSession, deleteSession])
 
   if (dbError) {
     return (
@@ -251,7 +255,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AppContext.Provider value={{ state, dispatch, addSession, updateSession, deleteSession }}>
+    <AppContext.Provider value={contextValue}>
       {children}
     </AppContext.Provider>
   )
