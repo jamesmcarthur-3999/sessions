@@ -133,11 +133,7 @@ class AiWorkerClient {
       const anthropicKey = await getSecureItem('sessions_api_key');
       const openaiKey = await getSecureItem('sessions_openai_api_key');
 
-      // Diagnostic logging - show key status without exposing actual keys
-      console.log('[AI Worker Client] API key status:', {
-        anthropicKey: anthropicKey ? `set (${anthropicKey.length} chars)` : 'NOT SET',
-        openaiKey: openaiKey ? `set (${openaiKey.length} chars)` : 'NOT SET',
-      });
+      console.log('[AI Worker Client] API keys:', anthropicKey ? 'configured' : 'not set', '/', openaiKey ? 'configured' : 'not set');
 
       // Warn if keys are missing - transcription/analysis will fail
       if (!anthropicKey) {

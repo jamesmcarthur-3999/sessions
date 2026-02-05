@@ -63,7 +63,9 @@ export class ErrorBoundary extends Component<Props, State> {
                   Technical details
                 </summary>
                 <pre className="mt-2 p-3 rounded-lg bg-[var(--paper-warm)] text-xs text-[var(--ink-muted)] overflow-auto">
-                  {this.state.error.message}
+                  {import.meta.env.DEV
+                    ? this.state.error.message
+                    : 'An unexpected error occurred. Please try again or restart the app.'}
                 </pre>
               </details>
             )}

@@ -48,7 +48,7 @@ export async function getSecureItem(key: string): Promise<string | null> {
   const s = await getStore()
   if (s) {
     const value = await s.get(key) as string | null
-    console.log(`[SECURE-STORAGE] Get '${key}': ${value ? 'found (' + value.length + ' chars)' : 'not found'}`)
+    console.log(`[SECURE-STORAGE] Get '${key}': ${value ? 'found' : 'not found'}`)
     return value
   } else if (SECRET_KEYS.has(key)) {
     // Don't read secrets from insecure localStorage

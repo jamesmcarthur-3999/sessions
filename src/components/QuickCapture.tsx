@@ -2,8 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { ArrowLeft, Sparkles, Paperclip, X, Image as ImageIcon, FileText, Feather } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { createCapturePipeline, buildCaptureInput, initializeBots, isBotsReady, testApiKey, type CaptureResult } from '../services/bots'
-import { getSecureItem } from '../services/secure-storage'
+import { createCapturePipeline, buildCaptureInput, initializeBots, isBotsReady, type CaptureResult } from '../services/bots'
 import { persistCaptureAttachments } from '../services/attachments'
 import { generateId } from '../utils/id'
 import { useToast } from './Toast'
@@ -58,17 +57,6 @@ export function QuickCapture({ onBack, onComplete }: QuickCaptureProps) {
       let summary: Summary
 
       if (isBotsReady()) {
-        // First test the API key directly to verify it works
-        console.log('[QuickCapture] Testing API key...')
-        const apiKey = await getSecureItem('sessions_api_key') || localStorage.getItem('sessions_api_key')
-        if (apiKey) {
-          const testResult = await testApiKey(apiKey)
-          console.log('[QuickCapture] API key test result:', testResult)
-          if (!testResult.valid) {
-            throw new Error(`API key test failed: ${testResult.error}`)
-          }
-        }
-
         // Use Capture Pipeline
         console.log('[QuickCapture] Creating capture pipeline...')
         const captureBot = createCapturePipeline()
@@ -136,7 +124,12 @@ export function QuickCapture({ onBack, onComplete }: QuickCaptureProps) {
     } catch (error) {
       console.error('Failed to process capture:', error)
       const errorMessage = error instanceof Error ? error.message : String(error)
-      showToast(`Capture failed: ${errorMessage}`, 'error', 8000)
+      const safeMessage = errorMessage.includes('API key')
+        ? 'API key error. Please check your key in Settings.'
+        : errorMessage.includes('network') || errorMessage.includes('fetch')
+        ? 'Network error. Please check your connection.'
+        : 'Capture processing failed. Please try again.'
+      showToast(safeMessage, 'error', 8000)
       setIsProcessing(false)
       setProcessingStage('')
     }

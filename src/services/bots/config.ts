@@ -64,19 +64,9 @@ export async function initializeBots(): Promise<boolean> {
   try {
     const { setDefaultApiKey } = await loadBaleybots();
 
-    // Get Claude API key - try secure storage first, then localStorage fallback
-    let claudeKey = await getSecureItem('sessions_api_key');
-
-    // Fallback to localStorage if secure storage returns null (browser mode or migration issue)
-    if (!claudeKey && !isTauri()) {
-      claudeKey = localStorage.getItem('sessions_api_key');
-    }
-
-    // Get OpenAI API key from secure storage (for Whisper)
-    let openaiKey = await getSecureItem('sessions_openai_api_key');
-    if (!openaiKey && !isTauri()) {
-      openaiKey = localStorage.getItem('sessions_openai_api_key');
-    }
+    // Get API keys from secure storage only
+    const claudeKey = await getSecureItem('sessions_api_key');
+    const openaiKey = await getSecureItem('sessions_openai_api_key');
 
     let hasAnyKey = false;
 
