@@ -10,7 +10,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { motion } from 'framer-motion'
+import { motion, useReducedMotion } from 'framer-motion'
 import { AlertCircle, RefreshCw } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { SessionTimer } from './SessionTimer'
@@ -43,6 +43,7 @@ function isSimplifiedConfig(config: unknown): config is RecordingConfig {
 export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps) {
   const { state, addSession, dispatch } = useApp()
   const { showToast } = useToast()
+  const prefersReducedMotion = useReducedMotion()
 
   // Recording state
   const [isPaused, setIsPaused] = useState(false)
@@ -779,24 +780,24 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
           {/* Processing animation */}
           <div className="relative w-24 h-24 mx-auto mb-8">
             <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 8, repeat: Infinity, ease: 'linear' }}
+              animate={prefersReducedMotion ? {} : { rotate: 360 }}
+              transition={prefersReducedMotion ? {} : { duration: 8, repeat: Infinity, ease: 'linear' }}
               className="absolute inset-0"
             >
               <div className="absolute inset-0 rounded-full border border-[var(--accent)]/30" />
               <div className="absolute top-0 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-[var(--accent)]" />
             </motion.div>
             <motion.div
-              animate={{ rotate: -360 }}
-              transition={{ duration: 5, repeat: Infinity, ease: 'linear' }}
+              animate={prefersReducedMotion ? {} : { rotate: -360 }}
+              transition={prefersReducedMotion ? {} : { duration: 5, repeat: Infinity, ease: 'linear' }}
               className="absolute inset-4"
             >
               <div className="absolute inset-0 rounded-full border border-[var(--accent)]/40" />
               <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-[var(--accent)]" />
             </motion.div>
             <motion.div
-              animate={{ scale: [0.8, 1, 0.8], opacity: [0.6, 1, 0.6] }}
-              transition={{ duration: 2, repeat: Infinity }}
+              animate={prefersReducedMotion ? {} : { scale: [0.8, 1, 0.8], opacity: [0.6, 1, 0.6] }}
+              transition={prefersReducedMotion ? {} : { duration: 2, repeat: Infinity }}
               className="absolute inset-8 rounded-full bg-[var(--accent)]"
             />
           </div>
