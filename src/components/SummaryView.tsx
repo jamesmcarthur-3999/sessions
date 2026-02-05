@@ -127,7 +127,7 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
   const [editedTitle, setEditedTitle] = useState(session.title)
   const [showSaved, setShowSaved] = useState(false)
   const titleInputRef = useRef<HTMLInputElement>(null)
-  const chatInputRef = useRef<HTMLInputElement>(null)
+  const chatInputRef = useRef<HTMLTextAreaElement>(null)
   const [openError, setOpenError] = useState<string | null>(null)
 
   // Show "Saved" indicator briefly when session has summary
@@ -138,6 +138,15 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
       return () => clearTimeout(timer)
     }
   }, [session?.id, session?.summary])
+
+  // Auto-resize chat textarea
+  useEffect(() => {
+    const el = chatInputRef.current
+    if (el) {
+      el.style.height = 'auto'
+      el.style.height = Math.min(el.scrollHeight, 120) + 'px'
+    }
+  }, [chatInput])
 
   // Escape key to go back (unless editing title)
   useEffect(() => {
@@ -464,19 +473,27 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
                 </div>
 
                 {/* Summary text - editorial style */}
-                <div
-                  className={`font-display text-xl md:text-2xl leading-relaxed text-[var(--ink)] drop-cap ${showTypewriter ? 'cursor-pointer' : ''}`}
-                  onClick={() => showTypewriter && setShowTypewriter(false)}
-                  title={showTypewriter ? 'Click to skip animation' : undefined}
-                >
-                  {showTypewriter ? (
-                    <TypewriterText
-                      text={summary.text}
-                      onComplete={() => setShowTypewriter(false)}
-                    />
-                  ) : (
-                    summary.text
-                  )}
+                <div className="max-h-[500px] overflow-y-auto">
+                  <div
+                    className={`font-display text-xl md:text-2xl leading-relaxed text-[var(--ink)] ${summary.text ? 'drop-cap' : ''} ${showTypewriter ? 'cursor-pointer' : ''}`}
+                    onClick={() => showTypewriter && setShowTypewriter(false)}
+                    title={showTypewriter ? 'Click to skip animation' : undefined}
+                  >
+                    {summary.text ? (
+                      showTypewriter ? (
+                        <TypewriterText
+                          text={summary.text}
+                          onComplete={() => setShowTypewriter(false)}
+                        />
+                      ) : (
+                        summary.text
+                      )
+                    ) : (
+                      <span className="text-[var(--ink-muted)] italic">
+                        Session completed. No AI summary was generated.
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             </motion.section>
@@ -842,15 +859,16 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
               {/* Input */}
               <div className="flex items-center gap-3">
                 <label htmlFor="chat-input" className="sr-only">Ask a question about this session</label>
-                <input
+                <textarea
                   ref={chatInputRef}
                   id="chat-input"
-                  type="text"
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
                   onKeyDown={handleKeyDown}
                   placeholder="Ask anything about this session..."
-                  className="flex-1 px-5 py-3.5 rounded-xl border border-[var(--border-medium)] bg-[var(--paper)] text-[var(--ink)] placeholder:text-[var(--ink-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent transition-all duration-200"
+                  rows={1}
+                  className="flex-1 px-5 py-3.5 rounded-xl border border-[var(--border-medium)] bg-[var(--paper)] text-[var(--ink)] placeholder:text-[var(--ink-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent transition-all duration-200 resize-none"
+                  style={{ maxHeight: '120px', overflow: 'auto' }}
                 />
                 <motion.button
                   onClick={handleSendMessage}
