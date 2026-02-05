@@ -24,6 +24,15 @@ export default defineConfig({
   // Disable sourcemaps in production for security and bundle size
   build: {
     sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom'],
+          'vendor-motion': ['framer-motion'],
+          'vendor-icons': ['lucide-react'],
+        },
+      },
+    },
   },
   // Prevent Vite from clearing the terminal
   clearScreen: false,
