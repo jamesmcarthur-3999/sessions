@@ -27,6 +27,8 @@ pub struct ActivityMonitor {
     stop_flag: Arc<AtomicBool>,
     /// Whether monitoring has been started
     is_started: AtomicBool,
+    /// Thread handle for cleanup
+    thread_handle: std::sync::Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
 impl ActivityMonitor {
@@ -34,6 +36,7 @@ impl ActivityMonitor {
         Self {
             stop_flag: Arc::new(AtomicBool::new(false)),
             is_started: AtomicBool::new(false),
+            thread_handle: std::sync::Mutex::new(None),
         }
     }
 
@@ -54,7 +57,7 @@ impl ActivityMonitor {
         let stop_flag = self.stop_flag.clone();
 
         // Spawn monitoring thread
-        std::thread::spawn(move || {
+        let handle = std::thread::spawn(move || {
             let mut last_app: Option<String> = None;
             let mut last_window: Option<String> = None;
             // Adaptive polling: 3s normally, 1.5s after app switch for 10s
@@ -140,6 +143,10 @@ impl ActivityMonitor {
             println!("[ACTIVITY MONITOR] Monitoring thread exiting");
         });
 
+        if let Ok(mut h) = self.thread_handle.lock() {
+            *h = Some(handle);
+        }
+
         Ok(())
     }
 
@@ -150,6 +157,13 @@ impl ActivityMonitor {
         self.stop_flag.store(true, Ordering::SeqCst);
         // Mark as not started so it can be restarted
         self.is_started.store(false, Ordering::SeqCst);
+
+        // Join the monitoring thread
+        if let Ok(mut handle) = self.thread_handle.lock() {
+            if let Some(h) = handle.take() {
+                let _ = h.join();
+            }
+        }
     }
 
     /// Check if monitoring is active

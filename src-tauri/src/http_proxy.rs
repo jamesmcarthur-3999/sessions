@@ -84,11 +84,10 @@ pub async fn http_proxy(request: ProxyRequest) -> Result<ProxyResponse, String> 
     // Build headers
     let mut headers = HeaderMap::new();
     for (key, value) in &request.headers {
-        if let (Ok(name), Ok(val)) = (
-            HeaderName::from_str(key),
-            HeaderValue::from_str(value),
-        ) {
-            headers.insert(name, val);
+        match (HeaderName::from_str(key), HeaderValue::from_str(value)) {
+            (Ok(name), Ok(val)) => { headers.insert(name, val); }
+            (Err(e), _) => { eprintln!("[http_proxy] Skipping invalid header name '{}': {}", key, e); }
+            (_, Err(e)) => { eprintln!("[http_proxy] Skipping invalid header value for '{}': {}", key, e); }
         }
     }
 
@@ -151,11 +150,10 @@ pub async fn http_proxy_stream(
     // Build headers
     let mut headers = HeaderMap::new();
     for (key, value) in &request.headers {
-        if let (Ok(name), Ok(val)) = (
-            HeaderName::from_str(key),
-            HeaderValue::from_str(value),
-        ) {
-            headers.insert(name, val);
+        match (HeaderName::from_str(key), HeaderValue::from_str(value)) {
+            (Ok(name), Ok(val)) => { headers.insert(name, val); }
+            (Err(e), _) => { eprintln!("[http_proxy] Skipping invalid header name '{}': {}", key, e); }
+            (_, Err(e)) => { eprintln!("[http_proxy] Skipping invalid header value for '{}': {}", key, e); }
         }
     }
 

@@ -135,31 +135,42 @@ impl VideoRecorder {
                 return Err("Failed to create screen recorder".to_string());
             }
 
-            // Convert path to C string
-            let path_str = output_path
-                .to_str()
-                .ok_or("Invalid output path")?;
-            let c_path = CString::new(path_str)
-                .map_err(|_| "Failed to convert path to C string")?;
+            // Wrap in a closure that ensures destroy is called on any error after create
+            let start_result = (|| -> Result<bool, String> {
+                let path_str = output_path
+                    .to_str()
+                    .ok_or("Invalid output path")?;
+                let c_path = CString::new(path_str)
+                    .map_err(|_| "Failed to convert path to C string")?;
 
-            println!("🎬 Starting screen recording for session: {}", session_id);
-            println!("   Output: {:?}", output_path);
-            println!("   Quality: {}x{} @ {}fps", quality.width, quality.height, quality.fps);
+                println!("🎬 Starting screen recording for session: {}", session_id);
+                println!("   Output: {:?}", output_path);
+                println!("   Quality: {}x{} @ {}fps", quality.width, quality.height, quality.fps);
 
-            // Start recording
-            let success = unsafe {
-                screen_recorder_start(
-                    recorder,
-                    c_path.as_ptr(),
-                    quality.width as i32,
-                    quality.height as i32,
-                    quality.fps as i32,
-                )
-            };
+                let success = unsafe {
+                    screen_recorder_start(
+                        recorder,
+                        c_path.as_ptr(),
+                        quality.width as i32,
+                        quality.height as i32,
+                        quality.fps as i32,
+                    )
+                };
+                Ok(success)
+            })();
 
-            if !success {
-                unsafe { screen_recorder_destroy(recorder) };
-                return Err("Failed to start screen recording. Check console for details.".to_string());
+            match start_result {
+                Ok(true) => {
+                    // Success - store recorder
+                }
+                Ok(false) => {
+                    unsafe { screen_recorder_destroy(recorder) };
+                    return Err("Failed to start screen recording. Check console for details.".to_string());
+                }
+                Err(e) => {
+                    unsafe { screen_recorder_destroy(recorder) };
+                    return Err(e);
+                }
             }
 
             self.swift_recorder = Some(recorder);
