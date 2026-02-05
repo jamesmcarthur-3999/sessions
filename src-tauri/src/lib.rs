@@ -26,22 +26,23 @@ fn lock_or_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 // Screenshot Capture
 // ============================================================================
 
-/// Helper function for retry with exponential backoff
-fn capture_with_retry<F, T>(operation: F, max_retries: u32) -> Result<T, String>
+/// Helper function for retry with exponential backoff (async, non-blocking)
+async fn capture_with_retry<F, Fut, T>(operation: F, max_retries: u32) -> Result<T, String>
 where
-    F: Fn() -> Result<T, String>,
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Result<T, String>>,
 {
     let mut last_error = String::new();
 
     for attempt in 0..max_retries {
-        match operation() {
+        match operation().await {
             Ok(result) => return Ok(result),
             Err(e) => {
                 last_error = e.clone();
                 if attempt < max_retries - 1 {
                     let delay_ms = 100 * 2_u64.pow(attempt);
                     eprintln!("Screenshot capture failed (attempt {}), retrying in {}ms: {}", attempt + 1, delay_ms, e);
-                    std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
                 }
             }
         }
@@ -115,32 +116,36 @@ fn get_screens() -> Result<Vec<serde_json::Value>, String> {
 
 /// Captures a specific screen (or primary if not specified) and returns base64-encoded PNG data
 #[tauri::command]
-fn capture_screenshot(screen_id: Option<String>) -> Result<String, String> {
+async fn capture_screenshot(screen_id: Option<String>) -> Result<String, String> {
     capture_with_retry(|| {
-        let screens = Screen::all().map_err(|e| format!("Failed to get screens: {}", e))?;
+        let sid = screen_id.clone();
+        async move {
+            tokio::task::spawn_blocking(move || {
+                let screens = Screen::all().map_err(|e| format!("Failed to get screens: {}", e))?;
 
-        if screens.is_empty() {
-            return Err("No screens found".to_string());
+                if screens.is_empty() {
+                    return Err("No screens found".to_string());
+                }
+
+                let screen_idx: usize = sid
+                    .as_ref()
+                    .and_then(|id| id.parse().ok())
+                    .unwrap_or(0);
+
+                let screen = screens.get(screen_idx).unwrap_or(&screens[0]);
+                let image = screen.capture().map_err(|e| format!("Failed to capture screen: {}", e))?;
+
+                let mut bytes: Vec<u8> = Vec::new();
+                let mut cursor = Cursor::new(&mut bytes);
+                image
+                    .write_to(&mut cursor, ImageFormat::Png)
+                    .map_err(|e| format!("Failed to encode PNG: {}", e))?;
+
+                let base64_data = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
+                Ok(format!("data:image/png;base64,{}", base64_data))
+            }).await.map_err(|e| format!("Task panicked: {}", e))?
         }
-
-        // Select screen by ID (index) or default to first
-        let screen_idx: usize = screen_id
-            .as_ref()
-            .and_then(|id| id.parse().ok())
-            .unwrap_or(0);
-
-        let screen = screens.get(screen_idx).unwrap_or(&screens[0]);
-        let image = screen.capture().map_err(|e| format!("Failed to capture screen: {}", e))?;
-
-        let mut bytes: Vec<u8> = Vec::new();
-        let mut cursor = Cursor::new(&mut bytes);
-        image
-            .write_to(&mut cursor, ImageFormat::Png)
-            .map_err(|e| format!("Failed to encode PNG: {}", e))?;
-
-        let base64_data = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
-        Ok(format!("data:image/png;base64,{}", base64_data))
-    }, 3)
+    }, 3).await
 }
 
 /// Captures an optimized screenshot for session recording
@@ -148,100 +153,111 @@ fn capture_screenshot(screen_id: Option<String>) -> Result<String, String> {
 /// - Uses JPEG encoding for ~10x smaller file size than PNG
 /// - Returns base64-encoded JPEG data
 #[tauri::command]
-fn capture_screenshot_optimized(
+async fn capture_screenshot_optimized(
     screen_id: Option<String>,
     max_width: Option<u32>,
     quality: Option<u8>,
 ) -> Result<String, String> {
     capture_with_retry(|| {
-        let screens = Screen::all().map_err(|e| format!("Failed to get screens: {}", e))?;
+        let sid = screen_id.clone();
+        let mw = max_width;
+        let q = quality;
+        async move {
+            tokio::task::spawn_blocking(move || {
+                let screens = Screen::all().map_err(|e| format!("Failed to get screens: {}", e))?;
 
-        if screens.is_empty() {
-            return Err("No screens found".to_string());
+                if screens.is_empty() {
+                    return Err("No screens found".to_string());
+                }
+
+                let screen_idx: usize = sid
+                    .as_ref()
+                    .and_then(|id| id.parse().ok())
+                    .unwrap_or(0);
+
+                let screen = screens.get(screen_idx).unwrap_or(&screens[0]);
+                let image = screen.capture().map_err(|e| format!("Failed to capture screen: {}", e))?;
+
+                // Default to 1920px width max (good balance of quality vs size)
+                let target_width = mw.unwrap_or(1920);
+                // Default JPEG quality 80 (good quality, reasonable size)
+                let jpeg_quality = q.unwrap_or(80);
+
+                // Resize if larger than target
+                let final_image = if image.width() > target_width {
+                    let scale = target_width as f32 / image.width() as f32;
+                    let new_height = (image.height() as f32 * scale) as u32;
+                    screenshots::image::imageops::resize(
+                        &image,
+                        target_width,
+                        new_height,
+                        screenshots::image::imageops::FilterType::Triangle,
+                    )
+                } else {
+                    image.clone()
+                };
+
+                // Encode as JPEG (much smaller than PNG)
+                let mut bytes: Vec<u8> = Vec::new();
+                let mut cursor = Cursor::new(&mut bytes);
+
+                let encoder = screenshots::image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, jpeg_quality);
+                final_image.write_with_encoder(encoder)
+                    .map_err(|e| format!("Failed to encode JPEG: {}", e))?;
+
+                let base64_data = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
+                Ok(format!("data:image/jpeg;base64,{}", base64_data))
+            }).await.map_err(|e| format!("Task panicked: {}", e))?
         }
-
-        let screen_idx: usize = screen_id
-            .as_ref()
-            .and_then(|id| id.parse().ok())
-            .unwrap_or(0);
-
-        let screen = screens.get(screen_idx).unwrap_or(&screens[0]);
-        let image = screen.capture().map_err(|e| format!("Failed to capture screen: {}", e))?;
-
-        // Default to 1920px width max (good balance of quality vs size)
-        let target_width = max_width.unwrap_or(1920);
-        // Default JPEG quality 80 (good quality, reasonable size)
-        let jpeg_quality = quality.unwrap_or(80);
-
-        // Resize if larger than target
-        let final_image = if image.width() > target_width {
-            let scale = target_width as f32 / image.width() as f32;
-            let new_height = (image.height() as f32 * scale) as u32;
-            screenshots::image::imageops::resize(
-                &image,
-                target_width,
-                new_height,
-                screenshots::image::imageops::FilterType::Triangle,
-            )
-        } else {
-            image.clone()
-        };
-
-        // Encode as JPEG (much smaller than PNG)
-        let mut bytes: Vec<u8> = Vec::new();
-        let mut cursor = Cursor::new(&mut bytes);
-
-        let encoder = screenshots::image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, jpeg_quality);
-        final_image.write_with_encoder(encoder)
-            .map_err(|e| format!("Failed to encode JPEG: {}", e))?;
-
-        let base64_data = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
-        Ok(format!("data:image/jpeg;base64,{}", base64_data))
-    }, 3)
+    }, 3).await
 }
 
 /// Captures a test screenshot and returns a smaller thumbnail for preview
 #[tauri::command]
-fn test_capture_screenshot(screen_id: Option<String>) -> Result<String, String> {
+async fn test_capture_screenshot(screen_id: Option<String>) -> Result<String, String> {
     capture_with_retry(|| {
-        let screens = Screen::all().map_err(|e| format!("Failed to get screens: {}", e))?;
+        let sid = screen_id.clone();
+        async move {
+            tokio::task::spawn_blocking(move || {
+                let screens = Screen::all().map_err(|e| format!("Failed to get screens: {}", e))?;
 
-        if screens.is_empty() {
-            return Err("No screens found".to_string());
+                if screens.is_empty() {
+                    return Err("No screens found".to_string());
+                }
+
+                let screen_idx: usize = sid
+                    .as_ref()
+                    .and_then(|id| id.parse().ok())
+                    .unwrap_or(0);
+
+                let screen = screens.get(screen_idx).unwrap_or(&screens[0]);
+                let image = screen.capture().map_err(|e| format!("Failed to capture screen: {}", e))?;
+
+                // Resize to thumbnail (max 400px width for preview)
+                let thumbnail = if image.width() > 400 {
+                    let scale = 400.0 / image.width() as f32;
+                    let new_height = (image.height() as f32 * scale) as u32;
+                    screenshots::image::imageops::resize(
+                        &image,
+                        400,
+                        new_height,
+                        screenshots::image::imageops::FilterType::Triangle,
+                    )
+                } else {
+                    image.clone()
+                };
+
+                let mut bytes: Vec<u8> = Vec::new();
+                let mut cursor = Cursor::new(&mut bytes);
+                thumbnail
+                    .write_to(&mut cursor, ImageFormat::Png)
+                    .map_err(|e| format!("Failed to encode PNG: {}", e))?;
+
+                let base64_data = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
+                Ok(format!("data:image/png;base64,{}", base64_data))
+            }).await.map_err(|e| format!("Task panicked: {}", e))?
         }
-
-        // Select screen by ID (index) or default to first
-        let screen_idx: usize = screen_id
-            .as_ref()
-            .and_then(|id| id.parse().ok())
-            .unwrap_or(0);
-
-        let screen = screens.get(screen_idx).unwrap_or(&screens[0]);
-        let image = screen.capture().map_err(|e| format!("Failed to capture screen: {}", e))?;
-
-        // Resize to thumbnail (max 400px width for preview)
-        let thumbnail = if image.width() > 400 {
-            let scale = 400.0 / image.width() as f32;
-            let new_height = (image.height() as f32 * scale) as u32;
-            screenshots::image::imageops::resize(
-                &image,
-                400,
-                new_height,
-                screenshots::image::imageops::FilterType::Triangle,
-            )
-        } else {
-            image.clone()
-        };
-
-        let mut bytes: Vec<u8> = Vec::new();
-        let mut cursor = Cursor::new(&mut bytes);
-        thumbnail
-            .write_to(&mut cursor, ImageFormat::Png)
-            .map_err(|e| format!("Failed to encode PNG: {}", e))?;
-
-        let base64_data = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
-        Ok(format!("data:image/png;base64,{}", base64_data))
-    }, 3)
+    }, 3).await
 }
 
 // ============================================================================

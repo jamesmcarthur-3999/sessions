@@ -19,7 +19,7 @@ import { sessionRecorder, isTauri, checkScreenRecordingPermission, requestScreen
 import { createSession, updateSessionStatus, updateSessionTitle, updateSessionVideoPath, saveSessionSummary, getRollingSummary, getInsights, getAudioChunks, getScreenshots } from '../services/database'
 import { sessionBridge } from '../services/session-bridge'
 import { smartCapture } from '../services/smart-capture'
-import { createFinalSummaryPipeline, buildFinalSummaryInput, initializeBots, isBotsReady, type FinalSummary } from '../services/bots'
+import { aiWorker } from '../services/worker/ai-worker-client'
 import { generateId } from '../utils/id'
 import { logger } from '../utils/logger'
 import { useToast } from './Toast'
@@ -168,6 +168,7 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
 
           // Mark session as successfully started
           sessionStarted = true
+          startTimeRef.current = Date.now() // Reset timer to actual recording start
 
           if (isCleaningUp) {
             // Cleanup was triggered while we were starting - clean up now
@@ -451,17 +452,20 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
       setProcessingPercent(60)
 
       let summary: Summary
-      await initializeBots()
 
       const hasContent =
         rollingSummary?.content ||
         (insights && insights.length > 0) ||
         (audioChunks && audioChunks.some(c => c.transcript)) ||
         (dbScreenshots && dbScreenshots.some(s => s.analysis))
+      logger.info('[SessionRecording] hasContent:', !!hasContent, 'duration:', duration, 'rollingSummary:', !!rollingSummary?.content, 'insights:', insights?.length, 'audioChunks with transcript:', audioChunks?.filter(c => c.transcript).length, 'screenshots with analysis:', dbScreenshots?.filter(s => s.analysis).length)
 
-      if (isBotsReady() && (hasContent || duration >= 60)) {
-        const finalBot = createFinalSummaryPipeline()
-        const input = buildFinalSummaryInput({
+      if (hasContent || duration >= 60) {
+        // Generate final summary through the worker (off main thread)
+        logger.info('[SessionRecording] Generating AI final summary via worker...')
+        setProcessingPercent(70)
+
+        const result = await aiWorker.generateFinalSummary({
           rollingSummary,
           insights: insights || [],
           audioChunks: audioChunks || [],
@@ -469,41 +473,49 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
           durationSeconds: duration,
           title: sessionTitle || 'Untitled Session',
         })
+        logger.info('[SessionRecording] Final summary result:', result.text ? 'success' : 'null', result.error || '')
 
-        setProcessingPercent(70)
-        const result = await finalBot.process(input) as unknown as FinalSummary | null
+        if (result.error) {
+          // Worker couldn't generate — build fallback
+          logger.warn('[SessionRecording] Worker error, using fallback:', result.error)
+          const transcriptText = audioChunks
+            ?.filter(c => c.transcript)
+            ?.map(c => c.transcript)
+            ?.join(' ') || ''
 
-        summary = {
-          text: result?.text ?? 'Session completed.',
-          tasks: (result?.tasks ?? []).map((t: string) => ({
-            id: generateId(),
-            title: t,
-            completed: false,
-          })),
-          notes: (result?.notes ?? []).map((n: string) => ({
-            id: generateId(),
-            content: n,
-          })),
-          generatedAt: new Date().toISOString(),
+          const summaryText = rollingSummary?.content
+            || (transcriptText
+              ? `Session transcript: ${transcriptText.slice(0, 1000)}...`
+              : `Session recorded for ${Math.floor(duration / 60)} minutes.`)
+
+          summary = {
+            text: summaryText + '\n\nConfigure your Claude API key in Settings to enable AI-powered summaries.',
+            tasks: [],
+            notes: (insights || []).slice(0, 10).map(i => ({
+              id: generateId(),
+              content: i.content,
+            })),
+            generatedAt: new Date().toISOString(),
+          }
+        } else {
+          summary = {
+            text: result.text ?? 'Session completed.',
+            tasks: (result.tasks ?? []).map((t: string) => ({
+              id: generateId(),
+              title: t,
+              completed: false,
+            })),
+            notes: (result.notes ?? []).map((n: string) => ({
+              id: generateId(),
+              content: n,
+            })),
+            generatedAt: new Date().toISOString(),
+          }
         }
       } else {
-        // Build fallback summary from accumulated data even without active API
-        const transcriptText = audioChunks
-          ?.filter(c => c.transcript)
-          ?.map(c => c.transcript)
-          ?.join(' ') || ''
-
-        const summaryText = rollingSummary?.content
-          || (transcriptText
-            ? `Session transcript: ${transcriptText.slice(0, 1000)}...`
-            : `Session recorded for ${Math.floor(duration / 60)} minutes.`)
-
-        const apiNote = !isBotsReady()
-          ? '\n\nConfigure your Claude API key in Settings to enable AI-powered summaries.'
-          : ''
-
+        // Not enough content even for AI
         summary = {
-          text: summaryText + apiNote,
+          text: `Session recorded for ${Math.floor(duration / 60)} minutes.`,
           tasks: [],
           notes: (insights || []).slice(0, 10).map(i => ({
             id: generateId(),
