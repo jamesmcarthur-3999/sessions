@@ -90,6 +90,19 @@ export type WorkerMessage =
       durationSeconds: number;
       title: string;
     })
+  | (BaseMessage & {
+      type: 'start-live-transcription';
+      sessionId: string;
+    })
+  | (BaseMessage & {
+      type: 'send-audio-pcm';
+      sessionId: string;
+      audioData: ArrayBuffer; // Transferred, not copied
+    })
+  | (BaseMessage & {
+      type: 'stop-live-transcription';
+      sessionId: string;
+    })
   | (BaseMessage & { type: 'stop' });
 
 // ============================================================================
@@ -190,6 +203,30 @@ export type WorkerResponse =
       tasks: string[];
       notes: string[];
       error?: string;
+    })
+  | (BaseResponse & {
+      type: 'live-transcription-started';
+      sessionId: string;
+    })
+  | (BaseResponse & {
+      type: 'live-transcription-stopped';
+      sessionId: string;
+    })
+  | (BaseResponse & {
+      type: 'live-transcript';
+      sessionId: string;
+      text: string;
+      isFinal: boolean;
+      confidence?: number;
+      words?: Array<{ word: string; start: number; end: number; confidence?: number }>;
+    })
+  | (BaseResponse & {
+      type: 'live-speech-started';
+      sessionId: string;
+    })
+  | (BaseResponse & {
+      type: 'live-speech-ended';
+      sessionId: string;
     })
   | (BaseResponse & {
       type: 'error';

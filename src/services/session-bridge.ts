@@ -28,6 +28,7 @@ import {
   updateScreenshotAnalysis,
   saveChatMessage,
   updateAudioTranscript,
+  saveLiveTranscript,
 } from './database';
 import type { DbInsight } from '../types/database';
 import { logger } from '../utils/logger';
@@ -60,6 +61,14 @@ export type SessionBridgeEvents = {
   'error': { sessionId: string; error: string };
   'transcription-start': { sessionId: string };
   'transcription-complete': { sessionId: string; text: string };
+  'live-transcript': {
+    sessionId: string;
+    text: string;
+    isFinal: boolean;
+    confidence?: number;
+  };
+  'live-speech-started': { sessionId: string };
+  'live-speech-ended': { sessionId: string };
 };
 
 type EventCallback<K extends keyof SessionBridgeEvents> = (data: SessionBridgeEvents[K]) => void;
@@ -422,12 +431,7 @@ class SessionBridgeService {
         this.completeInflightOp(data.sessionId, data.chunkId);
       }
 
-      // Check pause state (fixes D2)
-      if (this.pausedSessions.has(data.sessionId)) {
-        logger.debug('[SESSION BRIDGE] Skipping transcription persist (paused)');
-        return;
-      }
-
+      // Always persist transcription even when paused — the audio was already recorded
       try {
         // Update audio chunk with transcript
         await updateAudioTranscript(data.sessionId, data.chunkId, data.text);
@@ -440,6 +444,39 @@ class SessionBridgeService {
       } catch (error) {
         logger.error('[SESSION BRIDGE] Failed to persist transcription:', error);
       }
+    });
+
+    // Live transcript events - persist finals, forward all to UI
+    const unsubLiveTranscript = aiWorker.on('live-transcript', async (data) => {
+      if (!this.activeSessions.has(data.sessionId)) return;
+
+      // Forward all events to UI (including interim results)
+      this.emitter.emit('live-transcript', {
+        sessionId: data.sessionId,
+        text: data.text,
+        isFinal: data.isFinal,
+        confidence: data.confidence,
+      });
+
+      // Only persist final transcripts to database
+      if (data.isFinal && data.text.trim()) {
+        try {
+          // INSERT a new row for live transcripts (they don't correspond to a WAV chunk)
+          await saveLiveTranscript(data.sessionId, `live_${Date.now()}`, data.text);
+        } catch (error) {
+          logger.error('[SESSION BRIDGE] Failed to persist live transcript:', error);
+        }
+      }
+    });
+
+    const unsubLiveSpeechStarted = aiWorker.on('live-speech-started', (data) => {
+      if (!this.activeSessions.has(data.sessionId)) return;
+      this.emitter.emit('live-speech-started', data);
+    });
+
+    const unsubLiveSpeechEnded = aiWorker.on('live-speech-ended', (data) => {
+      if (!this.activeSessions.has(data.sessionId)) return;
+      this.emitter.emit('live-speech-ended', data);
     });
 
     // State changes - log for debugging
@@ -464,6 +501,9 @@ class SessionBridgeService {
       unsubTiming,
       unsubTranscriptionStart,
       unsubTranscription,
+      unsubLiveTranscript,
+      unsubLiveSpeechStarted,
+      unsubLiveSpeechEnded,
       unsubStateChange,
       unsubError,
     ];
@@ -498,7 +538,7 @@ class SessionBridgeService {
         .filter((c) => c.transcript)
         .slice(-5)
         .map((c) => c.transcript!),
-      recentInsights: insights.slice(0, 10).map((i) => i.content),
+      recentInsights: insights.slice(-10).map((i) => i.content),
       durationSeconds: session.duration_seconds || 0,
       analysisMode: session.analysis_mode === 'deep' ? 'deep' : 'ambient',
     };

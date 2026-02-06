@@ -233,6 +233,8 @@ class SessionRecordingController {
   private state: SessionRecordingState | null = null
   private screenshotInterval: ReturnType<typeof setInterval> | null = null
   private audioChunkListener: UnlistenFn | null = null
+  private audioPcmListener: UnlistenFn | null = null
+  private liveTranscriptionActive = false
 
   async startRecording(sessionId: string, options: Partial<RecordingOptions> = {}): Promise<RecordingStartResult> {
     if (this.state?.isRecording) {
@@ -312,6 +314,41 @@ class SessionRecordingController {
           });
           logger.debug('🎤 Audio chunk listener started')
           audioStarted = true
+
+          // Start live transcription (streaming via WebSocket)
+          try {
+            await aiWorker.startLiveTranscription(sessionId)
+            this.liveTranscriptionActive = true
+            logger.info('🎤 Live transcription started')
+
+            // Listen for PCM audio chunks from Rust and forward to worker
+            this.audioPcmListener = await listen<{
+              sessionId: string;
+              pcmBase64: string;
+              sampleRate: number;
+              encoding: string;
+            }>('audio-pcm', (event) => {
+              if (!this.state?.isRecording || this.state?.isPaused) return
+
+              try {
+                // Decode base64 to binary
+                const binaryString = atob(event.payload.pcmBase64)
+                const bytes = new Uint8Array(binaryString.length)
+                for (let i = 0; i < binaryString.length; i++) {
+                  bytes[i] = binaryString.charCodeAt(i)
+                }
+                // Send to worker with zero-copy transfer
+                aiWorker.sendAudioPCM(event.payload.sessionId, bytes.buffer as ArrayBuffer)
+              } catch (e) {
+                logger.error('Failed to forward PCM audio:', e)
+              }
+            })
+            logger.debug('🎤 PCM audio listener started')
+          } catch (e) {
+            logger.warn('Live transcription failed to start, falling back to batch:', e)
+            this.liveTranscriptionActive = false
+            // Batch transcription (existing WAV flow) will still work as fallback
+          }
         } catch (e) {
           logger.error('Failed to start audio recording:', e)
           errors.push(`Audio recording failed: ${e instanceof Error ? e.message : 'Unknown error'}`)
@@ -493,6 +530,23 @@ class SessionRecordingController {
     // Stop audio recording if it was enabled
     // IMPORTANT: Stop backend FIRST, then remove listener to avoid losing final chunks
     if (isTauri() && options.enableAudio) {
+      // Stop live transcription first (closes WebSocket)
+      if (this.liveTranscriptionActive && this.state) {
+        try {
+          await aiWorker.stopLiveTranscription(this.state.sessionId)
+          logger.info('🎤 Live transcription stopped')
+        } catch (e) {
+          logger.error('Failed to stop live transcription:', e)
+        }
+        this.liveTranscriptionActive = false
+      }
+
+      // Remove PCM listener
+      if (this.audioPcmListener) {
+        this.audioPcmListener()
+        this.audioPcmListener = null
+      }
+
       try {
         await stopAudioRecording()
         logger.info('🎤 Audio recording stopped')

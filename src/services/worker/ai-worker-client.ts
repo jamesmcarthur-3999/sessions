@@ -30,6 +30,17 @@ export type AiWorkerEvents = {
   };
   'transcription-start': { sessionId: string };
   'transcription-complete': { sessionId: string; chunkId: string; text: string };
+  'live-transcription-started': { sessionId: string };
+  'live-transcription-stopped': { sessionId: string };
+  'live-transcript': {
+    sessionId: string;
+    text: string;
+    isFinal: boolean;
+    confidence?: number;
+    words?: Array<{ word: string; start: number; end: number; confidence?: number }>;
+  };
+  'live-speech-started': { sessionId: string };
+  'live-speech-ended': { sessionId: string };
   'summary-updated': {
     sessionId: string;
     summary: string;
@@ -247,6 +258,32 @@ class AiWorkerClient {
         });
         break;
 
+      case 'live-transcription-started':
+        this.emitter.emit('live-transcription-started', { sessionId: msg.sessionId });
+        break;
+
+      case 'live-transcription-stopped':
+        this.emitter.emit('live-transcription-stopped', { sessionId: msg.sessionId });
+        break;
+
+      case 'live-transcript':
+        this.emitter.emit('live-transcript', {
+          sessionId: msg.sessionId,
+          text: msg.text,
+          isFinal: msg.isFinal,
+          confidence: msg.confidence,
+          words: msg.words,
+        });
+        break;
+
+      case 'live-speech-started':
+        this.emitter.emit('live-speech-started', { sessionId: msg.sessionId });
+        break;
+
+      case 'live-speech-ended':
+        this.emitter.emit('live-speech-ended', { sessionId: msg.sessionId });
+        break;
+
       case 'summary-updated':
         if (msg.id) {
           this.requestManager.complete(msg.id, msg);
@@ -442,6 +479,58 @@ class AiWorkerClient {
 
     // Use postMessage with Transferable for zero-copy transfer
     this.worker.postMessage(message, [audioData]);
+  }
+
+  // ============================================================================
+  // Public API - Live Transcription
+  // ============================================================================
+
+  /**
+   * Start a live transcription session (WebSocket-based streaming).
+   * Transcript events arrive via 'live-transcript' event.
+   */
+  async startLiveTranscription(sessionId: string): Promise<void> {
+    await this.initialize();
+    this.send({
+      type: 'start-live-transcription',
+      id: this.requestManager.generateId(),
+      timestamp: Date.now(),
+      sessionId,
+    });
+  }
+
+  /**
+   * Send raw PCM audio data to the live transcription session.
+   * Uses Transferable for zero-copy transfer to worker.
+   * Fire-and-forget — no response expected, uses static ID to avoid
+   * unnecessary RequestManager allocations (~2 calls/sec).
+   */
+  sendAudioPCM(sessionId: string, audioData: ArrayBuffer): void {
+    if (!this.worker) return;
+
+    this.worker.postMessage(
+      {
+        type: 'send-audio-pcm' as const,
+        id: 'pcm', // Static ID — fire-and-forget, no correlation needed
+        timestamp: Date.now(),
+        sessionId,
+        audioData,
+      },
+      [audioData]
+    );
+  }
+
+  /**
+   * Stop the live transcription session.
+   */
+  async stopLiveTranscription(sessionId: string): Promise<void> {
+    await this.initialize();
+    this.send({
+      type: 'stop-live-transcription',
+      id: this.requestManager.generateId(),
+      timestamp: Date.now(),
+      sessionId,
+    });
   }
 
   // ============================================================================

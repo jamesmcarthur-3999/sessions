@@ -518,6 +518,26 @@ export async function updateAudioTranscript(
   );
 }
 
+/**
+ * Save a live transcript as an audio_chunks row.
+ * Live transcripts come from WebSocket streaming and don't have a WAV file.
+ * Uses file_path='live' as a sentinel to distinguish from batch transcripts.
+ */
+export async function saveLiveTranscript(
+  sessionId: string,
+  chunkId: string,
+  transcript: string
+): Promise<void> {
+  const db = await ensureDb();
+  const globalId = `${sessionId}/${chunkId}`;
+  const now = new Date().toISOString();
+  await db.execute(
+    `INSERT OR IGNORE INTO audio_chunks (id, session_id, start_time, end_time, duration_seconds, file_path, transcript)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [globalId, sessionId, now, now, 0, 'live', transcript]
+  );
+}
+
 export async function getAudioChunks(sessionId: string): Promise<DbAudioChunk[]> {
   const db = await ensureDb();
   return db.select<DbAudioChunk[]>(

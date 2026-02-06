@@ -22,6 +22,7 @@ import type {
 import { MessageQueue } from './message-queue';
 import { WorkerStateMachine } from './worker-state';
 import type { WorkerState } from './worker-state';
+import type { LiveSession, SessionEvent } from './live-transcription';
 
 // ============================================================================
 // State
@@ -36,6 +37,9 @@ let openaiKey: string | null = null;
 // Baleybots module - loaded dynamically
 let baleybots: typeof import('@baleybots/core') | null = null;
 let botsModule: typeof import('../bots') | null = null;
+
+// Live transcription session (runs independently of message queue)
+let liveSession: LiveSession | null = null;
 
 // ============================================================================
 // Helpers
@@ -390,6 +394,10 @@ async function analyzeScreenshotBinary(
 // Binary Audio Transcription (Zero-Copy Transfer)
 // ============================================================================
 
+// Concurrency guard for batch transcription
+let batchTranscriptionCount = 0;
+const MAX_BATCH_TRANSCRIPTIONS = 3;
+
 async function transcribeAudioBinary(
   msg: Extract<WorkerMessage, { type: 'transcribe-audio-binary' }>
 ): Promise<void> {
@@ -405,14 +413,20 @@ async function transcribeAudioBinary(
     return;
   }
 
-  transitionState('PROCESSING', 'Transcribing audio (binary)');
+  if (batchTranscriptionCount >= MAX_BATCH_TRANSCRIPTIONS) {
+    log('warn', `Skipping batch transcription — ${batchTranscriptionCount} already in flight`);
+    return;
+  }
+
+  batchTranscriptionCount++;
 
   try {
     send({ type: 'transcription-start', sessionId });
 
     const input = botsModule.buildTranscriberInput(audioData);
     const text = (await withRetry(() =>
-      botsModule!.createTranscriberBot().process(input)
+      botsModule!.createTranscriberBot().process(input),
+      2, // Reduced retries — prefer skipping a chunk over 60s+ of retries
     )) as unknown as string;
 
     send({ type: 'transcription-complete', id, sessionId, chunkId, text: text || '' });
@@ -421,13 +435,114 @@ async function transcribeAudioBinary(
     if (text?.trim()) {
       send({ type: 'request-summary-update', sessionId });
     }
-
-    transitionState('INITIALIZED', 'Transcription complete');
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     log('error', `Transcription failed: ${message}`);
     send({ type: 'error', id, sessionId, error: `Audio transcription failed: ${message}` });
-    transitionState('INITIALIZED', 'Transcription failed');
+  } finally {
+    batchTranscriptionCount--;
+  }
+}
+
+// ============================================================================
+// Live Transcription (bypasses message queue)
+// ============================================================================
+
+async function handleStartLiveTranscription(
+  msg: Extract<WorkerMessage, { type: 'start-live-transcription' }>
+): Promise<void> {
+  const { sessionId, id } = msg;
+
+  if (!openaiKey) {
+    send({ type: 'error', id, sessionId, error: 'OpenAI API key not configured for live transcription' });
+    return;
+  }
+
+  // Close existing session if any
+  if (liveSession) {
+    try { liveSession.close(); } catch { /* ignore */ }
+    liveSession = null;
+  }
+
+  try {
+    const { startLiveTranscription } = await import('./live-transcription');
+
+    const onEvent = (event: SessionEvent): void => {
+      switch (event.kind) {
+        case 'transcript':
+          send({
+            type: 'live-transcript',
+            sessionId,
+            text: event.event.text,
+            isFinal: event.event.isFinal,
+            confidence: event.event.confidence,
+            words: event.event.words,
+          });
+          // Request summary update on final transcripts
+          if (event.event.isFinal && event.event.text.trim()) {
+            send({ type: 'request-summary-update', sessionId });
+          }
+          break;
+        case 'speech_started':
+          send({ type: 'live-speech-started', sessionId });
+          break;
+        case 'speech_ended':
+          send({ type: 'live-speech-ended', sessionId });
+          break;
+        case 'error':
+          log('error', `Live transcription error: ${event.error.message}`);
+          send({ type: 'error', id: undefined, sessionId, error: event.error.message });
+          break;
+      }
+    };
+
+    liveSession = await startLiveTranscription(openaiKey, onEvent);
+
+    send({ type: 'live-transcription-started', sessionId });
+    log('info', `Live transcription started for session ${sessionId}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log('error', `Failed to start live transcription: ${message}`);
+    send({ type: 'error', id, sessionId, error: `Live transcription failed: ${message}` });
+  }
+}
+
+function handleSendAudioPCM(
+  msg: Extract<WorkerMessage, { type: 'send-audio-pcm' }>
+): void {
+  if (!liveSession || liveSession.state === 'closed') {
+    return; // Silently drop — session not active
+  }
+
+  try {
+    liveSession.sendAudio(msg.audioData);
+  } catch (error) {
+    log('error', `Failed to send audio PCM: ${error}`);
+  }
+}
+
+async function handleStopLiveTranscription(
+  msg: Extract<WorkerMessage, { type: 'stop-live-transcription' }>
+): Promise<void> {
+  const { sessionId, id } = msg;
+
+  if (!liveSession) {
+    log('warn', 'No active live transcription session to stop');
+    send({ type: 'live-transcription-stopped', sessionId });
+    return;
+  }
+
+  try {
+    liveSession.close();
+    liveSession = null;
+    send({ type: 'live-transcription-stopped', sessionId });
+    log('info', `Live transcription stopped for session ${sessionId}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log('error', `Failed to stop live transcription: ${message}`);
+    send({ type: 'error', id, sessionId, error: message });
+    // Force cleanup
+    liveSession = null;
   }
 }
 
@@ -745,9 +860,7 @@ async function handleMessage(msg: WorkerMessage): Promise<void> {
       await analyzeScreenshotBinary(msg);
       break;
 
-    case 'transcribe-audio-binary':
-      await transcribeAudioBinary(msg);
-      break;
+    // transcribe-audio-binary is routed directly in self.onmessage (bypasses queue)
 
     case 'update-summary':
       await updateSummary(msg);
@@ -797,9 +910,41 @@ messageQueue.setErrorHandler((error, msg) => {
   send({ type: 'error', sessionId: '', error: error.message });
 });
 
-// Main message receiver - enqueues messages for sequential processing
+// Main message receiver
+// Live transcription and batch transcription bypass the queue for low latency.
+// All other messages are enqueued for sequential processing.
 self.onmessage = (event: MessageEvent<WorkerMessage>) => {
-  messageQueue.enqueue(event.data);
+  const msg = event.data;
+
+  switch (msg.type) {
+    // Live transcription — runs independently, never blocks the queue
+    case 'start-live-transcription':
+      handleStartLiveTranscription(msg).catch((e) =>
+        log('error', `start-live-transcription handler error: ${e}`)
+      );
+      return;
+
+    case 'send-audio-pcm':
+      handleSendAudioPCM(msg);
+      return;
+
+    case 'stop-live-transcription':
+      handleStopLiveTranscription(msg).catch((e) =>
+        log('error', `stop-live-transcription handler error: ${e}`)
+      );
+      return;
+
+    // Batch transcription — also bypass queue (independent of AI pipelines)
+    case 'transcribe-audio-binary':
+      transcribeAudioBinary(msg).catch((e) =>
+        log('error', `transcribe-audio-binary handler error: ${e}`)
+      );
+      return;
+
+    default:
+      // All other messages go through the sequential queue
+      messageQueue.enqueue(msg);
+  }
 };
 
 // Bootstrap immediately when worker starts

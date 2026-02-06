@@ -9,6 +9,7 @@
  * - State management (recording/paused/stopped)
  */
 
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, SampleFormat, Stream, StreamConfig};
 use hound::{WavSpec, WavWriter};
@@ -28,10 +29,23 @@ const RMS_NORMALIZATION_FACTOR: f32 = 3.0;
 /// Emit audio level events every ~100ms at 48kHz
 const LEVEL_EMISSION_INTERVAL: u32 = 4800;
 
+/// Emit PCM chunks to frontend every 500ms for live transcription
+const PCM_EMISSION_INTERVAL: Duration = Duration::from_millis(500);
+
 /// Audio level event payload for frontend visualization
 #[derive(Clone, serde::Serialize)]
 struct AudioLevelEvent {
     level: f32,
+}
+
+/// PCM audio chunk event payload for live transcription
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AudioPcmEvent {
+    session_id: String,
+    pcm_base64: String,
+    sample_rate: u32,
+    encoding: String,
 }
 
 /// Audio recording state
@@ -278,6 +292,17 @@ impl AudioRecorder {
         Ok(stream)
     }
 
+    /// Convert f32 samples to PCM16 i16 bytes and encode as base64
+    fn samples_to_pcm16_base64(samples: &[f32]) -> String {
+        let mut bytes = Vec::with_capacity(samples.len() * 2);
+        for &sample in samples {
+            let clamped = sample.clamp(-1.0, 1.0);
+            let i16_sample = (clamped * i16::MAX as f32) as i16;
+            bytes.extend_from_slice(&i16_sample.to_le_bytes());
+        }
+        BASE64.encode(&bytes)
+    }
+
     /// Start background thread to process audio chunks
     fn start_chunk_processor(&self, sample_rate: u32) {
         let buffer = self.buffer.clone();
@@ -288,25 +313,99 @@ impl AudioRecorder {
         let chunk_counter = self.chunk_counter.clone();
 
         let handle = std::thread::spawn(move || {
-            loop {
-                std::thread::sleep(Duration::from_secs(1)); // Check every second
+            // PCM emission state — accumulates samples between 500ms emissions
+            let mut pcm_buffer: Vec<f32> = Vec::new();
+            let mut pcm_last_emit = Instant::now();
+            // Track last buffer length to detect new samples (avoid holding lock)
+            let mut last_known_buffer_len: usize = 0;
 
-                let Ok(s) = state.lock() else { break }; // Exit on lock failure
+            loop {
+                // Poll at 100ms for responsive PCM emission
+                std::thread::sleep(Duration::from_millis(100));
+
+                let Ok(s) = state.lock() else { break };
                 let current_state = s.clone();
+                drop(s);
 
                 if current_state == RecordingState::Stopped {
-                    break; // Exit thread when recording stopped
+                    break;
                 }
 
                 if current_state != RecordingState::Recording {
-                    continue; // Skip if paused
+                    continue;
                 }
 
-                // Atomically check readiness and take samples in one lock
+                // ── PCM emission path (every 500ms) ──────────────────────────
+                // Peek at current buffer to accumulate samples for PCM
+                {
+                    let Ok(b) = buffer.lock() else { continue };
+                    let current_len = b.samples.len();
+                    if current_len > last_known_buffer_len {
+                        // New samples since last check — copy them to PCM buffer
+                        pcm_buffer.extend_from_slice(&b.samples[last_known_buffer_len..]);
+                    }
+                    last_known_buffer_len = current_len;
+                }
+
+                if pcm_last_emit.elapsed() >= PCM_EMISSION_INTERVAL && !pcm_buffer.is_empty() {
+                    // Resample to 16kHz and emit
+                    let resampled = Self::resample_to_16khz(&pcm_buffer, sample_rate);
+                    pcm_buffer.clear();
+                    pcm_last_emit = Instant::now();
+
+                    if !resampled.is_empty() {
+                        let Ok(app) = app_handle.lock().map(|h| h.clone()) else { continue };
+                        let Ok(sess_id) = session_id.lock().map(|s| s.clone()) else { continue };
+
+                        if let (Some(app), Some(sid)) = (&app, &sess_id) {
+                            let pcm_base64 = Self::samples_to_pcm16_base64(&resampled);
+                            let event = AudioPcmEvent {
+                                session_id: sid.clone(),
+                                pcm_base64,
+                                sample_rate: TARGET_SAMPLE_RATE,
+                                encoding: "pcm16".to_string(),
+                            };
+                            let _ = app.emit("audio-pcm", event);
+                        }
+                    }
+                }
+
+                // ── WAV chunk archival path (existing behavior) ──────────────
                 let Ok(mut b) = buffer.lock() else { continue };
                 if !b.is_chunk_ready() { continue; }
                 let samples = b.take_samples();
+                last_known_buffer_len = 0; // Buffer was just drained
+
+                // Flush remaining PCM before clearing to avoid gaps in live transcription
+                if !pcm_buffer.is_empty() {
+                    let remaining = Self::resample_to_16khz(&pcm_buffer, sample_rate);
+                    if !remaining.is_empty() {
+                        let Ok(app) = app_handle.lock().map(|h| h.clone()) else {
+                            pcm_buffer.clear();
+                            drop(b);
+                            continue;
+                        };
+                        let Ok(sess_id) = session_id.lock().map(|s| s.clone()) else {
+                            pcm_buffer.clear();
+                            drop(b);
+                            continue;
+                        };
+                        if let (Some(app), Some(sid)) = (&app, &sess_id) {
+                            let pcm_base64 = Self::samples_to_pcm16_base64(&remaining);
+                            let event = AudioPcmEvent {
+                                session_id: sid.clone(),
+                                pcm_base64,
+                                sample_rate: TARGET_SAMPLE_RATE,
+                                encoding: "pcm16".to_string(),
+                            };
+                            let _ = app.emit("audio-pcm", event);
+                        }
+                    }
+                }
+                pcm_buffer.clear();
+                pcm_last_emit = Instant::now();
                 drop(b);
+
                 if samples.is_empty() {
                     continue;
                 }
@@ -330,16 +429,13 @@ impl AudioRecorder {
                 // Save WAV file to disk
                 match Self::samples_to_wav_file(&samples, sample_rate, 1, &file_path) {
                     Ok(()) => {
-                        // Get app handle and session ID
                         let Ok(app) = app_handle.lock().map(|h| h.clone()) else { continue };
                         let Ok(sess_id) = session_id.lock().map(|s| s.clone()) else { continue };
 
                         if let (Some(app), Some(sid)) = (app, sess_id) {
-                            // Calculate duration
                             let duration = samples.len() as f64 / sample_rate as f64;
                             let file_path_str = file_path.to_string_lossy().to_string();
 
-                            // Emit audio-chunk event to frontend with file path (not base64)
                             let payload = serde_json::json!({
                                 "sessionId": sid,
                                 "chunkId": chunk_id,
@@ -347,7 +443,6 @@ impl AudioRecorder {
                                 "duration": duration,
                             });
 
-                            // Emit with one retry to salvage transient failures
                             let payload_clone = payload.clone();
                             let emit_result = app.emit("audio-chunk", payload)
                                 .or_else(|_| {
@@ -357,7 +452,6 @@ impl AudioRecorder {
 
                             if let Err(e) = emit_result {
                                 eprintln!("❌ [AUDIO CAPTURE] Failed to emit audio-chunk event after retry: {}", e);
-                                // Clean up orphaned file since frontend won't know about it
                                 if let Err(del_err) = std::fs::remove_file(&file_path) {
                                     eprintln!("❌ [AUDIO CAPTURE] Failed to clean up orphaned file {}: {}", file_path.display(), del_err);
                                 }
