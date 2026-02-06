@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, lazy, Suspense } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { AppProvider, useApp } from './context/AppContext'
 import { Home } from './components/Home'
+import { SessionSetup } from './components/SessionSetup'
 import { ToastProvider } from './components/Toast'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
@@ -21,7 +22,7 @@ import { sessionBridge } from './services/session-bridge'
 import type { Session } from './types'
 import { logger } from './utils/logger'
 
-type View = 'home' | 'summary' | 'history' | 'capture' | 'recording' | 'settings'
+type View = 'home' | 'setup' | 'summary' | 'history' | 'capture' | 'recording' | 'settings'
 
 function AppContent() {
   const { state, dispatch } = useApp()
@@ -57,16 +58,21 @@ function AppContent() {
   }, [])
 
   const handleStartSession = useCallback(() => {
+    setShowCommandPalette(false)
+    setView('setup')
+  }, [])
+
+  const handleStartRecording = useCallback((config: import('./types').RecordingConfig) => {
     const session: Session = {
       id: generateId(),
       type: 'session',
       title: 'New Session',
       createdAt: new Date().toISOString(),
+      recordingConfig: config,
       status: 'recording',
     }
     dispatch({ type: 'START_RECORDING', payload: session })
     setView('recording')
-    setShowCommandPalette(false)
   }, [dispatch])
 
   const handleWelcomeAddApiKey = useCallback(() => {
@@ -150,6 +156,13 @@ function AppContent() {
               key="home"
               onNavigate={setView}
               onSessionSelect={handleSessionSelect}
+            />
+          )}
+          {view === 'setup' && (
+            <SessionSetup
+              key="setup"
+              onBack={handleBack}
+              onStartRecording={handleStartRecording}
             />
           )}
           {view === 'summary' && selectedSession && (

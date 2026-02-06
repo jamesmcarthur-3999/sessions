@@ -8,7 +8,7 @@ import { formatRelativeTime, formatDuration } from '../utils/formatting'
 import { SessionSetup } from './SessionSetup'
 import type { Session, RecordingConfig } from '../types'
 
-type View = 'home' | 'summary' | 'history' | 'capture' | 'recording' | 'settings'
+type View = 'home' | 'setup' | 'summary' | 'history' | 'capture' | 'recording' | 'settings'
 
 interface HomeProps {
   onNavigate: (view: View) => void
