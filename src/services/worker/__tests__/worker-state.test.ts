@@ -141,54 +141,6 @@ describe('WorkerStateMachine', () => {
     });
   });
 
-  describe('history', () => {
-    it('should track state transitions', () => {
-      machine.transitionTo('BOOTSTRAPPING', 'reason1');
-      machine.transitionTo('READY', 'reason2');
-
-      const history = machine.getHistory();
-
-      expect(history).toHaveLength(2);
-      expect(history[0]).toMatchObject({
-        from: 'CREATED',
-        to: 'BOOTSTRAPPING',
-        reason: 'reason1',
-      });
-      expect(history[1]).toMatchObject({
-        from: 'BOOTSTRAPPING',
-        to: 'READY',
-        reason: 'reason2',
-      });
-    });
-
-    it('should respect max history size', () => {
-      const smallMachine = new WorkerStateMachine({ maxHistorySize: 2 });
-
-      smallMachine.transitionTo('BOOTSTRAPPING');
-      smallMachine.transitionTo('READY');
-      smallMachine.transitionTo('INITIALIZING');
-
-      const history = smallMachine.getHistory();
-      expect(history).toHaveLength(2);
-      expect(history[0].to).toBe('READY');
-      expect(history[1].to).toBe('INITIALIZING');
-
-      smallMachine.destroy();
-    });
-  });
-
-  describe('getTimeInCurrentState', () => {
-    it('should return time spent in current state', async () => {
-      machine.transitionTo('BOOTSTRAPPING');
-
-      // Wait a bit
-      await new Promise((r) => setTimeout(r, 50));
-
-      const time = machine.getTimeInCurrentState();
-      expect(time).toBeGreaterThanOrEqual(50);
-    });
-  });
-
   describe('reset', () => {
     it('should reset from ERROR state', () => {
       machine.transitionTo('BOOTSTRAPPING');
@@ -197,7 +149,6 @@ describe('WorkerStateMachine', () => {
       machine.reset();
 
       expect(machine.getState()).toBe('CREATED');
-      expect(machine.getHistory()).toHaveLength(0);
     });
 
     it('should throw when resetting from non-ERROR state', () => {

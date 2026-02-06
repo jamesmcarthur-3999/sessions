@@ -67,8 +67,6 @@ class AiWorkerClient {
   private worker: Worker | null = null;
   private emitter = new EventEmitter<AiWorkerEvents>();
   private requestManager = new RequestManager({ prefix: 'worker', defaultTimeout: 60000 });
-  private chatCallbacks = new Map<string, (response: string) => void>();
-  private chatTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
   private initPromise: Promise<void> | null = null;
   private workerState: WorkerState = 'CREATED';
   private initAttempts = 0;
@@ -204,14 +202,8 @@ class AiWorkerClient {
       this.worker = null;
     }
 
-    // Abort all pending requests
+    // Abort all pending requests (including chat)
     this.requestManager.abortAll();
-
-    // Clear chat callbacks
-    this.chatTimeouts.forEach((timeout) => clearTimeout(timeout));
-    this.chatTimeouts.clear();
-    this.chatCallbacks.forEach((callback) => callback('Worker error: ' + message));
-    this.chatCallbacks.clear();
   }
 
   private send(message: WorkerMessage): void {
@@ -306,19 +298,20 @@ class AiWorkerClient {
         this.emitter.emit('request-summary-update', { sessionId: msg.sessionId });
         break;
 
-      case 'chat-response': {
-        const callback = this.chatCallbacks.get(msg.requestId);
-        if (callback) {
-          const timeout = this.chatTimeouts.get(msg.requestId);
-          if (timeout) {
-            clearTimeout(timeout);
-            this.chatTimeouts.delete(msg.requestId);
-          }
-          this.chatCallbacks.delete(msg.requestId);
-          callback(msg.response);
+      case 'final-summary-complete':
+        if (msg.id) {
+          this.requestManager.complete(msg.id, {
+            text: msg.text,
+            tasks: msg.tasks,
+            notes: msg.notes,
+            error: msg.error,
+          });
         }
         break;
-      }
+
+      case 'chat-response':
+        this.requestManager.complete(msg.requestId, msg.response);
+        break;
 
       case 'error':
         // Fail the correlated request if exists
@@ -473,7 +466,7 @@ class AiWorkerClient {
       id,
       timestamp: Date.now(),
       sessionId,
-      contextJson: JSON.stringify(context),
+      context,
     });
   }
 
@@ -497,8 +490,8 @@ class AiWorkerClient {
       id,
       timestamp: Date.now(),
       sessionId,
-      contextJson: JSON.stringify(context),
-      metricsJson: JSON.stringify(metrics),
+      context,
+      metrics,
     });
   }
 
@@ -518,6 +511,46 @@ class AiWorkerClient {
   }
 
   // ============================================================================
+  // Public API - Final Summary
+  // ============================================================================
+
+  /**
+   * Generate a final session summary through the worker.
+   * Returns the summary result or an error.
+   */
+  async generateFinalSummary(params: {
+    rollingSummary: import('../../types/database').DbRollingSummary | null;
+    insights: import('../../types/database').DbInsight[];
+    audioChunks: import('../../types/database').DbAudioChunk[];
+    screenshots: import('../../types/database').DbScreenshot[];
+    durationSeconds: number;
+    title: string;
+  }): Promise<{ text: string | null; tasks: string[]; notes: string[]; error?: string }> {
+    await this.initialize();
+
+    type FinalSummaryResult = { text: string | null; tasks: string[]; notes: string[]; error?: string };
+    const { id, promise } = this.requestManager.create<FinalSummaryResult>({ timeout: 120000 });
+
+    this.send({
+      type: 'generate-final-summary',
+      id,
+      timestamp: Date.now(),
+      rollingSummary: params.rollingSummary,
+      insights: params.insights,
+      audioChunks: params.audioChunks,
+      screenshots: params.screenshots,
+      durationSeconds: params.durationSeconds,
+      title: params.title,
+    });
+
+    try {
+      return await promise;
+    } catch {
+      return { text: null, tasks: [], notes: [], error: 'Final summary generation timed out' };
+    }
+  }
+
+  // ============================================================================
   // Public API - Chat
   // ============================================================================
 
@@ -528,31 +561,23 @@ class AiWorkerClient {
   async chat(sessionId: string, message: string, context: WorkerSessionContext): Promise<string> {
     await this.initialize();
 
-    const requestId = this.requestManager.generateId();
+    const { id: requestId, promise } = this.requestManager.create<string>({ timeout: 60000 });
 
-    return new Promise((resolve) => {
-      this.chatCallbacks.set(requestId, resolve);
-
-      this.send({
-        type: 'chat',
-        id: this.requestManager.generateId(),
-        timestamp: Date.now(),
-        sessionId,
-        requestId,
-        message,
-        contextJson: JSON.stringify(context),
-      });
-
-      // Timeout after 60s
-      const timeout = setTimeout(() => {
-        if (this.chatCallbacks.has(requestId)) {
-          this.chatCallbacks.delete(requestId);
-          this.chatTimeouts.delete(requestId);
-          resolve('Request timed out. Please try again.');
-        }
-      }, 60000);
-      this.chatTimeouts.set(requestId, timeout);
+    this.send({
+      type: 'chat',
+      id: this.requestManager.generateId(),
+      timestamp: Date.now(),
+      sessionId,
+      requestId,
+      message,
+      context,
     });
+
+    try {
+      return await promise;
+    } catch {
+      return 'Request timed out. Please try again.';
+    }
   }
 
   // ============================================================================
@@ -619,11 +644,6 @@ class AiWorkerClient {
     // Clean up request manager
     this.requestManager.destroy();
     this.requestManager = new RequestManager({ prefix: 'worker', defaultTimeout: 60000 });
-
-    // Clear all pending chat callbacks and timeouts
-    this.chatTimeouts.forEach((timeout) => clearTimeout(timeout));
-    this.chatTimeouts.clear();
-    this.chatCallbacks.clear();
   }
 }
 

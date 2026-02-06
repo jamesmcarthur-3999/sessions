@@ -2,6 +2,7 @@ import { motion } from 'framer-motion'
 import { ArrowLeft, Video, MessageSquare, Search } from 'lucide-react'
 import { useState, useMemo } from 'react'
 import { useApp } from '../context/AppContext'
+import { formatDateShort, formatDuration } from '../utils/formatting'
 import type { Session } from '../types'
 
 interface HistoryProps {
@@ -9,32 +10,12 @@ interface HistoryProps {
   onSessionSelect: (session: Session) => void;
 }
 
-function formatDate(dateString: string): string {
-  const date = new Date(dateString)
-  const now = new Date()
-  const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24))
-
-  if (diffDays === 0) return 'Today'
-  if (diffDays === 1) return 'Yesterday'
-  if (diffDays < 7) return date.toLocaleDateString('en-US', { weekday: 'long' })
-  return date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
-}
-
-function formatDuration(seconds: number): string {
-  const hours = Math.floor(seconds / 3600)
-  const minutes = Math.floor((seconds % 3600) / 60)
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`
-  }
-  return `${minutes}m`
-}
-
 // Group sessions by date
 function groupByDate(sessions: Session[]): Map<string, Session[]> {
   const groups = new Map<string, Session[]>()
 
   for (const session of sessions) {
-    const dateKey = formatDate(session.createdAt)
+    const dateKey = formatDateShort(session.createdAt)
     const existing = groups.get(dateKey) || []
     groups.set(dateKey, [...existing, session])
   }

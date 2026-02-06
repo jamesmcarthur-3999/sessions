@@ -8,6 +8,7 @@
 import { useState, memo } from 'react'
 import { motion } from 'framer-motion'
 import { Pin, CheckSquare, Bell, Lightbulb, FileText } from 'lucide-react'
+import { formatRelativeTime } from '../utils/formatting'
 
 export interface Insight {
   id: string
@@ -23,15 +24,6 @@ interface InsightCardProps {
   onUnpin: (id: string) => void
 }
 
-function formatRelativeTime(date: Date): string {
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffMins = Math.floor(diffMs / 60000)
-
-  if (diffMins < 1) return 'just now'
-  if (diffMins < 60) return `${diffMins}m ago`
-  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-}
 
 export const InsightCard = memo(function InsightCard({ insight, onPin, onUnpin }: InsightCardProps) {
   const [isHovered, setIsHovered] = useState(false)

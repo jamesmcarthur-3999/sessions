@@ -185,24 +185,10 @@ export class RequestManager {
   }
 
   /**
-   * Get request metadata
-   */
-  getMetadata(id: string): Record<string, unknown> | undefined {
-    return this.requests.get(id)?.metadata;
-  }
-
-  /**
    * Get count of pending requests
    */
   get pendingCount(): number {
     return this.requests.size;
-  }
-
-  /**
-   * Get all pending request IDs
-   */
-  getPendingIds(): string[] {
-    return Array.from(this.requests.keys());
   }
 
   /**

@@ -54,13 +54,7 @@ const VALID_TRANSITIONS: Record<WorkerState, WorkerState[]> = {
 
 export class WorkerStateMachine {
   private state: WorkerState = 'CREATED';
-  private history: StateTransition[] = [];
   private emitter = new EventEmitter<WorkerStateMachineEvents>();
-  private maxHistorySize: number;
-
-  constructor(options: { maxHistorySize?: number } = {}) {
-    this.maxHistorySize = options.maxHistorySize ?? 100;
-  }
 
   /**
    * Get current state
@@ -95,13 +89,6 @@ export class WorkerStateMachine {
     };
 
     this.state = target;
-    this.history.push(transition);
-
-    // Trim history if needed
-    if (this.history.length > this.maxHistorySize) {
-      this.history = this.history.slice(-this.maxHistorySize);
-    }
-
     this.emitter.emit('state-change', transition);
   }
 
@@ -146,22 +133,6 @@ export class WorkerStateMachine {
   }
 
   /**
-   * Get state history
-   */
-  getHistory(): StateTransition[] {
-    return [...this.history];
-  }
-
-  /**
-   * Get time spent in current state
-   */
-  getTimeInCurrentState(): number {
-    const lastTransition = this.history[this.history.length - 1];
-    if (!lastTransition) return 0;
-    return Date.now() - lastTransition.timestamp;
-  }
-
-  /**
    * Reset to initial state (only valid from ERROR or for testing)
    */
   reset(): void {
@@ -169,7 +140,6 @@ export class WorkerStateMachine {
       throw new Error(`Cannot reset from state: ${this.state}`);
     }
     this.state = 'CREATED';
-    this.history = [];
   }
 
   /**
@@ -187,6 +157,5 @@ export class WorkerStateMachine {
    */
   destroy(): void {
     this.emitter.removeAllListeners();
-    this.history = [];
   }
 }

@@ -48,12 +48,7 @@ describe('RequestManager', () => {
       });
     });
 
-    it('should store metadata', () => {
-      const { id } = manager.create({ metadata: { sessionId: '123' } });
-
-      expect(manager.getMetadata(id)).toEqual({ sessionId: '123' });
-    });
-  });
+});
 
   describe('complete', () => {
     it('should resolve the promise with result', async () => {
@@ -205,16 +200,4 @@ describe('RequestManager', () => {
     });
   });
 
-  describe('getPendingIds', () => {
-    it('should return all pending request IDs', () => {
-      const { id: id1 } = manager.create();
-      const { id: id2 } = manager.create();
-
-      const ids = manager.getPendingIds();
-
-      expect(ids).toContain(id1);
-      expect(ids).toContain(id2);
-      expect(ids.length).toBe(2);
-    });
-  });
 });

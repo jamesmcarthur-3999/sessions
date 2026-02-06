@@ -124,19 +124,6 @@ CREATE TABLE IF NOT EXISTS analysis_state (
 );
 `;
 
-async function ensureColumn(
-  database: Database,
-  table: string,
-  column: string,
-  definition: string
-): Promise<void> {
-  const columns = await database.select<Array<{ name: string }>>(
-    `PRAGMA table_info(${table})`
-  );
-  if (!columns.some(c => c.name === column)) {
-    await database.execute(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
-  }
-}
 
 /**
  * Initialize the database connection and create schema
@@ -184,27 +171,6 @@ export async function initDatabase(): Promise<void> {
         await db.execute(statement);
       }
 
-      // Apply lightweight migrations for new columns
-      try {
-        await ensureColumn(db, 'sessions', 'video_path', 'video_path TEXT');
-      } catch (error) {
-        logger.warn('[DATABASE] Failed to ensure sessions.video_path column:', error);
-      }
-
-      // Add file_path column for file-based screenshot storage
-      try {
-        await ensureColumn(db, 'screenshots', 'file_path', 'file_path TEXT');
-      } catch (error) {
-        logger.warn('[DATABASE] Failed to ensure screenshots.file_path column:', error);
-      }
-
-      // Add file_path column for file-based audio storage
-      try {
-        await ensureColumn(db, 'audio_chunks', 'file_path', 'file_path TEXT');
-      } catch (error) {
-        logger.warn('[DATABASE] Failed to ensure audio_chunks.file_path column:', error);
-      }
-
       logger.info('[DATABASE] Schema initialized successfully');
     } catch (error) {
       logger.error('[DATABASE] Failed to initialize database:', error);
@@ -242,15 +208,6 @@ export async function ensureDb(): Promise<Database> {
   return db;
 }
 
-/**
- * Get the database instance synchronously
- * Only use this when you're certain the database is initialized
- * Prefer ensureDb() for new code
- */
-export function getDb(): Database {
-  if (!db) throw new Error('Database not initialized. Call initDatabase() first.');
-  return db;
-}
 
 // ============================================================================
 // Sessions
@@ -830,20 +787,6 @@ export async function markSessionsAsInterrupted(sessionIds: string[]): Promise<v
     sessionIds
   );
   logger.info(`[DATABASE] Marked ${sessionIds.length} sessions as interrupted`);
-}
-
-// ============================================================================
-// localStorage Sync
-// ============================================================================
-
-/**
- * Get all complete sessions from database for localStorage sync
- */
-export async function getAllCompleteSessions(): Promise<DbSession[]> {
-  const db = await ensureDb();
-  return await db.select<DbSession[]>(
-    "SELECT * FROM sessions WHERE status = 'complete' ORDER BY created_at DESC"
-  );
 }
 
 /**

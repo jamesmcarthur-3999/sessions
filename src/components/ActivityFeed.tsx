@@ -10,6 +10,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Camera, MessageSquare, Lightbulb, ArrowRight, Zap } from 'lucide-react'
 import { sessionBridge } from '../services/session-bridge'
 import { smartCapture } from '../services/smart-capture'
+import { formatRelativeTimeLive } from '../utils/formatting'
 
 interface ActivityItem {
   id: string
@@ -28,17 +29,6 @@ interface ActivityFeedProps {
   maxItems?: number
 }
 
-function formatRelativeTime(date: Date): string {
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffSecs = Math.floor(diffMs / 1000)
-  const diffMins = Math.floor(diffMs / 60000)
-
-  if (diffSecs < 10) return 'now'
-  if (diffSecs < 60) return `${diffSecs}s`
-  if (diffMins < 60) return `${diffMins}m`
-  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-}
 
 function generateId(): string {
   return Math.random().toString(36).substring(2, 9)
@@ -240,7 +230,7 @@ export function ActivityFeed({ sessionId, maxItems = 20 }: ActivityFeedProps) {
                       {item.content}
                     </p>
                     <p className="text-[10px] text-[var(--ink-muted)] mt-0.5 tabular-nums">
-                      {formatRelativeTime(item.timestamp)}
+                      {formatRelativeTimeLive(item.timestamp)}
                     </p>
                   </div>
                 </motion.div>

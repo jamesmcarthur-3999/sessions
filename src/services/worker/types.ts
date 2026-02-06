@@ -12,7 +12,7 @@
  * - Removed isTauri and tauriProxyUrl - workers use native fetch with CORS headers
  */
 
-import type { ActivityDetection, RollingSummary, CaptureTimingDecision } from '../bots/types';
+import type { ActivityDetection, RollingSummary, CaptureTimingDecision, SessionContext } from '../bots/types';
 import type { WorkerState } from './worker-state';
 
 // ============================================================================
@@ -64,25 +64,34 @@ export type WorkerMessage =
   | (BaseMessage & {
       type: 'update-summary';
       sessionId: string;
-      contextJson: string;
+      context: SessionContext;
     })
   | (BaseMessage & {
       type: 'chat';
       sessionId: string;
       requestId: string;
       message: string;
-      contextJson: string;
+      context: SessionContext;
     })
   | (BaseMessage & {
       type: 'check-analysis-mode';
       sessionId: string;
-      contextJson: string;
-      metricsJson: string;
+      context: SessionContext;
+      metrics: WorkerActivityMetrics;
     })
   | (BaseMessage & {
       type: 'set-analysis-mode';
       sessionId: string;
       mode: 'ambient' | 'deep';
+    })
+  | (BaseMessage & {
+      type: 'generate-final-summary';
+      rollingSummary: import('../../types/database').DbRollingSummary | null;
+      insights: import('../../types/database').DbInsight[];
+      audioChunks: import('../../types/database').DbAudioChunk[];
+      screenshots: import('../../types/database').DbScreenshot[];
+      durationSeconds: number;
+      title: string;
     })
   | (BaseMessage & { type: 'stop' });
 
@@ -166,6 +175,13 @@ export type WorkerResponse =
       sessionId: string;
     })
   | (BaseResponse & {
+      type: 'final-summary-complete';
+      text: string | null;
+      tasks: string[];
+      notes: string[];
+      error?: string;
+    })
+  | (BaseResponse & {
       type: 'error';
       sessionId: string;
       error: string;
@@ -181,25 +197,8 @@ export type WorkerResponse =
 // Shared Types
 // ============================================================================
 
-/**
- * Context passed to worker for analysis operations
- * Mirrors SessionContext but is JSON-serializable
- */
-export interface WorkerSessionContext {
-  sessionId: string;
-  rollingSummary: string;
-  recentScreenshots: Array<{
-    id: string;
-    capturedAt: string;
-    appName: string | null;
-    windowTitle: string | null;
-    analysis: string | null;
-  }>;
-  recentTranscripts: string[];
-  recentInsights: string[];
-  durationSeconds: number;
-  analysisMode: 'ambient' | 'deep';
-}
+/** Re-export SessionContext as WorkerSessionContext (they are identical) */
+export type { SessionContext as WorkerSessionContext } from '../bots/types';
 
 /**
  * Activity metrics for analysis mode decisions

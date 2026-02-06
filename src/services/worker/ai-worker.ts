@@ -26,14 +26,13 @@
 import type {
   WorkerMessage,
   WorkerResponse,
-  WorkerSessionContext,
-  WorkerActivityMetrics,
 } from './types';
 import type {
   ActivityDetection,
   RollingSummary,
   AnalysisModeDecision,
   QAResponse,
+  FinalSummary,
 } from '../bots/types';
 import { MessageQueue } from './message-queue';
 import { WorkerStateMachine } from './worker-state';
@@ -565,7 +564,7 @@ async function transcribeAudioBinary(
 async function updateSummary(
   msg: Extract<WorkerMessage, { type: 'update-summary' }>
 ): Promise<void> {
-  const { sessionId, contextJson, id } = msg;
+  const { sessionId, context, id } = msg;
 
   if (!botsModule || !isReady()) {
     log('info', 'Skipping summary update - not ready');
@@ -575,25 +574,7 @@ async function updateSummary(
   transitionState('PROCESSING', 'Updating summary');
 
   try {
-    const context: WorkerSessionContext = JSON.parse(contextJson);
-
-    const sessionContext = {
-      sessionId: context.sessionId,
-      rollingSummary: context.rollingSummary,
-      recentScreenshots: context.recentScreenshots.map((s) => ({
-        id: s.id,
-        capturedAt: s.capturedAt,
-        appName: s.appName,
-        windowTitle: s.windowTitle,
-        analysis: s.analysis,
-      })),
-      recentTranscripts: context.recentTranscripts,
-      recentInsights: context.recentInsights,
-      durationSeconds: context.durationSeconds,
-      analysisMode: context.analysisMode,
-    };
-
-    const input = botsModule.buildSummarizerInput(sessionContext);
+    const input = botsModule.buildSummarizerInput(context);
 
     const result = (await withRetry(() =>
       botsModule!.createSummarizerPipeline().process(input)
@@ -630,7 +611,7 @@ async function updateSummary(
 async function checkAnalysisMode(
   msg: Extract<WorkerMessage, { type: 'check-analysis-mode' }>
 ): Promise<void> {
-  const { sessionId, contextJson, metricsJson } = msg;
+  const { sessionId, context, metrics } = msg;
 
   if (!botsModule || !isReady()) {
     return;
@@ -639,26 +620,7 @@ async function checkAnalysisMode(
   transitionState('PROCESSING', 'Checking analysis mode');
 
   try {
-    const context: WorkerSessionContext = JSON.parse(contextJson);
-    const metrics: WorkerActivityMetrics = JSON.parse(metricsJson);
-
-    const sessionContext = {
-      sessionId: context.sessionId,
-      rollingSummary: context.rollingSummary,
-      recentScreenshots: context.recentScreenshots.map((s) => ({
-        id: s.id,
-        capturedAt: s.capturedAt,
-        appName: s.appName,
-        windowTitle: s.windowTitle,
-        analysis: s.analysis,
-      })),
-      recentTranscripts: context.recentTranscripts,
-      recentInsights: context.recentInsights,
-      durationSeconds: context.durationSeconds,
-      analysisMode: context.analysisMode,
-    };
-
-    const input = botsModule.buildAnalysisControllerInput(sessionContext, metrics);
+    const input = botsModule.buildAnalysisControllerInput(context, metrics);
 
     const result = (await withRetry(() =>
       botsModule!.createAnalysisControllerPipeline().process(input)
@@ -693,7 +655,7 @@ async function checkAnalysisMode(
 async function handleChat(
   msg: Extract<WorkerMessage, { type: 'chat' }>
 ): Promise<void> {
-  const { requestId, message, contextJson, id } = msg;
+  const { requestId, message, context, id } = msg;
 
   if (!botsModule || !isReady()) {
     send({
@@ -708,25 +670,7 @@ async function handleChat(
   transitionState('PROCESSING', 'Processing chat');
 
   try {
-    const context: WorkerSessionContext = JSON.parse(contextJson);
-
-    const sessionContext = {
-      sessionId: context.sessionId,
-      rollingSummary: context.rollingSummary,
-      recentScreenshots: context.recentScreenshots.map((s) => ({
-        id: s.id,
-        capturedAt: s.capturedAt,
-        appName: s.appName,
-        windowTitle: s.windowTitle,
-        analysis: s.analysis,
-      })),
-      recentTranscripts: context.recentTranscripts,
-      recentInsights: context.recentInsights,
-      durationSeconds: context.durationSeconds,
-      analysisMode: context.analysisMode,
-    };
-
-    const input = botsModule.buildQAInput(message, sessionContext);
+    const input = botsModule.buildQAInput(message, context);
 
     const result = (await withRetry(() =>
       botsModule!.createQABotPipeline().process(input)
@@ -749,6 +693,70 @@ async function handleChat(
       response: `Error: ${errorMsg}`,
     });
     transitionState('INITIALIZED', 'Chat failed');
+  }
+}
+
+// ============================================================================
+// Final Summary Generation
+// ============================================================================
+
+async function generateFinalSummary(
+  msg: Extract<WorkerMessage, { type: 'generate-final-summary' }>
+): Promise<void> {
+  const { id } = msg;
+
+  if (!botsModule || !isReady()) {
+    send({
+      type: 'final-summary-complete',
+      id,
+      text: null,
+      tasks: [],
+      notes: [],
+      error: !botsModule ? 'Worker not initialized' : 'No API key configured',
+    });
+    return;
+  }
+
+  transitionState('PROCESSING', 'Generating final summary');
+
+  try {
+    log('info', 'Generating final summary...');
+
+    const input = botsModule.buildFinalSummaryInput({
+      rollingSummary: msg.rollingSummary,
+      insights: msg.insights,
+      audioChunks: msg.audioChunks,
+      screenshots: msg.screenshots,
+      durationSeconds: msg.durationSeconds,
+      title: msg.title,
+    });
+
+    const result = (await withRetry(() =>
+      botsModule!.createFinalSummaryPipeline().process(input)
+    )) as unknown as FinalSummary | null;
+
+    send({
+      type: 'final-summary-complete',
+      id,
+      text: result?.text ?? null,
+      tasks: result?.tasks ?? [],
+      notes: result?.notes ?? [],
+    });
+
+    log('info', `Final summary generated: ${result?.text?.substring(0, 50) ?? 'no text'}...`);
+    transitionState('INITIALIZED', 'Final summary complete');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log('error', `Final summary generation failed: ${message}`);
+    send({
+      type: 'final-summary-complete',
+      id,
+      text: null,
+      tasks: [],
+      notes: [],
+      error: message,
+    });
+    transitionState('INITIALIZED', 'Final summary failed');
   }
 }
 
@@ -792,6 +800,10 @@ async function handleMessage(msg: WorkerMessage): Promise<void> {
 
     case 'chat':
       await handleChat(msg);
+      break;
+
+    case 'generate-final-summary':
+      await generateFinalSummary(msg);
       break;
 
     case 'set-analysis-mode':
