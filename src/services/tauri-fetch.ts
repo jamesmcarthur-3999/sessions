@@ -68,9 +68,6 @@ function unmapProxyUrl(url: string): string {
   }
 
   // No mapping needed
-  if (originalUrl !== url) {
-    logger.debug('[TauriFetch] URL unchanged:', originalUrl);
-  }
   return url;
 }
 

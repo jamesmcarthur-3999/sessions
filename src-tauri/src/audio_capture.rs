@@ -19,6 +19,15 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
+/// Target sample rate for WAV output (optimal for speech recognition)
+const TARGET_SAMPLE_RATE: u32 = 16000;
+
+/// Scale factor to normalize typical speech RMS (~0.33) to full [0, 1] range
+const RMS_NORMALIZATION_FACTOR: f32 = 3.0;
+
+/// Emit audio level events every ~100ms at 48kHz
+const LEVEL_EMISSION_INTERVAL: u32 = 4800;
+
 /// Audio level event payload for frontend visualization
 #[derive(Clone, serde::Serialize)]
 struct AudioLevelEvent {
@@ -79,8 +88,6 @@ pub struct AudioRecorder {
     audio_dir: Arc<Mutex<Option<PathBuf>>>,
     chunk_counter: Arc<AtomicU32>,
     chunk_processor_handle: Arc<Mutex<Option<std::thread::JoinHandle<()>>>>,
-    #[allow(dead_code)]
-    sample_rate: u32,
 }
 
 // SAFETY: AudioRecorder is safe to send/share across threads because:
@@ -102,7 +109,6 @@ impl AudioRecorder {
             audio_dir: Arc::new(Mutex::new(None)),
             chunk_counter: Arc::new(AtomicU32::new(0)),
             chunk_processor_handle: Arc::new(Mutex::new(None)),
-            sample_rate: 44100, // Default sample rate
         }
     }
 
@@ -186,11 +192,11 @@ impl AudioRecorder {
             .map_err(|e| format!("Failed to lock app_handle: {}", e))?
             .clone();
 
-        // Build stream based on sample format
+        // Build stream based on sample format, with appropriate normalization
         let stream = match config.sample_format() {
-            SampleFormat::F32 => self.build_stream_f32(&device, config.into(), app_handle)?,
-            SampleFormat::I16 => self.build_stream_i16(&device, config.into(), app_handle)?,
-            SampleFormat::U16 => self.build_stream_u16(&device, config.into(), app_handle)?,
+            SampleFormat::F32 => self.build_stream::<f32>(&device, config.into(), app_handle, |s| s)?,
+            SampleFormat::I16 => self.build_stream::<i16>(&device, config.into(), app_handle, |s| s as f32 / i16::MAX as f32)?,
+            SampleFormat::U16 => self.build_stream::<u16>(&device, config.into(), app_handle, |s| (s as f32 / u16::MAX as f32) * 2.0 - 1.0)?,
             _ => return Err(format!("Unsupported sample format: {:?}", config.sample_format())),
         };
 
@@ -218,8 +224,15 @@ impl AudioRecorder {
         Ok(())
     }
 
-    /// Build audio stream for f32 samples
-    fn build_stream_f32(&self, device: &Device, config: StreamConfig, app_handle: Option<AppHandle>) -> Result<Stream, String> {
+    /// Build an audio input stream for a given sample type.
+    /// The `normalize` closure converts each raw sample to f32 in [-1, 1].
+    fn build_stream<S: cpal::SizedSample + Send + 'static>(
+        &self,
+        device: &Device,
+        config: StreamConfig,
+        app_handle: Option<AppHandle>,
+        normalize: fn(S) -> f32,
+    ) -> Result<Stream, String> {
         let buffer = self.buffer.clone();
         let state = self.state.clone();
 
@@ -230,129 +243,25 @@ impl AudioRecorder {
         let stream = device
             .build_input_stream(
                 &config,
-                move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                move |data: &[S], _: &cpal::InputCallbackInfo| {
                     if let Ok(current_state) = state.lock() {
                         if *current_state == RecordingState::Recording {
-                            if let Ok(mut buf) = buffer.lock() {
-                                for &sample in data {
-                                    buf.push_sample(sample);
-                                }
-                            }
-
-                            // Calculate and emit audio level every ~4800 samples (~100ms at 48kHz)
-                            // Use boundary-crossing detection for consistent timing
-                            const LEVEL_INTERVAL: u32 = 4800;
-                            let prev_count = level_sample_count_clone.fetch_add(data.len() as u32, Ordering::Relaxed);
-                            let new_count = prev_count + data.len() as u32;
-
-                            // Emit when we cross a boundary (every ~100ms)
-                            if prev_count / LEVEL_INTERVAL != new_count / LEVEL_INTERVAL {
-                                let sum: f32 = data.iter().map(|&s| s * s).sum();
-                                let rms = (sum / data.len() as f32).sqrt();
-                                // Scale factor of 3.0 normalizes typical speech RMS (~0.33) to full range
-                                let normalized_level = (rms * 3.0).min(1.0);
-
-                                if let Some(handle) = &app_handle {
-                                    let _ = handle.emit("audio-level", AudioLevelEvent { level: normalized_level });
-                                }
-                            }
-                        }
-                    }
-                },
-                |err| eprintln!("❌ [AUDIO CAPTURE] Stream error: {}", err),
-                None,
-            )
-            .map_err(|e| format!("Failed to build input stream: {}", e))?;
-
-        Ok(stream)
-    }
-
-    /// Build audio stream for i16 samples (convert to f32)
-    fn build_stream_i16(&self, device: &Device, config: StreamConfig, app_handle: Option<AppHandle>) -> Result<Stream, String> {
-        let buffer = self.buffer.clone();
-        let state = self.state.clone();
-
-        // Counter for throttling audio level emissions
-        let level_sample_count = Arc::new(AtomicU32::new(0));
-        let level_sample_count_clone = level_sample_count.clone();
-
-        let stream = device
-            .build_input_stream(
-                &config,
-                move |data: &[i16], _: &cpal::InputCallbackInfo| {
-                    if let Ok(current_state) = state.lock() {
-                        if *current_state == RecordingState::Recording {
-                            // Convert samples and calculate RMS in one pass
                             let mut sum_sq: f32 = 0.0;
                             if let Ok(mut buf) = buffer.lock() {
                                 for &sample in data {
-                                    // Convert i16 to f32
-                                    let normalized = sample as f32 / i16::MAX as f32;
+                                    let normalized = normalize(sample);
                                     buf.push_sample(normalized);
                                     sum_sq += normalized * normalized;
                                 }
                             }
 
-                            // Emit audio level every ~4800 samples (~100ms at 48kHz)
                             // Use boundary-crossing detection for consistent timing
-                            const LEVEL_INTERVAL: u32 = 4800;
                             let prev_count = level_sample_count_clone.fetch_add(data.len() as u32, Ordering::Relaxed);
                             let new_count = prev_count + data.len() as u32;
 
-                            if prev_count / LEVEL_INTERVAL != new_count / LEVEL_INTERVAL {
+                            if prev_count / LEVEL_EMISSION_INTERVAL != new_count / LEVEL_EMISSION_INTERVAL {
                                 let rms = (sum_sq / data.len() as f32).sqrt();
-                                let normalized_level = (rms * 3.0).min(1.0);
-
-                                if let Some(handle) = &app_handle {
-                                    let _ = handle.emit("audio-level", AudioLevelEvent { level: normalized_level });
-                                }
-                            }
-                        }
-                    }
-                },
-                |err| eprintln!("❌ [AUDIO CAPTURE] Stream error: {}", err),
-                None,
-            )
-            .map_err(|e| format!("Failed to build input stream: {}", e))?;
-
-        Ok(stream)
-    }
-
-    /// Build audio stream for u16 samples (convert to f32)
-    fn build_stream_u16(&self, device: &Device, config: StreamConfig, app_handle: Option<AppHandle>) -> Result<Stream, String> {
-        let buffer = self.buffer.clone();
-        let state = self.state.clone();
-
-        // Counter for throttling audio level emissions
-        let level_sample_count = Arc::new(AtomicU32::new(0));
-        let level_sample_count_clone = level_sample_count.clone();
-
-        let stream = device
-            .build_input_stream(
-                &config,
-                move |data: &[u16], _: &cpal::InputCallbackInfo| {
-                    if let Ok(current_state) = state.lock() {
-                        if *current_state == RecordingState::Recording {
-                            // Convert samples and calculate RMS in one pass
-                            let mut sum_sq: f32 = 0.0;
-                            if let Ok(mut buf) = buffer.lock() {
-                                for &sample in data {
-                                    // Convert u16 to f32
-                                    let normalized = (sample as f32 / u16::MAX as f32) * 2.0 - 1.0;
-                                    buf.push_sample(normalized);
-                                    sum_sq += normalized * normalized;
-                                }
-                            }
-
-                            // Emit audio level every ~4800 samples (~100ms at 48kHz)
-                            // Use boundary-crossing detection for consistent timing
-                            const LEVEL_INTERVAL: u32 = 4800;
-                            let prev_count = level_sample_count_clone.fetch_add(data.len() as u32, Ordering::Relaxed);
-                            let new_count = prev_count + data.len() as u32;
-
-                            if prev_count / LEVEL_INTERVAL != new_count / LEVEL_INTERVAL {
-                                let rms = (sum_sq / data.len() as f32).sqrt();
-                                let normalized_level = (rms * 3.0).min(1.0);
+                                let normalized_level = (rms * RMS_NORMALIZATION_FACTOR).min(1.0);
 
                                 if let Some(handle) = &app_handle {
                                     let _ = handle.emit("audio-level", AudioLevelEvent { level: normalized_level });
@@ -382,10 +291,8 @@ impl AudioRecorder {
             loop {
                 std::thread::sleep(Duration::from_secs(1)); // Check every second
 
-                let current_state = match state.lock() {
-                    Ok(s) => s.clone(),
-                    Err(_) => break, // Exit on lock failure
-                };
+                let Ok(s) = state.lock() else { break }; // Exit on lock failure
+                let current_state = s.clone();
 
                 if current_state == RecordingState::Stopped {
                     break; // Exit thread when recording stopped
@@ -395,20 +302,11 @@ impl AudioRecorder {
                     continue; // Skip if paused
                 }
 
-                // Check if chunk is ready
-                let is_ready = match buffer.lock() {
-                    Ok(b) => b.is_chunk_ready(),
-                    Err(_) => continue,
-                };
-                if !is_ready {
-                    continue;
-                }
-
-                // Take samples from buffer
-                let samples = match buffer.lock() {
-                    Ok(mut b) => b.take_samples(),
-                    Err(_) => continue,
-                };
+                // Atomically check readiness and take samples in one lock
+                let Ok(mut b) = buffer.lock() else { continue };
+                if !b.is_chunk_ready() { continue; }
+                let samples = b.take_samples();
+                drop(b);
                 if samples.is_empty() {
                     continue;
                 }
@@ -416,12 +314,10 @@ impl AudioRecorder {
                 println!("🎤 [AUDIO CAPTURE] Processing chunk: {} samples", samples.len());
 
                 // Get audio directory
-                let dir = match audio_dir.lock() {
-                    Ok(d) => d.clone(),
-                    Err(_) => continue,
-                };
-
-                let Some(dir) = dir else {
+                let Ok(dir_guard) = audio_dir.lock() else { continue };
+                let dir_opt = dir_guard.clone();
+                drop(dir_guard);
+                let Some(dir) = dir_opt else {
                     eprintln!("❌ [AUDIO CAPTURE] No audio directory set");
                     continue;
                 };
@@ -435,14 +331,8 @@ impl AudioRecorder {
                 match Self::samples_to_wav_file(&samples, sample_rate, 1, &file_path) {
                     Ok(()) => {
                         // Get app handle and session ID
-                        let app = match app_handle.lock() {
-                            Ok(h) => h.clone(),
-                            Err(_) => continue,
-                        };
-                        let sess_id = match session_id.lock() {
-                            Ok(s) => s.clone(),
-                            Err(_) => continue,
-                        };
+                        let Ok(app) = app_handle.lock().map(|h| h.clone()) else { continue };
+                        let Ok(sess_id) = session_id.lock().map(|s| s.clone()) else { continue };
 
                         if let (Some(app), Some(sid)) = (app, sess_id) {
                             // Calculate duration
@@ -457,8 +347,16 @@ impl AudioRecorder {
                                 "duration": duration,
                             });
 
-                            if let Err(e) = app.emit("audio-chunk", payload) {
-                                eprintln!("❌ [AUDIO CAPTURE] Failed to emit audio-chunk event: {}", e);
+                            // Emit with one retry to salvage transient failures
+                            let payload_clone = payload.clone();
+                            let emit_result = app.emit("audio-chunk", payload)
+                                .or_else(|_| {
+                                    std::thread::sleep(Duration::from_millis(50));
+                                    app.emit("audio-chunk", payload_clone)
+                                });
+
+                            if let Err(e) = emit_result {
+                                eprintln!("❌ [AUDIO CAPTURE] Failed to emit audio-chunk event after retry: {}", e);
                                 // Clean up orphaned file since frontend won't know about it
                                 if let Err(del_err) = std::fs::remove_file(&file_path) {
                                     eprintln!("❌ [AUDIO CAPTURE] Failed to clean up orphaned file {}: {}", file_path.display(), del_err);
@@ -482,13 +380,13 @@ impl AudioRecorder {
         }
     }
 
-    /// Resample audio from source sample rate to 16kHz using linear interpolation
+    /// Resample audio from source sample rate to target rate using linear interpolation
     fn resample_to_16khz(samples: &[f32], source_rate: u32) -> Vec<f32> {
-        if source_rate == 16000 {
-            return samples.to_vec(); // Already 16kHz
+        if source_rate == TARGET_SAMPLE_RATE {
+            return samples.to_vec(); // Already at target rate
         }
 
-        let ratio = source_rate as f64 / 16000.0;
+        let ratio = source_rate as f64 / TARGET_SAMPLE_RATE as f64;
         let output_length = (samples.len() as f64 / ratio) as usize;
         let mut resampled = Vec::with_capacity(output_length);
 
@@ -511,13 +409,12 @@ impl AudioRecorder {
     /// Save audio samples directly to WAV file
     /// Resamples to 16kHz for optimal speech recognition
     fn samples_to_wav_file(samples: &[f32], sample_rate: u32, channels: u16, file_path: &PathBuf) -> Result<(), String> {
-        // Resample to 16kHz for optimal speech recognition
+        // Resample to target rate for optimal speech recognition
         let resampled = Self::resample_to_16khz(samples, sample_rate);
-        let target_rate = 16000;
 
         let spec = WavSpec {
             channels,
-            sample_rate: target_rate,
+            sample_rate: TARGET_SAMPLE_RATE,
             bits_per_sample: 16,
             sample_format: hound::SampleFormat::Int,
         };
@@ -611,30 +508,20 @@ impl AudioRecorder {
         Ok(())
     }
 
-    /// Get current recording state
-    #[allow(dead_code)]
-    pub fn get_state(&self) -> RecordingState {
-        self.state.lock()
-            .map(|s| s.clone())
-            .unwrap_or(RecordingState::Stopped)
-    }
-
-    /// Check if currently recording
-    #[allow(dead_code)]
-    pub fn is_recording(&self) -> bool {
-        self.state.lock()
-            .map(|s| *s == RecordingState::Recording)
-            .unwrap_or(false)
-    }
 }
 
 impl Drop for AudioRecorder {
     fn drop(&mut self) {
+        // Skip cleanup if already stopped (stop_recording handles everything)
+        if let Ok(state) = self.state.lock() {
+            if *state == RecordingState::Stopped {
+                return;
+            }
+        }
+
         // 1. Signal stop
         if let Ok(mut state) = self.state.lock() {
-            if *state != RecordingState::Stopped {
-                *state = RecordingState::Stopped;
-            }
+            *state = RecordingState::Stopped;
         }
 
         // 2. Join chunk processor thread FIRST

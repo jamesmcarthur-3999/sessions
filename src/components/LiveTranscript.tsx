@@ -10,6 +10,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Mic, MicOff, Loader2, Key } from 'lucide-react'
 import { sessionBridge } from '../services/session-bridge'
 import { getSecureItem } from '../services/secure-storage'
+import { generateId } from '../utils/id'
 
 interface TranscriptChunk {
   id: string
@@ -25,10 +26,6 @@ interface LiveTranscriptProps {
 
 function formatTime(date: Date): string {
   return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-}
-
-function generateId(): string {
-  return Math.random().toString(36).substring(2, 9)
 }
 
 export function LiveTranscript({ sessionId, audioEnabled }: LiveTranscriptProps) {

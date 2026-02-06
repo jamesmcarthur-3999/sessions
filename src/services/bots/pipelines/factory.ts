@@ -46,12 +46,12 @@ function getPipeline(name: PipelineName): Pipeline {
   return pipeline;
 }
 
-export const createActivityDetectorPipeline = () => getPipeline('activityDetector');
-export const createSummarizerPipeline = () => getPipeline('summarizer');
-export const createAnalysisControllerPipeline = () => getPipeline('analysisController');
-export const createQABotPipeline = () => getPipeline('qaBot');
-export const createFinalSummaryPipeline = () => getPipeline('finalSummary');
-export const createCapturePipeline = () => getPipeline('capture');
+export function createActivityDetectorPipeline(): Pipeline { return getPipeline('activityDetector'); }
+export function createSummarizerPipeline(): Pipeline { return getPipeline('summarizer'); }
+export function createAnalysisControllerPipeline(): Pipeline { return getPipeline('analysisController'); }
+export function createQABotPipeline(): Pipeline { return getPipeline('qaBot'); }
+export function createFinalSummaryPipeline(): Pipeline { return getPipeline('finalSummary'); }
+export function createCapturePipeline(): Pipeline { return getPipeline('capture'); }
 
 // Transcriber uses Baleybot.create() (not BAL Pipeline) — transcription is a provider-level operation
 let transcriberBot: Baleybot | null = null;

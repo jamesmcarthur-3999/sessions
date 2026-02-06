@@ -45,13 +45,18 @@ export function CommandPalette({
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
+  const previousFocusRef = useRef<Element | null>(null)
 
-  // Reset state when opening
+  // Save/restore focus when opening/closing
   useEffect(() => {
     if (isOpen) {
+      previousFocusRef.current = document.activeElement
       setQuery('')
       setSelectedIndex(0)
       setTimeout(() => inputRef.current?.focus(), 0)
+    } else if (previousFocusRef.current instanceof HTMLElement) {
+      previousFocusRef.current.focus()
+      previousFocusRef.current = null
     }
   }, [isOpen])
 
@@ -141,7 +146,7 @@ export function CommandPalette({
     }
 
     return result
-  }, [query, sessions, onNewCapture, onNewSession, onGoToHistory, onSessionSelect, onClose])
+  }, [query, sessions, onNewCapture, onNewSession, onGoToHistory, onSessionSelect, onGoHome])
 
   // Keyboard navigation
   useEffect(() => {

@@ -60,20 +60,6 @@ export interface DbRollingSummary {
   version: number;
 }
 
-// Final summary payload
-export interface DbSessionSummary {
-  session_id: string;
-  updated_at: string;
-  summary_json: string;
-}
-
-// Capture payload (text + attachments metadata)
-export interface DbCapturePayload {
-  session_id: string;
-  text: string | null;
-  attachments_json: string | null;
-}
-
 // Chat messages
 export interface DbChatMessage {
   id: string;

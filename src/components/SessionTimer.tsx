@@ -258,6 +258,7 @@ export function SessionTimer({
               />
               <button
                 onClick={handleTitleSubmit}
+                aria-label="Confirm title"
                 className="p-1.5 rounded-lg hover:bg-[var(--paper-warm)] transition-colors"
               >
                 <Check className="w-4 h-4 text-[var(--accent)]" />

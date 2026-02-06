@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   ArrowLeft,
@@ -79,34 +79,34 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [onBack, isEditingTitle])
 
-  // Load screenshots and audio chunks for sessions
-  useEffect(() => {
-    const loadMedia = async () => {
-      if (session.type !== 'session') {
-        setLoadingMedia(false)
-        return
-      }
-
-      setLoadingMedia(true)
-      setMediaError(null)
-
-      try {
-        const [ss, audio] = await Promise.all([
-          getScreenshots(session.id),
-          getAudioChunks(session.id),
-        ])
-        setScreenshots(ss)
-        setAudioChunks(audio)
-      } catch (error) {
-        logger.error('Failed to load media:', error)
-        setMediaError('Failed to load screenshots and audio. Please try again.')
-      } finally {
-        setLoadingMedia(false)
-      }
+  const loadMedia = useCallback(async () => {
+    if (session.type !== 'session') {
+      setLoadingMedia(false)
+      return
     }
 
-    loadMedia()
+    setLoadingMedia(true)
+    setMediaError(null)
+
+    try {
+      const [ss, audio] = await Promise.all([
+        getScreenshots(session.id),
+        getAudioChunks(session.id),
+      ])
+      setScreenshots(ss)
+      setAudioChunks(audio)
+    } catch (error) {
+      logger.error('Failed to load media:', error)
+      setMediaError('Failed to load screenshots and audio. Please try again.')
+    } finally {
+      setLoadingMedia(false)
+    }
   }, [session.id, session.type])
+
+  // Load screenshots and audio chunks for sessions
+  useEffect(() => {
+    loadMedia()
+  }, [loadMedia])
 
   const summary = session.summary
   const completedTasks = summary?.tasks.filter(t => t.completed).length ?? 0
@@ -194,6 +194,7 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
           <div className="relative">
             <button
               onClick={() => setShowMenu(!showMenu)}
+              aria-label="More options"
               className="p-2.5 rounded-lg hover:bg-[var(--paper-warm)] transition-colors duration-200"
             >
               <MoreHorizontal className="w-5 h-5 text-[var(--ink-muted)]" />
@@ -526,22 +527,7 @@ export function SummaryView({ session, onBack }: SummaryViewProps) {
                 <div className="p-4 rounded-xl bg-[var(--error-muted)] border border-[var(--error)]/30 text-[var(--error)]">
                   <p className="text-sm">{mediaError}</p>
                   <button
-                    onClick={() => {
-                      setMediaError(null)
-                      setLoadingMedia(true)
-                      Promise.all([
-                        getScreenshots(session.id),
-                        getAudioChunks(session.id),
-                      ]).then(([ss, audio]) => {
-                        setScreenshots(ss)
-                        setAudioChunks(audio)
-                      }).catch((error) => {
-                        logger.error('Failed to load media:', error)
-                        setMediaError('Failed to load screenshots and audio. Please try again.')
-                      }).finally(() => {
-                        setLoadingMedia(false)
-                      })
-                    }}
+                    onClick={loadMedia}
                     className="text-sm underline mt-2"
                   >
                     Retry

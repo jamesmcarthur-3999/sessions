@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, lazy, Suspense } from 'react'
-import { AnimatePresence } from 'framer-motion'
+import { AnimatePresence, motion } from 'framer-motion'
 import { AppProvider, useApp } from './context/AppContext'
 import { Home } from './components/Home'
 import { SessionSetup } from './components/SessionSetup'
@@ -45,13 +45,7 @@ function AppContent() {
     setShowSettingsOverlay(false)
   }, [])
 
-  const handleCaptureComplete = useCallback((session: Session) => {
-    setSelectedSession(session)
-    setView('summary')
-    setShowSettingsOverlay(false)
-  }, [])
-
-  const handleRecordingComplete = useCallback((session: Session) => {
+  const handleComplete = useCallback((session: Session) => {
     setSelectedSession(session)
     setView('summary')
     setShowSettingsOverlay(false)
@@ -106,6 +100,20 @@ function AppContent() {
     onSearch: () => {
       if (!showWelcome && !showSettingsOverlay) {
         setShowCommandPalette(prev => !prev)
+      }
+    },
+    onSettings: () => {
+      if (!showWelcome) {
+        setShowSettingsOverlay(true)
+      }
+    },
+    onGoBack: () => {
+      if (view !== 'recording' && view !== 'home' && !showCommandPalette && !showWelcome) {
+        if (showSettingsOverlay) {
+          setShowSettingsOverlay(false)
+        } else {
+          handleBack()
+        }
       }
     },
   })
@@ -183,7 +191,7 @@ function AppContent() {
             <QuickCapture
               key="capture"
               onBack={handleBack}
-              onComplete={handleCaptureComplete}
+              onComplete={handleComplete}
             />
           )}
           {view === 'recording' && (
@@ -209,7 +217,7 @@ function AppContent() {
             >
               <SessionRecording
                 key="recording"
-                onComplete={handleRecordingComplete}
+                onComplete={handleComplete}
                 onCancel={handleBack}
               />
             </ErrorBoundary>
@@ -222,6 +230,43 @@ function AppContent() {
           )}
         </AnimatePresence>
       </Suspense>
+
+      {/* Crash recovery banner */}
+      <AnimatePresence>
+        {state.recoveredSessionCount > 0 && view === 'home' && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="fixed top-0 left-0 right-0 z-40 px-4 py-3 bg-[var(--paper-warm)] border-b border-[var(--border-medium)] shadow-sm"
+          >
+            <div className="max-w-3xl mx-auto flex items-center justify-between">
+              <span className="text-sm text-[var(--ink)]">
+                {state.recoveredSessionCount === 1
+                  ? '1 interrupted session was recovered.'
+                  : `${state.recoveredSessionCount} interrupted sessions were recovered.`}
+              </span>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => {
+                    dispatch({ type: 'DISMISS_RECOVERY' })
+                    setView('history')
+                  }}
+                  className="text-sm font-medium text-[var(--accent)] hover:text-[var(--accent-light)] transition-colors"
+                >
+                  View
+                </button>
+                <button
+                  onClick={() => dispatch({ type: 'DISMISS_RECOVERY' })}
+                  className="text-sm text-[var(--ink-muted)] hover:text-[var(--ink)] transition-colors"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Command Palette */}
       <Suspense fallback={null}>

@@ -11,6 +11,7 @@ import { Camera, MessageSquare, Lightbulb, ArrowRight, Zap } from 'lucide-react'
 import { sessionBridge } from '../services/session-bridge'
 import { smartCapture } from '../services/smart-capture'
 import { formatRelativeTimeLive } from '../utils/formatting'
+import { generateId } from '../utils/id'
 
 interface ActivityItem {
   id: string
@@ -27,11 +28,6 @@ interface ActivityItem {
 interface ActivityFeedProps {
   sessionId: string
   maxItems?: number
-}
-
-
-function generateId(): string {
-  return Math.random().toString(36).substring(2, 9)
 }
 
 // Type configurations for visual treatment

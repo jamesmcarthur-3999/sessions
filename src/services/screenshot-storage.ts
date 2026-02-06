@@ -8,36 +8,9 @@
  */
 
 import { isTauri } from './recording';
-import { logger } from '../utils/logger';
+import { createStorageDir, deleteSessionFiles } from './media-storage-base';
 
-// Storage paths
-let appDataDir: string | null = null;
-let screenshotsDir: string | null = null;
-
-/**
- * Initialize screenshot storage directories
- */
-async function ensureStorageDir(): Promise<string> {
-  if (screenshotsDir) return screenshotsDir;
-
-  if (!isTauri()) {
-    throw new Error('Screenshot storage requires Tauri environment');
-  }
-
-  const { appDataDir: getAppDataDir, join } = await import('@tauri-apps/api/path');
-  const { mkdir, exists } = await import('@tauri-apps/plugin-fs');
-
-  appDataDir = await getAppDataDir();
-  screenshotsDir = await join(appDataDir, 'screenshots');
-
-  // Create screenshots directory if it doesn't exist
-  if (!(await exists(screenshotsDir))) {
-    await mkdir(screenshotsDir, { recursive: true });
-    logger.debug('[SCREENSHOT STORAGE] Created directory:', screenshotsDir);
-  }
-
-  return screenshotsDir;
-}
+const ensureScreenshotDir = createStorageDir('screenshots', 'SCREENSHOT STORAGE');
 
 /**
  * Load screenshot from file path and return as base64 data URL
@@ -81,74 +54,5 @@ export async function loadScreenshotBinary(filePath: string): Promise<ArrayBuffe
  * Delete all screenshots for a session
  */
 export async function deleteSessionScreenshots(sessionId: string): Promise<void> {
-  if (!isTauri()) return;
-
-  try {
-    const baseDir = await ensureStorageDir();
-    const { join } = await import('@tauri-apps/api/path');
-    const sessionDir = await join(baseDir, sessionId);
-
-    const { remove, exists } = await import('@tauri-apps/plugin-fs');
-    if (await exists(sessionDir)) {
-      await remove(sessionDir, { recursive: true });
-      logger.debug('[SCREENSHOT STORAGE] Deleted session directory:', sessionDir);
-    }
-  } catch (error) {
-    logger.error('[SCREENSHOT STORAGE] Failed to delete session screenshots:', error);
-  }
-}
-
-/**
- * Get total size of stored screenshots (for debugging/monitoring)
- */
-export async function getStorageStats(): Promise<{
-  totalSessions: number;
-  totalFiles: number;
-  totalSizeBytes: number;
-}> {
-  if (!isTauri()) {
-    return { totalSessions: 0, totalFiles: 0, totalSizeBytes: 0 };
-  }
-
-  try {
-    const baseDir = await ensureStorageDir();
-    const { join } = await import('@tauri-apps/api/path');
-    const { readDir, stat } = await import('@tauri-apps/plugin-fs');
-
-    const sessions = await readDir(baseDir);
-    let totalFiles = 0;
-    let totalSizeBytes = 0;
-
-    for (const session of sessions) {
-      if (session.isDirectory && session.name) {
-        try {
-          const sessionDir = await join(baseDir, session.name);
-          const files = await readDir(sessionDir);
-          for (const file of files) {
-            if (file.isFile && file.name) {
-              totalFiles++;
-              try {
-                const filePath = await join(sessionDir, file.name);
-                const fileStat = await stat(filePath);
-                totalSizeBytes += fileStat.size;
-              } catch {
-                // Ignore stat errors
-              }
-            }
-          }
-        } catch {
-          // Ignore errors reading session directories
-        }
-      }
-    }
-
-    return {
-      totalSessions: sessions.filter(s => s.isDirectory).length,
-      totalFiles,
-      totalSizeBytes,
-    };
-  } catch (error) {
-    logger.error('[SCREENSHOT STORAGE] Failed to get stats:', error);
-    return { totalSessions: 0, totalFiles: 0, totalSizeBytes: 0 };
-  }
+  return deleteSessionFiles(ensureScreenshotDir, sessionId, 'SCREENSHOT STORAGE');
 }

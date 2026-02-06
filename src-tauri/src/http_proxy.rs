@@ -73,6 +73,19 @@ pub struct StreamChunk {
     pub done: bool,
 }
 
+/// Build a HeaderMap from a string-string HashMap, skipping invalid entries.
+fn build_headers(raw: &HashMap<String, String>) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    for (key, value) in raw {
+        match (HeaderName::from_str(key), HeaderValue::from_str(value)) {
+            (Ok(name), Ok(val)) => { headers.insert(name, val); }
+            (Err(e), _) => { eprintln!("[http_proxy] Skipping invalid header name '{}': {}", key, e); }
+            (_, Err(e)) => { eprintln!("[http_proxy] Skipping invalid header value for '{}': {}", key, e); }
+        }
+    }
+    headers
+}
+
 /// Make an HTTP request and return the full response
 #[tauri::command]
 pub async fn http_proxy(request: ProxyRequest) -> Result<ProxyResponse, String> {
@@ -80,16 +93,7 @@ pub async fn http_proxy(request: ProxyRequest) -> Result<ProxyResponse, String> 
     println!("[http_proxy] {} {}", request.method, request.url);
 
     let client = create_proxy_client()?;
-
-    // Build headers
-    let mut headers = HeaderMap::new();
-    for (key, value) in &request.headers {
-        match (HeaderName::from_str(key), HeaderValue::from_str(value)) {
-            (Ok(name), Ok(val)) => { headers.insert(name, val); }
-            (Err(e), _) => { eprintln!("[http_proxy] Skipping invalid header name '{}': {}", key, e); }
-            (_, Err(e)) => { eprintln!("[http_proxy] Skipping invalid header value for '{}': {}", key, e); }
-        }
-    }
+    let headers = build_headers(&request.headers);
 
     // Build request
     let method = reqwest::Method::from_str(&request.method.to_uppercase())
@@ -146,16 +150,7 @@ pub async fn http_proxy_stream(
 ) -> Result<(), String> {
     validate_proxy_url(&request.url)?;
     let client = create_proxy_client()?;
-
-    // Build headers
-    let mut headers = HeaderMap::new();
-    for (key, value) in &request.headers {
-        match (HeaderName::from_str(key), HeaderValue::from_str(value)) {
-            (Ok(name), Ok(val)) => { headers.insert(name, val); }
-            (Err(e), _) => { eprintln!("[http_proxy] Skipping invalid header name '{}': {}", key, e); }
-            (_, Err(e)) => { eprintln!("[http_proxy] Skipping invalid header value for '{}': {}", key, e); }
-        }
-    }
+    let headers = build_headers(&request.headers);
 
     // Build request
     let method = reqwest::Method::from_str(&request.method.to_uppercase())
@@ -177,13 +172,21 @@ pub async fn http_proxy_stream(
         return Err(format!("HTTP {}: {}", status, body));
     }
 
-    // Stream the response
+    // Stream the response with size limit enforcement
     use futures_util::StreamExt;
     let mut stream = response.bytes_stream();
+    let mut total_bytes: usize = 0;
 
     while let Some(chunk_result) = stream.next().await {
         match chunk_result {
             Ok(bytes) => {
+                total_bytes += bytes.len();
+                if total_bytes > MAX_RESPONSE_BYTES {
+                    return Err(format!(
+                        "Stream response too large (>{} bytes). Connection closed.",
+                        MAX_RESPONSE_BYTES
+                    ));
+                }
                 if let Ok(text) = String::from_utf8(bytes.to_vec()) {
                     on_chunk.send(StreamChunk {
                         chunk: text,

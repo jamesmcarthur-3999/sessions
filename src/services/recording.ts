@@ -8,23 +8,26 @@
  */
 
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { saveScreenshot, saveAudioChunk } from './database'
+import { saveAudioChunk } from './database'
 import { aiWorker } from './worker'
 import { smartCapture } from './smart-capture'
 import { loadAudioBinary } from './audio-storage'
-import { loadScreenshotBinary } from './screenshot-storage'
+import { captureAnalyzeScreenshot } from './capture-screenshot'
 import type { RecordingStopResult } from '../types'
 import { logger } from '../utils/logger'
-import { generateId } from '../utils/id'
+
+// Ensure Tauri environment is available
+function ensureTauri(): void {
+  if (typeof window === 'undefined' || !('__TAURI__' in window || '__TAURI_INTERNALS__' in window)) {
+    throw new Error('Not running in Tauri environment')
+  }
+}
 
 // Type-safe invoke wrapper
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  // Check if we're in Tauri environment (check both globals for v2 compatibility)
-  if (typeof window !== 'undefined' && ('__TAURI__' in window || '__TAURI_INTERNALS__' in window)) {
-    const { invoke: tauriInvoke } = await import('@tauri-apps/api/core')
-    return tauriInvoke<T>(cmd, args)
-  }
-  throw new Error('Not running in Tauri environment')
+  ensureTauri()
+  const { invoke: tauriInvoke } = await import('@tauri-apps/api/core')
+  return tauriInvoke<T>(cmd, args)
 }
 
 // Type-safe invoke wrapper with timeout to prevent indefinite hangs
@@ -33,10 +36,7 @@ async function invokeWithTimeout<T>(
   args?: Record<string, unknown>,
   timeoutMs: number = 10000
 ): Promise<T> {
-  if (typeof window === 'undefined' || !('__TAURI__' in window || '__TAURI_INTERNALS__' in window)) {
-    throw new Error('Not running in Tauri environment')
-  }
-
+  ensureTauri()
   const { invoke: tauriInvoke } = await import('@tauri-apps/api/core')
 
   return Promise.race([
@@ -61,10 +61,6 @@ export function isTauri(): boolean {
 // ============================================================================
 // Screenshot Capture
 // ============================================================================
-
-export async function captureScreenshot(screenId?: string | null): Promise<string> {
-  return invoke<string>('capture_screenshot', { screenId: screenId ?? null })
-}
 
 /**
  * Capture screenshot and write directly to file from Rust.
@@ -399,43 +395,12 @@ class SessionRecordingController {
     if (!this.state || !isTauri()) return
 
     try {
-      // Capture screenshot directly to file (no base64 IPC round-trip)
-      const screenshotId = generateId()
-      const filePath = await captureScreenshotToFile(
+      await captureAnalyzeScreenshot(
         this.state.sessionId,
-        screenshotId,
         this.state.options.selectedScreen,
-        1280,
-        75
+        'interval',
       )
       this.state.screenshotCount++
-
-      // Save metadata to database (file already on disk)
-      try {
-        const dbScreenshot = await saveScreenshot(
-          this.state.sessionId,
-          screenshotId,
-          filePath,
-          'interval' // This method is only used for interval-based capture; smart capture handles its own triggers
-        )
-        // Load binary from file for zero-copy transfer to worker
-        try {
-          const imageData = await loadScreenshotBinary(filePath)
-          // Send to AI Worker for analysis using binary transfer (non-blocking)
-          aiWorker.analyzeScreenshotBinary(
-            this.state.sessionId,
-            dbScreenshot.id,
-            imageData,
-            'interval',
-            null // No previous analysis for interval-based capture
-          ).catch(logger.error)
-        } catch (loadError) {
-          logger.error('Failed to load screenshot binary for analysis:', loadError)
-        }
-      } catch (dbError) {
-        logger.error('Failed to save screenshot to database:', dbError)
-      }
-
       logger.debug('Screenshot captured (' + this.state.screenshotCount + ' total)')
     } catch (e) {
       logger.error('Failed to capture screenshot:', e)

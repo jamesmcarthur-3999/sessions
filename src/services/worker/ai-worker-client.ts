@@ -3,16 +3,6 @@
  *
  * Main thread interface to the AI Worker.
  * All calls are non-blocking - results come back via events.
- *
- * v2 Changes:
- * - Uses RequestManager for correlation IDs (fixes C4)
- * - Clears worker reference on error (fixes C1)
- * - Tracks ready state via state machine events
- * - Proper cleanup in terminate()
- *
- * v3 Changes:
- * - Removed Tauri detection - workers use native fetch with CORS headers
- *   (Web Workers don't have access to window.__TAURI__)
  */
 
 import type {
@@ -666,20 +656,6 @@ class AiWorkerClient {
       this.worker !== null &&
       (this.workerState === 'INITIALIZED' || this.workerState === 'PROCESSING')
     );
-  }
-
-  /**
-   * Check if worker is initialized (alias for backward compatibility)
-   */
-  isInitialized(): boolean {
-    return this.isReady();
-  }
-
-  /**
-   * Get count of pending requests
-   */
-  getPendingRequestCount(): number {
-    return this.requestManager.pendingCount;
   }
 
   /**

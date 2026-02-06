@@ -4,9 +4,6 @@
  * Simple, flat types. No over-engineering.
  */
 
-// Legacy import for backward compatibility during migration
-import type { RecordingConfig as LegacyRecordingConfig } from '../components/RecordingSettings';
-
 /**
  * Simplified recording configuration (v2)
  * Everything else is automatic - screenshot timing, analysis mode, etc.
@@ -41,8 +38,7 @@ export interface Session {
   summary?: Summary;
 
   // Recording configuration (for session type)
-  // Supports both legacy (LegacyRecordingConfig) and new simplified (RecordingConfig)
-  recordingConfig?: RecordingConfig | LegacyRecordingConfig;
+  recordingConfig?: RecordingConfig;
 }
 
 export interface Summary {

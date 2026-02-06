@@ -3,10 +3,8 @@ import { motion } from 'framer-motion'
 import { Video, Feather, ChevronRight, Settings, Sparkles } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { hasApiKey } from '../services/bots'
-import { generateId } from '../utils/id'
 import { formatRelativeTime, formatDuration } from '../utils/formatting'
-import { SessionSetup } from './SessionSetup'
-import type { Session, RecordingConfig } from '../types'
+import type { Session } from '../types'
 
 type View = 'home' | 'setup' | 'summary' | 'history' | 'capture' | 'recording' | 'settings'
 
@@ -44,46 +42,14 @@ const itemVariants = {
 }
 
 export function Home({ onNavigate, onSessionSelect }: HomeProps) {
-  const { state, dispatch } = useApp()
+  const { state } = useApp()
   const recentSessions = state.sessions.slice(0, 5)
   const [apiKeyConfigured, setApiKeyConfigured] = useState(false)
-  const [showSetup, setShowSetup] = useState(false)
 
   // Check API key status on mount
   useEffect(() => {
     hasApiKey().then(setApiKeyConfigured)
   }, [])
-
-  const handleOpenSetup = () => {
-    setShowSetup(true)
-  }
-
-  const handleCloseSetup = () => {
-    setShowSetup(false)
-  }
-
-  const handleStartRecording = (config: RecordingConfig) => {
-    const session: Session = {
-      id: generateId(),
-      type: 'session',
-      title: 'New Session',
-      createdAt: new Date().toISOString(),
-      recordingConfig: config,
-      status: 'recording',
-    }
-    dispatch({ type: 'START_RECORDING', payload: session })
-    onNavigate('recording')
-  }
-
-  // Show inline setup when triggered
-  if (showSetup) {
-    return (
-      <SessionSetup
-        onBack={handleCloseSetup}
-        onStartRecording={handleStartRecording}
-      />
-    )
-  }
 
   return (
     <motion.div
@@ -101,6 +67,7 @@ export function Home({ onNavigate, onSessionSelect }: HomeProps) {
         </div>
         <button
           onClick={() => onNavigate('settings')}
+          aria-label="Settings"
           className="flex items-center gap-2 p-2.5 rounded-lg text-[var(--ink-muted)] hover:text-[var(--ink)] hover:bg-[var(--paper-warm)] transition-all duration-200"
         >
           {!apiKeyConfigured && (
@@ -143,7 +110,7 @@ export function Home({ onNavigate, onSessionSelect }: HomeProps) {
         <motion.div variants={itemVariants} className="w-full max-w-lg space-y-4">
           {/* Start Session Card */}
           <motion.button
-            onClick={handleOpenSetup}
+            onClick={() => onNavigate('setup')}
             whileHover={{ y: -2 }}
             whileTap={{ scale: 0.98 }}
             className="w-full group"

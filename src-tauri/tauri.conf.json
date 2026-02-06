@@ -21,7 +21,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; connect-src 'self' https://api.anthropic.com https://api.openai.com; img-src 'self' data: blob:; font-src 'self' https://fonts.gstatic.com; media-src 'self' blob:;"
+      "csp": "default-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; connect-src 'self' https://api.anthropic.com https://api.openai.com; img-src 'self' data: blob:; font-src 'self' https://fonts.gstatic.com; media-src 'self' blob:;"
     }
   },
   "plugins": {

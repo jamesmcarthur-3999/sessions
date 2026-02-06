@@ -1,24 +1,9 @@
 /**
- * AI Worker - Runs Baleybots off the main thread
+ * AI Worker - Runs Baleybots pipelines off the main thread.
  *
- * This keeps FULL Baleybots functionality:
- * - Pipeline compilation and caching
- * - Retry with exponential backoff (using baleybots' withRetry)
- * - Rate limiting
- * - Multimodal input builders
- * - Output schema validation
- *
- * v2 Changes:
- * - MessageQueue for sequential processing (fixes C2 race condition)
- * - WorkerStateMachine for lifecycle tracking (fixes D4, D5)
- * - Proper error → terminate flow (fixes C3)
- * - State change events emitted to main thread
- * - Uses baleybots' withRetry instead of custom implementation
- *
- * v3 Changes:
- * - Removed Tauri HTTP proxy support - Web Workers don't have window.__TAURI__
- * - Always use native fetch with 'anthropic-dangerous-direct-browser-access' header
- *   (Anthropic supports direct browser access, no proxy needed)
+ * Handles pipeline compilation/caching, retry with exponential backoff,
+ * rate limiting, multimodal input builders, and output schema validation.
+ * Uses native fetch with 'anthropic-dangerous-direct-browser-access' header.
  */
 
 /// <reference lib="webworker" />
@@ -146,6 +131,32 @@ async function withRetry<T>(
   throw lastError || new Error('Operation failed after retries');
 }
 
+/**
+ * Configure API keys in baleybots (shared by init + updateApiKeys)
+ */
+function configureApiKeys(): void {
+  if (!baleybots) return;
+
+  baleybots.Baleybot.setGlobalConfig({
+    anthropic: {
+      apiKey: anthropicKey ?? undefined,
+      headers: {
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+    },
+    openai: {
+      apiKey: openaiKey ?? undefined,
+    },
+  });
+
+  if (anthropicKey) {
+    baleybots.setDefaultApiKey('anthropic', anthropicKey);
+  }
+  if (openaiKey) {
+    baleybots.setDefaultApiKey('openai', openaiKey);
+  }
+}
+
 // ============================================================================
 // Initialization
 // ============================================================================
@@ -205,27 +216,8 @@ async function init(msg: Extract<WorkerMessage, { type: 'init' }>): Promise<void
     // Diagnostic logging - show key status without exposing actual keys
     log('info', `API keys received: anthropic=${anthropicKey ? 'set (' + anthropicKey.length + ' chars)' : 'NOT SET'}, openai=${openaiKey ? 'set (' + openaiKey.length + ' chars)' : 'NOT SET'}`);
 
-    // Always use direct browser API access with CORS headers
-    // Web Workers have native fetch but no window.__TAURI__
-    // Anthropic supports direct browser access via this header
-    log('info', 'Configuring direct browser API access');
-    baleybots.Baleybot.setGlobalConfig({
-      anthropic: {
-        headers: {
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-      },
-    });
-
-    // Set API keys
-    if (anthropicKey) {
-      baleybots.setDefaultApiKey('anthropic', anthropicKey);
-      log('info', 'Anthropic API key configured');
-    }
-    if (openaiKey) {
-      baleybots.setDefaultApiKey('openai', openaiKey);
-      log('info', 'OpenAI API key configured');
-    }
+    configureApiKeys();
+    log('info', 'API keys configured');
 
     if (!transitionState('INITIALIZED', 'Initialization complete')) {
       throw new Error('Failed to transition to INITIALIZED state');
@@ -250,15 +242,17 @@ function isReady(): boolean {
 
 /**
  * Convert ArrayBuffer to base64 data URL
- * Used for converting binary transfer data to format needed by API
+ * Uses chunked btoa() to avoid O(n^2) string concatenation
  */
 function arrayBufferToBase64(buffer: ArrayBuffer, mimeType: string): string {
   const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
+  const chunkSize = 8192;
+  const chunks: string[] = [];
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const slice = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+    chunks.push(String.fromCharCode(...slice));
   }
-  const base64 = btoa(binary);
+  const base64 = btoa(chunks.join(''));
   return `data:${mimeType};base64,${base64}`;
 }
 
@@ -713,16 +707,9 @@ async function updateApiKeys(
     anthropicKey = msg.anthropicKey;
     openaiKey = msg.openaiKey;
 
-    if (baleybots) {
-      if (anthropicKey) {
-        baleybots.setDefaultApiKey('anthropic', anthropicKey);
-      }
-      if (openaiKey) {
-        baleybots.setDefaultApiKey('openai', openaiKey);
-      }
-    }
+    configureApiKeys();
 
-    // Reset cached pipelines so they pick up new keys
+    // Reset cached pipelines so they pick up new config
     if (botsModule) {
       botsModule.resetPipelines();
     }

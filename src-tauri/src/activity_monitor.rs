@@ -12,6 +12,15 @@ use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
+/// Normal polling interval for frontmost app detection
+const POLL_INTERVAL_MS: u64 = 3000;
+
+/// Faster polling interval after an app switch (captures rapid context changes)
+const FAST_POLL_INTERVAL_MS: u64 = 1500;
+
+/// How long to use fast polling after an app switch
+const FAST_POLL_DURATION_SECS: u64 = 10;
+
 /// Events emitted to the frontend
 #[derive(Clone, serde::Serialize)]
 pub struct ActivityEvent {
@@ -60,9 +69,12 @@ impl ActivityMonitor {
         let handle = std::thread::spawn(move || {
             let mut last_app: Option<String> = None;
             let mut last_window: Option<String> = None;
-            // Adaptive polling: 3s normally, 1.5s after app switch for 10s
-            let mut poll_interval_ms: u64 = 3000;
+            // Adaptive polling: normal rate, faster after app switch
+            let mut poll_interval_ms: u64 = POLL_INTERVAL_MS;
             let mut fast_poll_until: Option<std::time::Instant> = None;
+            // Circuit breaker: stop after too many consecutive failures
+            let mut consecutive_failures: u32 = 0;
+            const MAX_CONSECUTIVE_FAILURES: u32 = 10;
 
             // Continue until stop flag is set
             while !stop_flag.load(Ordering::SeqCst) {
@@ -76,15 +88,23 @@ impl ActivityMonitor {
                 // Return to normal polling after fast-poll window expires
                 if let Some(until) = fast_poll_until {
                     if std::time::Instant::now() > until {
-                        poll_interval_ms = 3000;
+                        poll_interval_ms = POLL_INTERVAL_MS;
                         fast_poll_until = None;
                     }
                 }
 
                 // Get frontmost application (macOS)
                 let frontmost = match get_frontmost_app() {
-                    Some(result) => result,
+                    Some(result) => {
+                        consecutive_failures = 0;
+                        result
+                    }
                     None => {
+                        consecutive_failures += 1;
+                        if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+                            eprintln!("[ACTIVITY MONITOR] Disabling after {} consecutive failures", MAX_CONSECUTIVE_FAILURES);
+                            break;
+                        }
                         continue;
                     }
                 };
@@ -113,9 +133,9 @@ impl ActivityMonitor {
                         eprintln!("[ACTIVITY MONITOR] Failed to emit event: {}", e);
                     }
 
-                    // Enter fast-polling mode for 10s after an app switch
-                    poll_interval_ms = 1500;
-                    fast_poll_until = Some(std::time::Instant::now() + Duration::from_secs(10));
+                    // Enter fast-polling mode after an app switch
+                    poll_interval_ms = FAST_POLL_INTERVAL_MS;
+                    fast_poll_until = Some(std::time::Instant::now() + Duration::from_secs(FAST_POLL_DURATION_SECS));
 
                     last_app = Some(app_name.clone());
                 }
@@ -166,11 +186,6 @@ impl ActivityMonitor {
         }
     }
 
-    /// Check if monitoring is active
-    #[allow(dead_code)]
-    pub fn is_running(&self) -> bool {
-        self.is_started.load(Ordering::SeqCst) && !self.stop_flag.load(Ordering::SeqCst)
-    }
 }
 
 /// Get the frontmost application name and window title (macOS)

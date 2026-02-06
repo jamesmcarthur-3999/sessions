@@ -10,14 +10,11 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Sparkles } from 'lucide-react'
 import { InsightCard, type Insight } from './InsightCard'
 import { sessionBridge } from '../services/session-bridge'
+import { generateId } from '../utils/id'
 
 interface InsightsPanelProps {
   sessionId: string
   maxItems?: number
-}
-
-function generateId(): string {
-  return Math.random().toString(36).substring(2, 9)
 }
 
 // Classify insight type based on content

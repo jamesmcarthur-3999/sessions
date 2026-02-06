@@ -6,6 +6,8 @@ import { aiWorker } from '../services/worker/ai-worker-client'
 import { persistCaptureAttachments } from '../services/attachments'
 import { generateId } from '../utils/id'
 import { useToast } from './Toast'
+import { ProcessingSpinner } from './ui/ProcessingSpinner'
+import { IconBadge } from './ui/IconBadge'
 import type { Session, Summary, Attachment } from '../types'
 import { logger } from '../utils/logger'
 
@@ -227,47 +229,10 @@ export function QuickCapture({ onBack, onComplete }: QuickCaptureProps) {
             animate={{ opacity: 1, y: 0 }}
             className="flex-1 flex flex-col items-center justify-center"
           >
-            {/* Geometric animation */}
-            <div className="relative w-28 h-28 mb-10">
-              {/* Outer ring */}
-              <motion.div
-                animate={{ rotate: 360 }}
-                transition={{ duration: 10, repeat: Infinity, ease: 'linear' }}
-                className="absolute inset-0"
-              >
-                <div className="absolute inset-0 rounded-full border border-[var(--accent)]/20" />
-                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[var(--accent)]" />
-              </motion.div>
-
-              {/* Middle ring */}
-              <motion.div
-                animate={{ rotate: -360 }}
-                transition={{ duration: 6, repeat: Infinity, ease: 'linear' }}
-                className="absolute inset-4"
-              >
-                <div className="absolute inset-0 rounded-full border border-[var(--accent)]/30" />
-                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-[var(--accent)]" />
-              </motion.div>
-
-              {/* Center pulse */}
-              <motion.div
-                animate={{ scale: [0.8, 1, 0.8], opacity: [0.5, 1, 0.5] }}
-                transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                className="absolute inset-8 rounded-full bg-[var(--accent)]"
-              />
-            </div>
-
-            <motion.p
-              key={processingStage}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="font-display text-xl text-[var(--ink)]"
-            >
-              {processingStage}
-            </motion.p>
-            <p className="text-sm text-[var(--ink-muted)] mt-2">
-              AI is analyzing your content
-            </p>
+            <ProcessingSpinner
+              message={processingStage}
+              description="AI is analyzing your content"
+            />
           </motion.div>
         ) : (
           /* Input state */
@@ -276,9 +241,7 @@ export function QuickCapture({ onBack, onComplete }: QuickCaptureProps) {
             <div className="flex-1 mb-6">
               {/* Icon header */}
               <div className="flex items-center gap-3 mb-6">
-                <div className="w-10 h-10 rounded-xl bg-[var(--session-capture-muted)] flex items-center justify-center">
-                  <Feather className="w-5 h-5 text-[var(--session-capture)]" />
-                </div>
+                <IconBadge icon={Feather} bg="bg-[var(--session-capture-muted)]" color="text-[var(--session-capture)]" />
                 <div>
                   <h1 className="font-medium text-[var(--ink)]">Quick Capture</h1>
                   <p className="text-xs text-[var(--ink-muted)]">

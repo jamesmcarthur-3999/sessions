@@ -3,13 +3,6 @@
  *
  * Type definitions for communication between main thread and AI Worker.
  * All messages are serializable for postMessage transport.
- *
- * v2 Changes:
- * - Added id and timestamp to all messages for correlation
- * - Added state-change and progress response types
- *
- * v3 Changes:
- * - Removed isTauri and tauriProxyUrl - workers use native fetch with CORS headers
  */
 
 import type { ActivityDetection, RollingSummary, SessionContext } from '../bots/types';

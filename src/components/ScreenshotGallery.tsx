@@ -9,6 +9,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, ChevronLeft, ChevronRight, ImageOff } from 'lucide-react'
 import type { DbScreenshot } from '../types/database'
+import { logger } from '../utils/logger'
 import { loadScreenshotData } from '../services/screenshot-storage'
 
 // Maximum number of images to keep in memory (LRU eviction)
@@ -57,7 +58,7 @@ export function ScreenshotGallery({ screenshots }: ScreenshotGalleryProps) {
         return { ...prev, [id]: dataUrl }
       })
     } catch (error) {
-      console.error('Failed to load screenshot:', id, error)
+      logger.error('Failed to load screenshot:', id, error)
     } finally {
       loadingRef.current.delete(id)
       setLoadingImages(new Set(loadingRef.current))
@@ -181,6 +182,7 @@ export function ScreenshotGallery({ screenshots }: ScreenshotGalleryProps) {
           >
             <button
               onClick={() => setSelectedIndex(null)}
+              aria-label="Close screenshot viewer"
               className="absolute top-4 right-4 p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
             >
               <X className="w-6 h-6 text-white" />
@@ -192,6 +194,7 @@ export function ScreenshotGallery({ screenshots }: ScreenshotGalleryProps) {
                   e.stopPropagation()
                   setSelectedIndex(selectedIndex - 1)
                 }}
+                aria-label="Previous screenshot"
                 className="absolute left-4 p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
               >
                 <ChevronLeft className="w-6 h-6 text-white" />
@@ -204,6 +207,7 @@ export function ScreenshotGallery({ screenshots }: ScreenshotGalleryProps) {
                   e.stopPropagation()
                   setSelectedIndex(selectedIndex + 1)
                 }}
+                aria-label="Next screenshot"
                 className="absolute right-4 p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
               >
                 <ChevronRight className="w-6 h-6 text-white" />

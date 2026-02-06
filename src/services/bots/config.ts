@@ -22,7 +22,7 @@ let baleybots: typeof import('@baleybots/core') | null = null;
 /**
  * Dynamically load @baleybots/core to avoid loading Node.js-only code at startup
  */
-async function loadBaleybots() {
+async function loadBaleybots(): Promise<typeof import('@baleybots/core')> {
   if (!baleybots) {
     baleybots = await import('@baleybots/core');
 

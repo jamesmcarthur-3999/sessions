@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useMemo } from 'react'
 
 type ShortcutCallback = () => void
 
@@ -52,19 +52,19 @@ export function useGlobalShortcuts(callbacks: {
   onNewSession?: () => void
   onGoHome?: () => void
   onSearch?: () => void
+  onSettings?: () => void
+  onGoBack?: () => void
 }) {
-  useKeyboardShortcuts([
-    ...(callbacks.onNewCapture
-      ? [{ key: 'n', metaKey: true, shiftKey: false, callback: callbacks.onNewCapture }]
-      : []),
-    ...(callbacks.onNewSession
-      ? [{ key: 'n', metaKey: true, shiftKey: true, callback: callbacks.onNewSession }]
-      : []),
-    ...(callbacks.onGoHome
-      ? [{ key: 'h', metaKey: true, shiftKey: false, callback: callbacks.onGoHome }]
-      : []),
-    ...(callbacks.onSearch
-      ? [{ key: 'k', metaKey: true, shiftKey: false, callback: callbacks.onSearch }]
-      : []),
-  ])
+  const shortcuts = useMemo(() => {
+    const result: Shortcut[] = []
+    if (callbacks.onNewCapture) result.push({ key: 'n', metaKey: true, shiftKey: false, callback: callbacks.onNewCapture })
+    if (callbacks.onNewSession) result.push({ key: 'n', metaKey: true, shiftKey: true, callback: callbacks.onNewSession })
+    if (callbacks.onGoHome) result.push({ key: 'h', metaKey: true, shiftKey: false, callback: callbacks.onGoHome })
+    if (callbacks.onSearch) result.push({ key: 'k', metaKey: true, shiftKey: false, callback: callbacks.onSearch })
+    if (callbacks.onSettings) result.push({ key: ',', metaKey: true, callback: callbacks.onSettings })
+    if (callbacks.onGoBack) result.push({ key: 'w', metaKey: true, callback: callbacks.onGoBack })
+    return result
+  }, [callbacks.onNewCapture, callbacks.onNewSession, callbacks.onGoHome, callbacks.onSearch, callbacks.onSettings, callbacks.onGoBack])
+
+  useKeyboardShortcuts(shortcuts)
 }

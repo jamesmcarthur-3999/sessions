@@ -11,6 +11,7 @@ import {
   saveSessionSummary,
   saveCapturePayload,
   updateSessionTitle,
+  loadAllSessions,
 } from '../services/database'
 import { isTauri } from '../services/recording'
 import { logger } from '../utils/logger'
@@ -20,6 +21,7 @@ interface AppState {
   isLoading: boolean
   activeSession: Session | null // For recording
   error: string | null
+  recoveredSessionCount: number
 }
 
 type AppAction =
@@ -31,12 +33,15 @@ type AppAction =
   | { type: 'START_RECORDING'; payload: Session }
   | { type: 'STOP_RECORDING' }
   | { type: 'SET_ERROR'; payload: string | null }
+  | { type: 'SET_RECOVERED_COUNT'; payload: number }
+  | { type: 'DISMISS_RECOVERY' }
 
 const initialState: AppState = {
   sessions: [],
   isLoading: true,
   activeSession: null,
   error: null,
+  recoveredSessionCount: 0,
 }
 
 function appReducer(state: AppState, action: AppAction): AppState {
@@ -65,6 +70,10 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, activeSession: null }
     case 'SET_ERROR':
       return { ...state, error: action.payload }
+    case 'SET_RECOVERED_COUNT':
+      return { ...state, recoveredSessionCount: action.payload }
+    case 'DISMISS_RECOVERY':
+      return { ...state, recoveredSessionCount: 0 }
     default:
       return state
   }
@@ -114,6 +123,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             if (orphanedSessions.length > 0) {
               const sessionIds = orphanedSessions.map(s => s.id)
               await markSessionsAsInterrupted(sessionIds)
+              dispatch({ type: 'SET_RECOVERED_COUNT', payload: sessionIds.length })
               logger.info(`[CRASH RECOVERY] Recovered ${sessionIds.length} interrupted sessions`)
             }
           } catch (recoveryError) {
@@ -123,7 +133,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
 
         const sessions = isTauri()
-          ? await storage.syncFromDatabase()
+          ? await loadAllSessions()
           : await storage.loadSessions()
         dispatch({ type: 'SET_SESSIONS', payload: sessions })
       } catch (error) {
@@ -137,7 +147,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const addSession = useCallback(async (session: Session) => {
     dispatch({ type: 'ADD_SESSION', payload: session })
-    await storage.saveSession(session)
     if (isTauri()) {
       // Persist capture sessions to the database (recording sessions are created at start)
       if (session.type === 'capture') {
@@ -159,12 +168,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
           logger.error('[DATABASE] Failed to save session summary:', error)
         }
       }
+    } else {
+      // Browser dev mode: persist to localStorage
+      await storage.saveSession(session)
     }
   }, [dispatch])
 
   const updateSession = useCallback(async (session: Session) => {
     dispatch({ type: 'UPDATE_SESSION', payload: session })
-    await storage.saveSession(session)
     if (isTauri()) {
       try {
         await updateSessionTitle(session.id, session.title)
@@ -187,42 +198,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
           logger.error('[DATABASE] Failed to update capture payload:', error)
         }
       }
+    } else {
+      // Browser dev mode: persist to localStorage
+      await storage.saveSession(session)
     }
   }, [dispatch])
 
   const deleteSession = useCallback(async (id: string) => {
-    const errors: string[] = []
-
-    // Try database deletion first (has the bulk of the data)
-    try {
+    if (isTauri()) {
+      // SQLite is the primary store
       await deleteSessionData(id)
-    } catch (err) {
-      logger.error('Failed to delete session from database:', err)
-      errors.push('database')
-    }
-
-    // Then try localStorage
-    try {
-      await storage.deleteSession(id)
-    } catch (err) {
-      logger.error('Failed to delete session from localStorage:', err)
-      errors.push('localStorage')
-    }
-
-    // Only update UI if BOTH succeeded
-    if (errors.length === 0) {
-      dispatch({ type: 'DELETE_SESSION', payload: id })
-    } else if (errors.length === 1) {
-      // Partial failure - try to rollback or warn user
-      logger.error(`Partial delete failure: ${errors.join(', ')}`)
-      // Still update UI but warn user
-      dispatch({ type: 'DELETE_SESSION', payload: id })
-      // Could show a toast warning here
     } else {
-      // Both failed - don't update UI
-      logger.error('Delete completely failed')
-      throw new Error('Failed to delete session')
+      // Browser dev mode: localStorage fallback
+      await storage.deleteSession(id)
     }
+
+    dispatch({ type: 'DELETE_SESSION', payload: id })
   }, [dispatch])
 
   const contextValue = useMemo(() => ({

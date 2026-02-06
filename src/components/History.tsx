@@ -3,6 +3,7 @@ import { ArrowLeft, Video, MessageSquare, Search } from 'lucide-react'
 import { useState, useMemo } from 'react'
 import { useApp } from '../context/AppContext'
 import { formatDateShort, formatDuration } from '../utils/formatting'
+import { EmptyState } from './ui/EmptyState'
 import type { Session } from '../types'
 
 interface HistoryProps {
@@ -16,8 +17,12 @@ function groupByDate(sessions: Session[]): Map<string, Session[]> {
 
   for (const session of sessions) {
     const dateKey = formatDateShort(session.createdAt)
-    const existing = groups.get(dateKey) || []
-    groups.set(dateKey, [...existing, session])
+    const existing = groups.get(dateKey)
+    if (existing) {
+      existing.push(session)
+    } else {
+      groups.set(dateKey, [session])
+    }
   }
 
   return groups
@@ -117,18 +122,12 @@ export function History({ onBack, onSessionSelect }: HistoryProps) {
             ))}
           </motion.div>
         ) : state.sessions.length === 0 ? (
-          <motion.div variants={itemVariants} className="text-center py-16">
-            <p className="text-[var(--ink-muted)]">No sessions yet</p>
-            <p className="text-sm text-[var(--ink-muted)] mt-1">
-              Start a session or make a capture to see it here
-            </p>
+          <motion.div variants={itemVariants}>
+            <EmptyState message="No sessions yet" description="Start a session or make a capture to see it here" />
           </motion.div>
         ) : filteredSessions.length === 0 ? (
-          <motion.div variants={itemVariants} className="text-center py-16">
-            <p className="text-[var(--ink-muted)]">No results found</p>
-            <p className="text-sm text-[var(--ink-muted)] mt-1">
-              Try a different search term
-            </p>
+          <motion.div variants={itemVariants}>
+            <EmptyState message="No results found" description="Try a different search term" />
           </motion.div>
         ) : (
           <div className="space-y-8">

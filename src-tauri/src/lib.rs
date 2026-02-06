@@ -11,9 +11,18 @@ use tauri::Manager;
 use audio_capture::AudioRecorder;
 use video_recording::VideoRecorder;
 
+/// Default maximum width for screenshot resizing (preserves detail while saving bandwidth)
+const DEFAULT_MAX_WIDTH: u32 = 1280;
+
+/// Width for test capture thumbnails
+const THUMBNAIL_WIDTH: u32 = 400;
+
+/// Default JPEG quality for file-based screenshots (0-100)
+const DEFAULT_JPEG_QUALITY: u8 = 75;
+
 /// Lock a mutex, recovering from poison by accepting the potentially-stale data.
 /// This is safe because our mutexes guard simple state values (not invariants).
-fn lock_or_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+pub(crate) fn lock_or_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     match mutex.lock() {
         Ok(guard) => guard,
         Err(poisoned) => {
@@ -21,6 +30,19 @@ fn lock_or_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
             poisoned.into_inner()
         }
     }
+}
+
+/// Validate that a string is safe for use as a path component (no traversal).
+fn validate_path_component(name: &str, label: &str) -> Result<(), String> {
+    if name.is_empty()
+        || name.contains("..")
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains('\0')
+    {
+        return Err(format!("Invalid {}: contains unsafe characters", label));
+    }
+    Ok(())
 }
 
 // ============================================================================
@@ -41,7 +63,7 @@ where
             Err(e) => {
                 last_error = e.clone();
                 if attempt < max_retries - 1 {
-                    let delay_ms = 100 * 2_u64.pow(attempt);
+                    let delay_ms = (100 * 2_u64.pow(attempt)).min(5000);
                     eprintln!("Screenshot capture failed (attempt {}), retrying in {}ms: {}", attempt + 1, delay_ms, e);
                     tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
                 }
@@ -115,6 +137,42 @@ fn get_screens() -> Result<Vec<serde_json::Value>, String> {
 // Screenshot Capture
 // ============================================================================
 
+/// Capture the raw screen image for the given screen ID (or primary if None).
+/// Returns an RgbaImage — callers apply their own resize/encoding.
+fn capture_screen_image(screen_id: Option<&str>) -> Result<screenshots::image::RgbaImage, String> {
+    let screens = Screen::all().map_err(|e| format!("Failed to get screens: {}", e))?;
+
+    if screens.is_empty() {
+        return Err("No screens found".to_string());
+    }
+
+    let screen_idx: usize = screen_id
+        .and_then(|id| id.parse().ok())
+        .unwrap_or(0);
+
+    let screen = screens.get(screen_idx).unwrap_or(&screens[0]);
+    screen.capture().map_err(|e| format!("Failed to capture screen: {}", e))
+}
+
+/// Resize an image if wider than `max_width`, preserving aspect ratio.
+fn resize_if_needed(
+    image: &screenshots::image::RgbaImage,
+    max_width: u32,
+) -> screenshots::image::RgbaImage {
+    if image.width() > max_width {
+        let scale = max_width as f32 / image.width() as f32;
+        let new_height = (image.height() as f32 * scale) as u32;
+        screenshots::image::imageops::resize(
+            image,
+            max_width,
+            new_height,
+            screenshots::image::imageops::FilterType::Triangle,
+        )
+    } else {
+        image.clone()
+    }
+}
+
 /// Captures a specific screen (or primary if not specified) and returns base64-encoded PNG data
 #[tauri::command]
 async fn capture_screenshot(screen_id: Option<String>) -> Result<String, String> {
@@ -122,23 +180,12 @@ async fn capture_screenshot(screen_id: Option<String>) -> Result<String, String>
         let sid = screen_id.clone();
         async move {
             tokio::task::spawn_blocking(move || {
-                let screens = Screen::all().map_err(|e| format!("Failed to get screens: {}", e))?;
-
-                if screens.is_empty() {
-                    return Err("No screens found".to_string());
-                }
-
-                let screen_idx: usize = sid
-                    .as_ref()
-                    .and_then(|id| id.parse().ok())
-                    .unwrap_or(0);
-
-                let screen = screens.get(screen_idx).unwrap_or(&screens[0]);
-                let image = screen.capture().map_err(|e| format!("Failed to capture screen: {}", e))?;
+                let image = capture_screen_image(sid.as_deref())?;
+                let dynamic = screenshots::image::DynamicImage::ImageRgba8(image);
 
                 let mut bytes: Vec<u8> = Vec::new();
                 let mut cursor = Cursor::new(&mut bytes);
-                image
+                dynamic
                     .write_to(&mut cursor, ImageFormat::Png)
                     .map_err(|e| format!("Failed to encode PNG: {}", e))?;
 
@@ -169,6 +216,10 @@ async fn capture_screenshot_to_file(
         let q = quality;
         async move {
             tokio::task::spawn_blocking(move || {
+                // Validate path components to prevent directory traversal
+                validate_path_component(&sess_id, "session ID")?;
+                validate_path_component(&ss_id, "screenshot ID")?;
+
                 // Get app data directory and create screenshots/{session_id}/
                 let data_dir = handle.path().app_data_dir()
                     .map_err(|e| format!("Failed to get app data dir: {}", e))?;
@@ -176,42 +227,16 @@ async fn capture_screenshot_to_file(
                 std::fs::create_dir_all(&session_dir)
                     .map_err(|e| format!("Failed to create screenshot dir: {}", e))?;
 
-                // Capture screen
-                let screens = Screen::all().map_err(|e| format!("Failed to get screens: {}", e))?;
-                if screens.is_empty() {
-                    return Err("No screens found".to_string());
-                }
-
-                let screen_idx: usize = sid
-                    .as_ref()
-                    .and_then(|id| id.parse().ok())
-                    .unwrap_or(0);
-
-                let screen = screens.get(screen_idx).unwrap_or(&screens[0]);
-                let image = screen.capture().map_err(|e| format!("Failed to capture screen: {}", e))?;
-
-                // Resize to max_width (default 1280px)
-                let target_width = mw.unwrap_or(1280);
-                let jpeg_quality = q.unwrap_or(75);
-
-                let final_image = if image.width() > target_width {
-                    let scale = target_width as f32 / image.width() as f32;
-                    let new_height = (image.height() as f32 * scale) as u32;
-                    screenshots::image::imageops::resize(
-                        &image,
-                        target_width,
-                        new_height,
-                        screenshots::image::imageops::FilterType::Triangle,
-                    )
-                } else {
-                    image.clone()
-                };
+                let image = capture_screen_image(sid.as_deref())?;
+                let final_image = resize_if_needed(&image, mw.unwrap_or(DEFAULT_MAX_WIDTH));
 
                 // Encode as JPEG directly to bytes
+                let jpeg_quality = q.unwrap_or(DEFAULT_JPEG_QUALITY);
                 let mut bytes: Vec<u8> = Vec::new();
                 let mut cursor = Cursor::new(&mut bytes);
                 let encoder = screenshots::image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, jpeg_quality);
-                final_image.write_with_encoder(encoder)
+                screenshots::image::DynamicImage::ImageRgba8(final_image)
+                    .write_with_encoder(encoder)
                     .map_err(|e| format!("Failed to encode JPEG: {}", e))?;
 
                 // Write directly to file (no base64 involved)
@@ -234,37 +259,13 @@ async fn test_capture_screenshot(screen_id: Option<String>) -> Result<String, St
         let sid = screen_id.clone();
         async move {
             tokio::task::spawn_blocking(move || {
-                let screens = Screen::all().map_err(|e| format!("Failed to get screens: {}", e))?;
-
-                if screens.is_empty() {
-                    return Err("No screens found".to_string());
-                }
-
-                let screen_idx: usize = sid
-                    .as_ref()
-                    .and_then(|id| id.parse().ok())
-                    .unwrap_or(0);
-
-                let screen = screens.get(screen_idx).unwrap_or(&screens[0]);
-                let image = screen.capture().map_err(|e| format!("Failed to capture screen: {}", e))?;
-
-                // Resize to thumbnail (max 400px width for preview)
-                let thumbnail = if image.width() > 400 {
-                    let scale = 400.0 / image.width() as f32;
-                    let new_height = (image.height() as f32 * scale) as u32;
-                    screenshots::image::imageops::resize(
-                        &image,
-                        400,
-                        new_height,
-                        screenshots::image::imageops::FilterType::Triangle,
-                    )
-                } else {
-                    image.clone()
-                };
+                let image = capture_screen_image(sid.as_deref())?;
+                let thumbnail = resize_if_needed(&image, THUMBNAIL_WIDTH);
+                let dynamic = screenshots::image::DynamicImage::ImageRgba8(thumbnail);
 
                 let mut bytes: Vec<u8> = Vec::new();
                 let mut cursor = Cursor::new(&mut bytes);
-                thumbnail
+                dynamic
                     .write_to(&mut cursor, ImageFormat::Png)
                     .map_err(|e| format!("Failed to encode PNG: {}", e))?;
 
@@ -287,6 +288,9 @@ fn request_screen_recording_permission() -> Result<bool, String> {
         fn CGPreflightScreenCaptureAccess() -> u8;
     }
 
+    // SAFETY: CGPreflightScreenCaptureAccess and CGRequestScreenCaptureAccess are
+    // stateless CoreGraphics functions with no preconditions. They query/request
+    // the macOS screen recording permission and return a boolean (0 or 1).
     unsafe {
         let has_permission = CGPreflightScreenCaptureAccess() != 0;
         if !has_permission {
@@ -304,6 +308,7 @@ fn check_screen_recording_permission() -> Result<bool, String> {
     extern "C" {
         fn CGPreflightScreenCaptureAccess() -> u8;
     }
+    // SAFETY: Stateless CoreGraphics query function with no preconditions.
     unsafe { Ok(CGPreflightScreenCaptureAccess() != 0) }
 }
 

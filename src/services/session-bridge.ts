@@ -430,7 +430,7 @@ class SessionBridgeService {
 
       try {
         // Update audio chunk with transcript
-        await updateAudioTranscript(data.chunkId, data.text);
+        await updateAudioTranscript(data.sessionId, data.chunkId, data.text);
 
         // Forward to UI
         this.emitter.emit('transcription-complete', {

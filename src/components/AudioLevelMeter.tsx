@@ -8,6 +8,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { Mic, MicOff, AlertTriangle } from 'lucide-react'
+import { logger } from '../utils/logger'
 
 interface AudioLevelMeterProps {
   deviceId: string | null
@@ -68,7 +69,7 @@ export function AudioLevelMeter({ deviceId, isActive }: AudioLevelMeterProps) {
             }
           } catch {
             // If enumeration fails, fall back to default device
-            console.warn('[AudioLevelMeter] Could not enumerate devices, using default')
+            logger.warn('[AudioLevelMeter] Could not enumerate devices, using default')
           }
         }
 
@@ -130,7 +131,7 @@ export function AudioLevelMeter({ deviceId, isActive }: AudioLevelMeterProps) {
         animationRef.current = setInterval(updateLevel, 100) as unknown as number
       } catch (err) {
         if (!isMounted) return
-        console.error('Failed to access microphone:', err)
+        logger.error('Failed to access microphone:', err)
         setError(err instanceof Error ? err.message : 'Microphone access denied')
         setIsListening(false)
       }

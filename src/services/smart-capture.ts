@@ -13,11 +13,8 @@
  */
 
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { saveScreenshot } from './database';
-import { aiWorker } from './worker';
-import { captureScreenshotToFile, isTauri } from './recording';
-import { loadScreenshotBinary } from './screenshot-storage';
-import { generateId } from '../utils/id';
+import { isTauri } from './recording';
+import { captureAnalyzeScreenshot } from './capture-screenshot';
 import { EventEmitter } from './event-emitter';
 import { logger } from '../utils/logger';
 
@@ -341,40 +338,19 @@ class SmartCaptureService {
     this.capturePending = true;
 
     try {
-      // Capture screenshot directly to file (no base64 IPC round-trip)
-      const screenshotId = generateId();
-      const filePath = await captureScreenshotToFile(this.sessionId, screenshotId, this.screenId, 1280, 75);
+      await captureAnalyzeScreenshot(
+        this.sessionId,
+        this.screenId,
+        trigger,
+        this.lastApp ?? undefined,
+        this.lastWindow ?? undefined,
+      );
       this.lastCaptureTime = Date.now();
       this.captureCount++;
       this.consecutiveFailures = 0; // Reset on success
 
       // Emit capture event for UI
       this.emitter.emit('capture', { sessionId: this.sessionId, trigger });
-
-      // Save metadata to database (file already on disk)
-      const dbScreenshot = await saveScreenshot(
-        this.sessionId,
-        screenshotId,
-        filePath,
-        trigger as 'manual' | 'interval' | 'app_switch' | 'session_start' | 'session_end',
-        this.lastApp ?? undefined,
-        this.lastWindow ?? undefined
-      );
-
-      // Load binary from file for zero-copy transfer to worker
-      try {
-        const imageData = await loadScreenshotBinary(filePath);
-        // Send to AI Worker for analysis using binary transfer (non-blocking)
-        aiWorker.analyzeScreenshotBinary(
-          this.sessionId,
-          dbScreenshot.id,
-          imageData,
-          trigger,
-          null
-        ).catch(logger.error);
-      } catch (loadError) {
-        logger.error('[SMART CAPTURE] Failed to load screenshot binary for analysis:', loadError);
-      }
 
       logger.debug(`[SMART CAPTURE] Captured: ${trigger}`, {
         app: this.lastApp,

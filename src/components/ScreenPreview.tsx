@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { Monitor, RefreshCw, Check, X, Loader2 } from 'lucide-react'
 import { testCaptureScreenshot, isTauri } from '../services/recording'
+import { logger } from '../utils/logger'
 
 interface ScreenPreviewProps {
   screenId: string | null
@@ -34,7 +35,7 @@ export function ScreenPreview({ screenId, screenName, onClose }: ScreenPreviewPr
       const screenshot = await testCaptureScreenshot(screenId)
       setPreview(screenshot)
     } catch (err) {
-      console.error('Failed to capture preview:', err)
+      logger.error('Failed to capture preview:', err)
       setError(err instanceof Error ? err.message : 'Failed to capture screen')
     } finally {
       setIsLoading(false)

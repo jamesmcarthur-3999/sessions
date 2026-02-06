@@ -126,32 +126,6 @@ class StorageService {
   }
 
   /**
-   * Get the stored API key for AI services
-   */
-  getApiKey(): string | null {
-    try {
-      return localStorage.getItem('sessions_api_key')
-    } catch {
-      return null
-    }
-  }
-
-  /**
-   * Get storage usage info
-   */
-  getStorageInfo(): { used: number; available: number } {
-    try {
-      const data = localStorage.getItem(STORAGE_KEY) || ''
-      const used = new Blob([data]).size
-      // localStorage typically has 5MB limit, but varies by browser
-      const available = 5 * 1024 * 1024 - used
-      return { used, available }
-    } catch {
-      return { used: 0, available: 5 * 1024 * 1024 }
-    }
-  }
-
-  /**
    * Rebuild localStorage from database
    * Use when localStorage is corrupted or cleared
    */
@@ -199,23 +173,6 @@ class StorageService {
     })
   }
 
-  /**
-   * Verify localStorage and database are in sync
-   */
-  async verifyStorageSync(): Promise<{
-    inSync: boolean
-    localCount: number
-    dbCount: number
-  }> {
-    const local = await this.loadSessions()
-    const dbSessions = await getAllSessionsForSync()
-
-    return {
-      inSync: local.length === dbSessions.length,
-      localCount: local.length,
-      dbCount: dbSessions.length,
-    }
-  }
 }
 
 export const storage = new StorageService()

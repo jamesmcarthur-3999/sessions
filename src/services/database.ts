@@ -449,20 +449,6 @@ export async function getScreenshots(
   return db.select<DbScreenshot[]>(query, params);
 }
 
-/**
- * Get a single screenshot by ID
- */
-export async function getScreenshotById(id: string): Promise<DbScreenshot | null> {
-  const db = await ensureDb();
-
-  const result = await db.select<DbScreenshot[]>(
-    `SELECT * FROM screenshots WHERE id = $1`,
-    [id]
-  );
-
-  return result[0] || null;
-}
-
 export async function updateScreenshotAnalysis(
   id: string,
   analysis: string
@@ -497,8 +483,10 @@ export async function saveAudioChunk(
   durationSeconds: number
 ): Promise<DbAudioChunk> {
   const db = await ensureDb();
+  // Prefix with session ID to ensure global uniqueness across recordings
+  const globalId = `${sessionId}/${chunkId}`;
   const chunk: DbAudioChunk = {
-    id: chunkId,
+    id: globalId,
     session_id: sessionId,
     start_time: startTime,
     end_time: endTime,
@@ -518,13 +506,15 @@ export async function saveAudioChunk(
 }
 
 export async function updateAudioTranscript(
-  id: string,
+  sessionId: string,
+  chunkId: string,
   transcript: string
 ): Promise<void> {
   const db = await ensureDb();
+  const globalId = `${sessionId}/${chunkId}`;
   await db.execute(
     'UPDATE audio_chunks SET transcript = $1 WHERE id = $2',
-    [transcript, id]
+    [transcript, globalId]
   );
 }
 
@@ -855,4 +845,35 @@ export async function getAllSessionsForSync(): Promise<DbSession[]> {
   return await db.select<DbSession[]>(
     "SELECT * FROM sessions WHERE status IN ('complete', 'interrupted', 'error', 'processing') ORDER BY created_at DESC"
   );
+}
+
+/**
+ * Load all sessions from the database as fully-hydrated Session objects.
+ * This is the primary way to load sessions — no localStorage involved.
+ */
+export async function loadAllSessions(): Promise<import('../types').Session[]> {
+  const dbSessions = await getAllSessionsForSync();
+  const sessions: import('../types').Session[] = [];
+
+  for (const db of dbSessions) {
+    const summary = await getSessionSummary(db.id);
+    const capturePayload = db.type === 'capture'
+      ? await getCapturePayload(db.id)
+      : null;
+
+    sessions.push({
+      id: db.id,
+      type: db.type as 'session' | 'capture',
+      title: db.title,
+      createdAt: db.created_at,
+      duration: db.duration_seconds ?? undefined,
+      videoPath: db.video_path ?? undefined,
+      status: db.status,
+      summary: summary ?? undefined,
+      captureText: capturePayload?.text || undefined,
+      attachments: capturePayload?.attachments || undefined,
+    });
+  }
+
+  return sessions;
 }

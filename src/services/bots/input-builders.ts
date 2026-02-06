@@ -7,24 +7,8 @@
 
 import { combine, text, image, audio } from '@baleybots/core';
 import type { SessionContext } from './types';
+import type { WorkerActivityMetrics as ActivityMetrics } from '../worker/types';
 import type { DbScreenshot, DbAudioChunk, DbInsight, DbRollingSummary } from '../../types/database';
-
-// ============================================================================
-// Interfaces
-// ============================================================================
-
-/**
- * Activity metrics for adaptive analysis decisions
- */
-interface ActivityMetrics {
-  appSwitchCount: number;
-  uniqueAppsCount: number;
-  screenshotCount: number;
-  audioWordCount: number;
-  averageScreenshotChangeMagnitude: number;
-  timeSinceLastActivity: number;
-  currentFocusDuration: number;
-}
 
 /**
  * Input structure for final summary generation
@@ -71,7 +55,7 @@ function sampleEvenly<T>(items: T[], count: number): T[] {
 export function buildActivityDetectorInput(
   screenshotBase64: string,
   previousContext?: string
-) {
+): ReturnType<typeof combine> {
   // Detect media type from data URL prefix, default to jpeg (our optimized format)
   let mediaType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' = 'image/jpeg';
   if (screenshotBase64.includes('data:image/png')) {
@@ -305,7 +289,7 @@ export function buildCaptureInput(text: string, attachmentDescriptions?: string[
  * Build input for audio transcription via Baleybots
  * Uses the SDK's audio() primitive with 'transcribe' mode
  */
-export function buildTranscriberInput(audioData: ArrayBuffer) {
+export function buildTranscriberInput(audioData: ArrayBuffer): ReturnType<typeof audio> {
   const blob = new Blob([audioData], { type: 'audio/wav' });
   return audio(blob, 'transcribe');
 }

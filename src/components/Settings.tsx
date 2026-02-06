@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Key, Sparkles, Check, Eye, EyeOff, Zap, AlertCircle, Brain, CheckSquare, MessageCircle, Link, Mic } from 'lucide-react'
+import { Key, Sparkles, Check, Eye, EyeOff, Zap, AlertCircle, Brain, CheckSquare, MessageCircle, Link, Mic } from 'lucide-react'
 import { updateApiKeys, testApiKey } from '../services/bots'
 import { getSecureItem } from '../services/secure-storage'
 import { Tooltip } from './Tooltip'
+import { PageHeader } from './ui/PageHeader'
+import { IconBadge } from './ui/IconBadge'
 import { logger } from '../utils/logger'
 
 interface SettingsProps {
@@ -110,22 +112,7 @@ export function Settings({ onBack }: SettingsProps) {
       animate="visible"
       className="min-h-screen"
     >
-      {/* Header */}
-      <header className="sticky top-0 z-10 bg-[var(--paper)]/80 backdrop-blur-sm border-b border-[var(--border-subtle)]">
-        <div className="max-w-2xl mx-auto px-6 py-4 flex items-center justify-between">
-          <button
-            onClick={onBack}
-            className="flex items-center gap-2 text-[var(--ink-muted)] hover:text-[var(--ink)] transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span>Back</span>
-          </button>
-          <h1 className="text-lg font-medium text-[var(--ink)]">
-            Settings
-          </h1>
-          <div className="w-16" />
-        </div>
-      </header>
+      <PageHeader title="Settings" onBack={onBack} />
 
       {/* Content */}
       <main className="max-w-2xl mx-auto px-6 py-8">
@@ -146,9 +133,7 @@ export function Settings({ onBack }: SettingsProps) {
         <motion.section variants={itemVariants} className="mb-8">
           <div className="p-6 rounded-2xl border border-[var(--border-subtle)] bg-[var(--paper)]">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl bg-[var(--accent)]/10 flex items-center justify-center">
-                <Key className="w-5 h-5 text-[var(--accent)]" />
-              </div>
+              <IconBadge icon={Key} bg="bg-[var(--accent)]/10" color="text-[var(--accent)]" />
               <div>
                 <h3 className="font-medium text-[var(--ink)] flex items-center">
                   Claude API Key
@@ -265,9 +250,7 @@ export function Settings({ onBack }: SettingsProps) {
         <motion.section variants={itemVariants} className="mb-8">
           <div className="p-6 rounded-2xl border border-[var(--border-subtle)] bg-[var(--paper)]">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl bg-[var(--success)]/10 flex items-center justify-center">
-                <Mic className="w-5 h-5 text-[var(--success)]" />
-              </div>
+              <IconBadge icon={Mic} bg="bg-[var(--success)]/10" color="text-[var(--success)]" />
               <div>
                 <h3 className="font-medium text-[var(--ink)] flex items-center">
                   OpenAI API Key
@@ -358,9 +341,7 @@ export function Settings({ onBack }: SettingsProps) {
                 key={feature.title}
                 className="flex items-center gap-4 p-4 rounded-xl border border-[var(--border-subtle)]"
               >
-                <div className={`w-10 h-10 rounded-lg ${feature.bgColor} flex items-center justify-center`}>
-                  <feature.icon className={`w-5 h-5 ${feature.iconColor}`} />
-                </div>
+                <IconBadge icon={feature.icon} bg={feature.bgColor} color={feature.iconColor} />
                 <div>
                   <h4 className="font-medium text-[var(--ink)]">
                     {feature.title}

@@ -36,8 +36,6 @@ extern "C" {
     fn screen_recorder_is_recording(recorder: *mut std::ffi::c_void) -> bool;
     fn screen_recorder_destroy(recorder: *mut std::ffi::c_void);
     fn screen_recorder_check_permission() -> bool;
-    #[allow(dead_code)]
-    fn screen_recorder_request_permission();
     fn screen_recorder_get_duration(path: *const c_char) -> f64;
     fn screen_recorder_generate_thumbnail(path: *const c_char, time: f64) -> *const c_char;
 }
@@ -260,21 +258,6 @@ impl VideoRecorder {
         }
     }
 
-    /// Request screen recording permission
-    #[allow(dead_code)]
-    pub fn request_permission() -> Result<(), String> {
-        #[cfg(target_os = "macos")]
-        {
-            unsafe { screen_recorder_request_permission() };
-            Ok(())
-        }
-
-        #[cfg(not(target_os = "macos"))]
-        {
-            Err("Screen recording only supported on macOS 12.3+".to_string())
-        }
-    }
-
     /// Get current session ID if recording
     pub fn current_session_id(&self) -> Option<String> {
         self.current_session_id.lock()
@@ -310,8 +293,7 @@ pub async fn start_video_recording(
     quality: Option<VideoQuality>,
     recorder: State<'_, Arc<Mutex<VideoRecorder>>>,
 ) -> Result<(), String> {
-    let mut recorder = recorder.lock()
-        .map_err(|_| "Video recorder is busy. Please try again.".to_string())?;
+    let mut recorder = crate::lock_or_recover(&recorder);
     let quality = quality.unwrap_or_default();
     let path = PathBuf::from(output_path);
     if let Some(parent) = path.parent() {
@@ -328,8 +310,7 @@ pub async fn start_video_recording(
 pub async fn stop_video_recording(
     recorder: State<'_, Arc<Mutex<VideoRecorder>>>,
 ) -> Result<String, String> {
-    let mut recorder = recorder.lock()
-        .map_err(|_| "Video recorder is busy. Please try again.".to_string())?;
+    let mut recorder = crate::lock_or_recover(&recorder);
     let path = recorder.stop_recording()?;
     Ok(path.to_string_lossy().to_string())
 }
@@ -339,8 +320,7 @@ pub async fn stop_video_recording(
 pub async fn is_recording(
     recorder: State<'_, Arc<Mutex<VideoRecorder>>>,
 ) -> Result<bool, String> {
-    let recorder = recorder.lock()
-        .map_err(|_| "Video recorder is busy. Please try again.".to_string())?;
+    let recorder = crate::lock_or_recover(&recorder);
     Ok(recorder.is_recording())
 }
 
@@ -349,8 +329,7 @@ pub async fn is_recording(
 pub async fn get_current_recording_session(
     recorder: State<'_, Arc<Mutex<VideoRecorder>>>,
 ) -> Result<Option<String>, String> {
-    let recorder = recorder.lock()
-        .map_err(|_| "Video recorder is busy. Please try again.".to_string())?;
+    let recorder = crate::lock_or_recover(&recorder);
     Ok(recorder.current_session_id())
 }
 
