@@ -9,6 +9,7 @@ import { useState, useEffect, memo } from 'react'
 import { motion } from 'framer-motion'
 import { Check, Monitor } from 'lucide-react'
 import type { ScreenInfo } from '../services/recording'
+import { logger } from '../utils/logger'
 
 interface ScreenThumbnailProps {
   screen: ScreenInfo
@@ -51,10 +52,11 @@ export const ScreenThumbnail = memo(function ScreenThumbnail({
               screenId: screen.id,
             })
             if (isMounted && base64) {
-              setThumbnailUrl(`data:image/png;base64,${base64}`)
+              // Rust returns full data URL (data:image/png;base64,...) — use directly
+              setThumbnailUrl(base64)
             }
           } catch (e) {
-            console.warn('Failed to capture screen thumbnail:', e)
+            logger.warn('Failed to capture screen thumbnail:', e)
           }
         }
       } finally {

@@ -20,6 +20,7 @@ import { createSession, updateSessionStatus, updateSessionTitle, updateSessionVi
 import { sessionBridge } from '../services/session-bridge'
 import { smartCapture } from '../services/smart-capture'
 import { aiWorker } from '../services/worker/ai-worker-client'
+import { getSecureItem } from '../services/secure-storage'
 import { generateId } from '../utils/id'
 import { logger } from '../utils/logger'
 import { useToast } from './Toast'
@@ -40,6 +41,99 @@ function isSimplifiedConfig(config: unknown): config is RecordingConfig {
   )
 }
 
+// ============================================================================
+// Recording Health Status Bar
+// ============================================================================
+
+interface RecordingHealthBarProps {
+  health: {
+    workerReady: boolean
+    hasApiKey: boolean
+    hasOpenAiKey: boolean
+    screenshotsActive: boolean
+    audioActive: boolean
+    firstScreenshotAt: number | null
+    firstErrorAt: number | null
+    lastError: string | null
+  }
+  screenshotCount: number
+  recordingStartTime: number | null
+  audioEnabled: boolean
+}
+
+function RecordingHealthBar({ health, screenshotCount, recordingStartTime, audioEnabled }: RecordingHealthBarProps) {
+  const [visible, setVisible] = useState(true)
+
+  // Auto-hide after 30s if everything is healthy
+  useEffect(() => {
+    if (!recordingStartTime) return
+    const allHealthy = health.workerReady && health.hasApiKey && health.screenshotsActive && !health.lastError
+    if (!allHealthy) return
+
+    const timeout = setTimeout(() => setVisible(false), 30000)
+    return () => clearTimeout(timeout)
+  }, [recordingStartTime, health.workerReady, health.hasApiKey, health.screenshotsActive, health.lastError])
+
+  // Show again if something goes wrong
+  useEffect(() => {
+    if (health.lastError) setVisible(true)
+  }, [health.lastError])
+
+  if (!visible || !recordingStartTime) return null
+
+  const allHealthy = health.workerReady && health.hasApiKey && health.screenshotsActive && !health.lastError
+
+  return (
+    <div className={`px-4 py-2 border-b flex items-center gap-3 text-xs font-mono ${
+      allHealthy
+        ? 'border-[var(--border-subtle)] bg-[var(--paper)]'
+        : 'border-[var(--error)]/20 bg-[var(--error-muted)]'
+    }`}>
+      <HealthIndicator label="Worker" ok={health.workerReady} detail={health.workerReady ? undefined : 'Not initialized'} />
+      <HealthIndicator label="API Key" ok={health.hasApiKey} detail={health.hasApiKey ? undefined : 'Missing'} />
+      {audioEnabled && (
+        <HealthIndicator label="OpenAI Key" ok={health.hasOpenAiKey} detail={health.hasOpenAiKey ? undefined : 'Missing'} />
+      )}
+      <HealthIndicator
+        label="Screenshots"
+        ok={health.screenshotsActive}
+        detail={health.screenshotsActive ? `${screenshotCount}` : 'None'}
+      />
+      {audioEnabled && (
+        <HealthIndicator label="Audio" ok={health.audioActive} detail={health.audioActive ? undefined : 'Inactive'} />
+      )}
+      {health.lastError && (
+        <span className="text-[var(--error)] truncate max-w-xs" title={health.lastError}>
+          {health.lastError}
+        </span>
+      )}
+      {allHealthy && (
+        <button
+          onClick={() => setVisible(false)}
+          className="ml-auto text-[var(--ink-muted)] hover:text-[var(--ink)] transition-colors"
+          aria-label="Dismiss status bar"
+        >
+          dismiss
+        </button>
+      )}
+    </div>
+  )
+}
+
+function HealthIndicator({ label, ok, detail }: { label: string; ok: boolean; detail?: string }) {
+  return (
+    <span className={`inline-flex items-center gap-1 ${ok ? 'text-green-600' : 'text-[var(--error)]'}`}>
+      <span>{ok ? '\u2713' : '\u2717'}</span>
+      <span>{label}</span>
+      {detail && <span className="text-[var(--ink-muted)]">({detail})</span>}
+    </span>
+  )
+}
+
+// ============================================================================
+// SessionRecording Component
+// ============================================================================
+
 export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps) {
   const { state, addSession, dispatch } = useApp()
   const { showToast } = useToast()
@@ -58,9 +152,19 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
   const [fatalError, setFatalError] = useState<string | null>(null)
   const [audioLevel, setAudioLevel] = useState(0)
   const [transcriptionStatus, setTranscriptionStatus] = useState<'idle' | 'transcribing' | 'success' | 'error'>('idle')
+  const [recordingStartTime, setRecordingStartTime] = useState<number | null>(null)
+  const [recordingHealth, setRecordingHealth] = useState({
+    workerReady: false,
+    hasApiKey: false,
+    hasOpenAiKey: false,
+    screenshotsActive: false,
+    audioActive: false,
+    firstScreenshotAt: null as number | null,
+    firstErrorAt: null as number | null,
+    lastError: null as string | null,
+  })
 
   // Refs
-  const startTimeRef = useRef(Date.now())
   const pausedTimeRef = useRef(0)
   const pauseStartRef = useRef(0)
   const sessionIdRef = useRef(state.activeSession?.id ?? generateId())
@@ -155,6 +259,24 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
             return
           }
 
+          // Pre-flight checks: warn about missing API keys (non-fatal)
+          const anthropicKey = await getSecureItem('sessions_api_key')
+          const openaiKey = await getSecureItem('sessions_openai_api_key')
+          if (isCleaningUp) return
+
+          if (!anthropicKey) {
+            showToastRef.current('No Claude API key configured. Session will record but AI insights won\'t generate. Add key in Settings.', 'error', 10000)
+          }
+          if (!openaiKey && recordingOptions.enableAudio) {
+            showToastRef.current('No OpenAI API key configured. Audio won\'t be transcribed. Add key in Settings.', 'error', 10000)
+          }
+
+          setRecordingHealth(prev => ({
+            ...prev,
+            hasApiKey: !!anthropicKey,
+            hasOpenAiKey: !!openaiKey,
+          }))
+
           // Create database session
           await createSession(sessionIdRef.current, 'session', defaultTitle, analysisMode)
           if (isCleaningUp) return
@@ -163,12 +285,26 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
           await sessionBridge.startSession(sessionIdRef.current)
           if (isCleaningUp) return
 
+          // Check worker readiness after bridge init
+          const workerReady = aiWorker.isReady()
+          setRecordingHealth(prev => ({ ...prev, workerReady }))
+          if (!workerReady) {
+            showToastRef.current('AI worker failed to initialize. Insights and summaries won\'t generate this session.', 'error', 10000)
+          }
+
           // Start recording - this is the point of no return
           const result = await sessionRecorder.startRecording(sessionIdRef.current, recordingOptions)
 
           // Mark session as successfully started
           sessionStarted = true
-          startTimeRef.current = Date.now() // Reset timer to actual recording start
+          setRecordingStartTime(Date.now())
+
+          // Update health based on what actually started
+          setRecordingHealth(prev => ({
+            ...prev,
+            screenshotsActive: !result.errors.some(e => e.toLowerCase().includes('screenshot')),
+            audioActive: recordingOptions.enableAudio ? !result.errors.some(e => e.toLowerCase().includes('audio')) : false,
+          }))
 
           if (isCleaningUp) {
             // Cleanup was triggered while we were starting - clean up now
@@ -269,13 +405,13 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally run once on mount
   }, [])
 
-  // Timer
+  // Timer — only starts counting once recording is confirmed active
   useEffect(() => {
-    if (isPaused || isEnding) return
+    if (!recordingStartTime || isPaused || isEnding) return
 
     const interval = setInterval(() => {
       if (!isMountedRef.current) return
-      const elapsed = Math.floor((Date.now() - startTimeRef.current - pausedTimeRef.current) / 1000)
+      const elapsed = Math.floor((Date.now() - recordingStartTime - pausedTimeRef.current) / 1000)
       setDuration(elapsed)
 
       const recState = sessionRecorder.getState()
@@ -285,14 +421,29 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
     }, 1000)
 
     return () => clearInterval(interval)
-  }, [isPaused, isEnding])
+  }, [recordingStartTime, isPaused, isEnding])
 
   // Listen for capture events
   useEffect(() => {
     const unsubCapture = smartCapture.on('capture', () => {
-      // Could trigger flash animation here
+      setRecordingHealth(prev => ({
+        ...prev,
+        screenshotsActive: true,
+        firstScreenshotAt: prev.firstScreenshotAt ?? Date.now(),
+      }))
     })
-    return () => unsubCapture()
+    const unsubCaptureError = smartCapture.on('capture-error', ({ error }) => {
+      showToastRef.current(`Screenshot: ${error}`, 'error', 5000)
+      setRecordingHealth(prev => ({
+        ...prev,
+        lastError: error,
+        firstErrorAt: prev.firstErrorAt ?? Date.now(),
+      }))
+    })
+    return () => {
+      unsubCapture()
+      unsubCaptureError()
+    }
   }, [])
 
   // Audio level events
@@ -335,6 +486,11 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
 
     const unsubError = sessionBridge.on('error', ({ error }) => {
       showToast(error, 'error', 5000)
+      setRecordingHealth(prev => ({
+        ...prev,
+        lastError: error,
+        firstErrorAt: prev.firstErrorAt ?? Date.now(),
+      }))
       if (error.includes('transcription')) {
         setTranscriptionStatus('error')
       }
@@ -632,6 +788,21 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
     return () => clearTimeout(timeout)
   }, [showConfirmation])
 
+  // No-activity warning: if no screenshots captured within 20s of recording start
+  useEffect(() => {
+    if (!recordingStartTime) return
+    const timeout = setTimeout(() => {
+      if (screenshotCount === 0 && isMountedRef.current) {
+        showToastRef.current(
+          'No screenshots captured after 20s. Check Screen Recording permission in System Settings > Privacy & Security.',
+          'error',
+          15000
+        )
+      }
+    }, 20000)
+    return () => clearTimeout(timeout)
+  }, [recordingStartTime, screenshotCount])
+
   // Permission error state
   if (permissionError) {
     return (
@@ -863,6 +1034,14 @@ export function SessionRecording({ onComplete, onCancel }: SessionRecordingProps
         showConfirmation={showConfirmation}
         onConfirmEnd={handleEndSession}
         onCancelEnd={() => setShowConfirmation(false)}
+      />
+
+      {/* Recording health status bar — auto-hides after 30s if all healthy */}
+      <RecordingHealthBar
+        health={recordingHealth}
+        screenshotCount={screenshotCount}
+        recordingStartTime={recordingStartTime}
+        audioEnabled={audioEnabled}
       />
 
       {/* Scrollable dashboard */}

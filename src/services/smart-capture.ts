@@ -36,6 +36,7 @@ const TICK_INTERVAL_MS = 1000;   // Check every 1 second
 
 type SmartCaptureEvents = {
   'capture': { sessionId: string; trigger: string };
+  'capture-error': { sessionId: string; error: string };
   'state-change': SmartCaptureState;
 };
 
@@ -383,9 +384,17 @@ class SmartCaptureService {
     } catch (e) {
       logger.error('[SMART CAPTURE] Capture failed:', e);
       this.consecutiveFailures++;
+      this.emitter.emit('capture-error', {
+        sessionId: this.sessionId!,
+        error: e instanceof Error ? e.message : String(e),
+      });
       if (this.consecutiveFailures >= SmartCaptureService.MAX_CONSECUTIVE_FAILURES) {
         this.circuitBrokenUntil = Date.now() + 60_000;
         this.consecutiveFailures = 0;
+        this.emitter.emit('capture-error', {
+          sessionId: this.sessionId!,
+          error: 'Screenshot capture paused after repeated failures. Will retry in 60s.',
+        });
         logger.warn('[SMART CAPTURE] Circuit breaker triggered after repeated failures, pausing for 60s');
       }
     } finally {

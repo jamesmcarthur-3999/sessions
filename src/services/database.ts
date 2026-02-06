@@ -126,6 +126,66 @@ CREATE TABLE IF NOT EXISTS analysis_state (
 
 
 /**
+ * Migrate from old base64-in-database schema to file-based storage.
+ *
+ * Old schema had `data_base64 TEXT NOT NULL` on screenshots and audio_chunks.
+ * New schema uses `file_path TEXT NOT NULL` instead. Since CREATE TABLE IF NOT EXISTS
+ * won't alter existing tables, we need to detect and recreate them.
+ */
+async function migrateToFileBasedStorage(database: Database): Promise<void> {
+  // Check if screenshots table has the old data_base64 column
+  const screenshotCols = await database.select<Array<{ name: string }>>(
+    "PRAGMA table_info(screenshots)"
+  );
+  const hasOldScreenshotSchema = screenshotCols.some(c => c.name === 'data_base64');
+
+  if (hasOldScreenshotSchema) {
+    logger.info('[DATABASE] Migrating screenshots table from base64 to file-based storage');
+    // Drop old table and its indexes — old base64 data is not recoverable as file paths
+    await database.execute('DROP TABLE IF EXISTS screenshots');
+    await database.execute(`
+      CREATE TABLE IF NOT EXISTS screenshots (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        captured_at TEXT NOT NULL,
+        trigger TEXT NOT NULL CHECK (trigger IN ('interval', 'app_switch', 'activity', 'manual', 'session_start', 'session_end')),
+        app_name TEXT,
+        window_title TEXT,
+        file_path TEXT NOT NULL,
+        analysis TEXT
+      )
+    `);
+    await database.execute('CREATE INDEX IF NOT EXISTS idx_screenshots_session ON screenshots(session_id)');
+    await database.execute('CREATE INDEX IF NOT EXISTS idx_screenshots_time ON screenshots(captured_at)');
+    logger.info('[DATABASE] Screenshots table migrated successfully');
+  }
+
+  // Check if audio_chunks table has the old data_base64 column
+  const audioCols = await database.select<Array<{ name: string }>>(
+    "PRAGMA table_info(audio_chunks)"
+  );
+  const hasOldAudioSchema = audioCols.some(c => c.name === 'data_base64');
+
+  if (hasOldAudioSchema) {
+    logger.info('[DATABASE] Migrating audio_chunks table from base64 to file-based storage');
+    await database.execute('DROP TABLE IF EXISTS audio_chunks');
+    await database.execute(`
+      CREATE TABLE IF NOT EXISTS audio_chunks (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        start_time TEXT NOT NULL,
+        end_time TEXT NOT NULL,
+        duration_seconds REAL NOT NULL,
+        file_path TEXT NOT NULL,
+        transcript TEXT
+      )
+    `);
+    await database.execute('CREATE INDEX IF NOT EXISTS idx_audio_session ON audio_chunks(session_id)');
+    logger.info('[DATABASE] Audio chunks table migrated successfully');
+  }
+}
+
+/**
  * Initialize the database connection and create schema
  * Uses a promise lock to prevent concurrent initialization
  */
@@ -170,6 +230,11 @@ export async function initDatabase(): Promise<void> {
       for (const statement of statements) {
         await db.execute(statement);
       }
+
+      // Migrate old schema: screenshots and audio_chunks used to have
+      // data_base64 NOT NULL instead of file_path. If the old columns
+      // exist, recreate the tables with the new schema.
+      await migrateToFileBasedStorage(db);
 
       logger.info('[DATABASE] Schema initialized successfully');
     } catch (error) {
