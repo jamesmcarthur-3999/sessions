@@ -9,6 +9,9 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // Pin BaleyBots to exact vendor paths to prevent module duplication
+      '@baleybots/core': path.resolve(__dirname, './vendor/baleybots/typescript/packages/core'),
+      '@baleybots/tools': path.resolve(__dirname, './vendor/baleybots/typescript/packages/tools'),
       // Provide browser shims for Node.js-only packages
       'is-wsl': path.resolve(__dirname, './src/shims/is-wsl.ts'),
       'wsl-utils': path.resolve(__dirname, './src/shims/wsl-utils.ts'),

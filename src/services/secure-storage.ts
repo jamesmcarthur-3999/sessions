@@ -27,11 +27,6 @@ async function getStore() {
   return store
 }
 
-/** Check whether secure (Tauri) storage is available */
-export function isSecureStorageAvailable(): boolean {
-  return isTauri()
-}
-
 export async function setSecureItem(key: string, value: string): Promise<void> {
   const s = await getStore()
   if (s) {

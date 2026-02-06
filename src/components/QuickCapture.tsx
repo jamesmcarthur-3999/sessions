@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { ArrowLeft, Sparkles, Paperclip, X, Image as ImageIcon, FileText, Feather } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { createCapturePipeline, buildCaptureInput, initializeBots, isBotsReady, type CaptureResult } from '../services/bots'
+import { aiWorker } from '../services/worker/ai-worker-client'
 import { persistCaptureAttachments } from '../services/attachments'
 import { generateId } from '../utils/id'
 import { useToast } from './Toast'
@@ -46,10 +46,6 @@ export function QuickCapture({ onBack, onComplete }: QuickCaptureProps) {
 
     try {
       const sessionId = generateId()
-      // Ensure bots are initialized
-      logger.debug('[QuickCapture] Initializing bots...')
-      const initResult = await initializeBots()
-      logger.debug('[QuickCapture] Bots initialized:', initResult, 'isReady:', isBotsReady())
 
       await new Promise(r => setTimeout(r, 500))
       setProcessingStage('Extracting insights...')
@@ -57,43 +53,40 @@ export function QuickCapture({ onBack, onComplete }: QuickCaptureProps) {
       let title: string
       let summary: Summary
 
-      if (isBotsReady()) {
-        // Use Capture Pipeline
-        logger.debug('[QuickCapture] Creating capture pipeline...')
-        const captureBot = createCapturePipeline()
+      // Build attachment descriptions
+      const attachmentDescriptions = attachments.map(f =>
+        `${f.type.startsWith('image/') ? 'Image' : 'File'}: ${f.name}`
+      )
 
-        // Build attachment descriptions
-        const attachmentDescriptions = attachments.map(f =>
-          `${f.type.startsWith('image/') ? 'Image' : 'File'}: ${f.name}`
-        )
+      // Process capture through the worker (off main thread)
+      logger.info('[QuickCapture] Sending capture to worker...')
+      const result = await aiWorker.processCapture(text, attachmentDescriptions)
+      logger.info('[QuickCapture] Worker result:', result)
 
-        const input = buildCaptureInput(text, attachmentDescriptions)
-        logger.debug('[QuickCapture] Calling captureBot.process with input length:', input.length)
-        const result = await captureBot.process(input) as unknown as CaptureResult | null
-        logger.debug('[QuickCapture] Got result:', result)
-
-        title = result?.title ?? 'Quick Note'
-        summary = {
-          text: result?.summary ?? 'Content captured.',
-          tasks: (result?.tasks ?? []).map((t: string) => ({
-            id: generateId(),
-            title: t, // v6 Output pattern returns strings directly
-            completed: false,
-          })),
-          notes: (result?.notes ?? []).map((n: string) => ({
-            id: generateId(),
-            content: n, // v6 Output pattern returns strings directly
-          })),
-          generatedAt: new Date().toISOString(),
-        }
-      } else {
-        // Fallback when no API key
+      if (result.error) {
+        // Worker couldn't process — use fallback
+        logger.warn('[QuickCapture] Worker error, using fallback:', result.error)
         const words = text.split(/\s+/).length
         title = words < 10 ? 'Quick Note' : 'Captured Notes'
         summary = {
           text: `Captured ${words} words. Configure your Claude API key in Settings to enable AI-powered analysis.`,
           tasks: [],
           notes: [],
+          generatedAt: new Date().toISOString(),
+        }
+      } else {
+        title = result.title ?? 'Quick Note'
+        summary = {
+          text: result.summary ?? 'Content captured.',
+          tasks: (result.tasks ?? []).map((t: string) => ({
+            id: generateId(),
+            title: t,
+            completed: false,
+          })),
+          notes: (result.notes ?? []).map((n: string) => ({
+            id: generateId(),
+            content: n,
+          })),
           generatedAt: new Date().toISOString(),
         }
       }

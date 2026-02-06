@@ -31,10 +31,6 @@ export class EventEmitter<Events extends { [key: string]: unknown }> {
     });
   }
 
-  off<K extends keyof Events>(event: K, callback: Listener<Events[K]>): void {
-    this.listeners.get(event)?.delete(callback as Listener<unknown>);
-  }
-
   removeAllListeners(event?: keyof Events): void {
     if (event) {
       this.listeners.delete(event);

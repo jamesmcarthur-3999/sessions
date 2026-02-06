@@ -7,14 +7,7 @@
  * - Forwarding events to UI components
  * - Managing session lifecycle
  *
- * v2 Changes:
- * - In-flight operation tracking (fixes D1)
- * - Wait for in-flight ops on stop (fixes D1)
- * - Pause check in all handlers (fixes D2)
- * - Proactive worker init on session start (fixes D3)
- *
- * This replaces session-coordinator for worker-based operation.
- * Unlike the coordinator, this does NOT run any AI operations - they all happen in the worker.
+ * Does NOT run any AI operations directly — they all happen in the worker.
  */
 
 import {

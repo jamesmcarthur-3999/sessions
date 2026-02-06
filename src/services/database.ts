@@ -18,7 +18,7 @@ import type {
   DbChatMessage,
   DbAnalysisState,
 } from '../types/database';
-import { saveScreenshotToFile, deleteSessionScreenshots } from './screenshot-storage';
+import { deleteSessionScreenshots } from './screenshot-storage';
 import { deleteSessionAudio } from './audio-storage';
 import { logger } from '../utils/logger';
 
@@ -327,28 +327,22 @@ export async function updateSessionVideoPath(
 // ============================================================================
 
 /**
- * Save a screenshot to file storage
+ * Save screenshot metadata to database.
  *
- * This function:
- * 1. Saves screenshot to file (source of truth)
- * 2. Stores file_path in DB
- * 3. Returns screenshot object for AI analysis (caller has base64)
+ * The screenshot file is already on disk (written by Rust via captureScreenshotToFile).
+ * This function just records the metadata in SQLite.
  */
 export async function saveScreenshot(
   sessionId: string,
-  dataBase64: string,
+  screenshotId: string,
+  filePath: string,
   trigger: DbScreenshot['trigger'],
   appName?: string,
   windowTitle?: string
 ): Promise<DbScreenshot> {
   const db = await ensureDb();
-  const screenshotId = generateId();
   const capturedAt = new Date().toISOString();
 
-  // Save to file - this is the source of truth
-  const filePath = await saveScreenshotToFile(sessionId, screenshotId, dataBase64);
-
-  // Create screenshot object
   const screenshot: DbScreenshot = {
     id: screenshotId,
     session_id: sessionId,
@@ -360,14 +354,13 @@ export async function saveScreenshot(
     analysis: null,
   };
 
-  // Insert with file_path only - fast, small write
   await db.execute(
     `INSERT INTO screenshots (id, session_id, captured_at, trigger, app_name, window_title, file_path)
      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
     [screenshot.id, screenshot.session_id, screenshot.captured_at, screenshot.trigger, screenshot.app_name, screenshot.window_title, screenshot.file_path]
   );
 
-  logger.debug(`[DATABASE] Screenshot saved: ${filePath} (${Math.round(dataBase64.length / 1024)}KB)`);
+  logger.debug(`[DATABASE] Screenshot saved: ${filePath}`);
   return screenshot;
 }
 

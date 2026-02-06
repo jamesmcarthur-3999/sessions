@@ -72,21 +72,6 @@ export interface Attachment {
   size: number;
 }
 
-// Screenshot during session recording
-export interface Screenshot {
-  id: string;
-  timestamp: number;
-  attachmentId: string;
-}
-
-// Audio segment during session recording
-export interface AudioSegment {
-  id: string;
-  startTime: number;
-  endTime: number;
-  attachmentId: string;
-}
-
 // Result from stopping a recording session
 export interface RecordingStopResult {
   sessionId: string;

@@ -40,58 +40,6 @@ async function ensureStorageDir(): Promise<string> {
 }
 
 /**
- * Get or create session screenshot directory
- */
-async function ensureSessionDir(sessionId: string): Promise<string> {
-  const baseDir = await ensureStorageDir();
-  const { join } = await import('@tauri-apps/api/path');
-  const sessionDir = await join(baseDir, sessionId);
-
-  const { mkdir, exists } = await import('@tauri-apps/plugin-fs');
-  if (!(await exists(sessionDir))) {
-    await mkdir(sessionDir, { recursive: true });
-  }
-
-  return sessionDir;
-}
-
-/**
- * Save screenshot to file and return the file path
- * This is a non-blocking operation that won't freeze the UI
- */
-export async function saveScreenshotToFile(
-  sessionId: string,
-  screenshotId: string,
-  dataBase64: string
-): Promise<string> {
-  if (!isTauri()) {
-    throw new Error('Screenshot storage requires Tauri environment');
-  }
-
-  const sessionDir = await ensureSessionDir(sessionId);
-  const { join } = await import('@tauri-apps/api/path');
-
-  // Determine file extension from data URL
-  const isJpeg = dataBase64.includes('data:image/jpeg') || dataBase64.includes('image/jpeg');
-  const ext = isJpeg ? 'jpg' : 'png';
-  const filePath = await join(sessionDir, `${screenshotId}.${ext}`);
-
-  // Strip the data URL prefix to get raw base64
-  const base64Data = dataBase64.replace(/^data:image\/\w+;base64,/, '');
-
-  // Decode base64 to binary using fetch (async, doesn't block main thread)
-  const response = await fetch(`data:application/octet-stream;base64,${base64Data}`);
-  const bytes = new Uint8Array(await response.arrayBuffer());
-
-  // Write to file using Tauri fs plugin
-  const { writeFile } = await import('@tauri-apps/plugin-fs');
-  await writeFile(filePath, bytes);
-
-  logger.debug(`[SCREENSHOT STORAGE] Saved: ${filePath} (${Math.round(bytes.length / 1024)}KB)`);
-  return filePath;
-}
-
-/**
  * Load screenshot from file path and return as base64 data URL
  */
 export async function loadScreenshotData(filePath: string): Promise<string> {

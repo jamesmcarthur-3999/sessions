@@ -5,7 +5,7 @@
  */
 
 import { vi } from 'vitest';
-import type { ActivityDetection, RollingSummary, CaptureTimingDecision } from '../../services/bots/types';
+import type { ActivityDetection, RollingSummary } from '../../services/bots/types';
 
 // Default mock responses
 export const mockActivityDetection: ActivityDetection = {
@@ -22,12 +22,6 @@ export const mockRollingSummary: RollingSummary = {
   currentFocus: 'Code editing',
 };
 
-export const mockCaptureTiming: CaptureTimingDecision = {
-  recommendedWaitSeconds: 60,
-  activityLevel: 'medium',
-  reason: 'Normal coding activity',
-};
-
 // Mock pipeline factories
 export const createMockPipeline = <T>(mockResult: T) => ({
   process: vi.fn().mockResolvedValue(mockResult),
@@ -39,20 +33,23 @@ export const createMockPipeline = <T>(mockResult: T) => ({
 export const mockBotsModule = {
   createActivityDetectorPipeline: vi.fn(() => createMockPipeline(mockActivityDetection)),
   createSummarizerPipeline: vi.fn(() => createMockPipeline(mockRollingSummary)),
-  createCaptureTimingPipeline: vi.fn(() => createMockPipeline(mockCaptureTiming)),
   createAnalysisControllerPipeline: vi.fn(() =>
     createMockPipeline({ recommendedMode: 'ambient', confidence: 0.5, reason: 'Default' })
   ),
   createQABotPipeline: vi.fn(() => createMockPipeline({ answer: 'Mock answer' })),
   createFinalSummaryPipeline: vi.fn(() => createMockPipeline({ summary: 'Final summary' })),
+  createCapturePipeline: vi.fn(() => createMockPipeline({ title: 'Mock', summary: 'Mock capture', tasks: [], notes: [] })),
+  createTranscriberBot: vi.fn(() => createMockPipeline('Transcribed text from mock')),
   buildActivityDetectorInput: vi.fn((imageBase64: string, previousAnalysis?: string) => ({
     imageBase64,
     previousAnalysis,
   })),
   buildSummarizerInput: vi.fn((context: any) => ({ context })),
-  buildCaptureTimingInput: vi.fn((analysis: string, metrics: any) => ({ analysis, metrics })),
   buildAnalysisControllerInput: vi.fn((context: any, metrics: any) => ({ context, metrics })),
   buildQAInput: vi.fn((question: string, context: any) => ({ question, context })),
+  buildCaptureInput: vi.fn((text: string, attachments?: string[]) => ({ text, attachments })),
+  buildFinalSummaryInput: vi.fn((input: any) => ({ input })),
+  buildTranscriberInput: vi.fn((audioData: ArrayBuffer) => ({ audioData })),
 };
 
 // Mock the baleybots core module
@@ -100,9 +97,4 @@ export function setMockActivityDetection(detection: Partial<ActivityDetection>):
 export function setMockRollingSummary(summary: Partial<RollingSummary>): void {
   const result = { ...mockRollingSummary, ...summary };
   mockBotsModule.createSummarizerPipeline.mockReturnValue(createMockPipeline(result));
-}
-
-export function setMockCaptureTiming(timing: Partial<CaptureTimingDecision>): void {
-  const result = { ...mockCaptureTiming, ...timing };
-  mockBotsModule.createCaptureTimingPipeline.mockReturnValue(createMockPipeline(result));
 }

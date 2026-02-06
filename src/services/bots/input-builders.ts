@@ -5,7 +5,7 @@
  * These functions format data for the various bot pipelines.
  */
 
-import { combine, text, image } from '@baleybots/core';
+import { combine, text, image, audio } from '@baleybots/core';
 import type { SessionContext } from './types';
 import type { DbScreenshot, DbAudioChunk, DbInsight, DbRollingSummary } from '../../types/database';
 
@@ -16,7 +16,7 @@ import type { DbScreenshot, DbAudioChunk, DbInsight, DbRollingSummary } from '..
 /**
  * Activity metrics for adaptive analysis decisions
  */
-export interface ActivityMetrics {
+interface ActivityMetrics {
   appSwitchCount: number;
   uniqueAppsCount: number;
   screenshotCount: number;
@@ -24,16 +24,6 @@ export interface ActivityMetrics {
   averageScreenshotChangeMagnitude: number;
   timeSinceLastActivity: number;
   currentFocusDuration: number;
-}
-
-/**
- * Activity metrics for timing decisions
- */
-export interface CaptureTimingMetrics {
-  appSwitchCount: number;
-  timeSinceLastCapture: number;
-  lastActivityType: string;
-  analysisMode: 'ambient' | 'deep';
 }
 
 /**
@@ -312,35 +302,11 @@ export function buildCaptureInput(text: string, attachmentDescriptions?: string[
 }
 
 /**
- * Build input for the capture timing bot
+ * Build input for audio transcription via Baleybots
+ * Uses the SDK's audio() primitive with 'transcribe' mode
  */
-export function buildCaptureTimingInput(
-  lastScreenshotAnalysis: string | null,
-  metrics: CaptureTimingMetrics
-): string {
-  const parts: string[] = [];
-
-  parts.push('## Last Screenshot Analysis');
-  if (lastScreenshotAnalysis) {
-    parts.push(lastScreenshotAnalysis);
-  } else {
-    parts.push('No previous screenshot analysis available (session just started)');
-  }
-
-  parts.push('\n## Activity Metrics');
-  parts.push(`- App switches in last 2 min: ${metrics.appSwitchCount}`);
-  parts.push(`- Time since last capture: ${metrics.timeSinceLastCapture} seconds`);
-  parts.push(`- Last activity type: ${metrics.lastActivityType}`);
-  parts.push(`- Analysis mode: ${metrics.analysisMode}`);
-
-  parts.push('\n## Guidelines Reminder');
-  parts.push('- Minimum: 5 seconds (for curious follow-ups)');
-  parts.push('- Maximum: 180 seconds');
-  parts.push('- High activity (meetings, rapid changes): 5-30s');
-  parts.push('- Medium activity (normal work): 30-90s');
-  parts.push('- Low activity (focused work, reading): 60-180s');
-
-  parts.push('\nBased on the above, when should we capture the next screenshot?');
-
-  return parts.join('\n');
+export function buildTranscriberInput(audioData: ArrayBuffer) {
+  const blob = new Blob([audioData], { type: 'audio/wav' });
+  return audio(blob, 'transcribe');
 }
+

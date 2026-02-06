@@ -2,15 +2,16 @@
  * Session Intelligence Bots - Streamlined API
  *
  * Exports types, input builders, pipeline factories, and config utilities.
+ * All pipeline execution happens in the AI Worker (off main thread).
  */
 
 // Types (includes all Zod schemas and inferred types)
 export * from './types';
 
-// Input builders (consolidated from individual bot files)
+// Input builders (used by the worker via dynamic import)
 export * from './input-builders';
 
-// Pipeline factories (use these directly - they handle caching internally)
+// Pipeline factories (used by the worker via dynamic import)
 export {
   BOT_DEFINITIONS,
   createActivityDetectorPipeline,
@@ -19,17 +20,14 @@ export {
   createQABotPipeline,
   createFinalSummaryPipeline,
   createCapturePipeline,
-  createCaptureTimingPipeline,
+  createTranscriberBot,
   resetPipelines,
 } from './pipelines';
 
-// Config utilities
+// Config utilities (used by Settings and components)
 export {
-  initializeBots,
   updateApiKeys,
-  isBotsReady,
   hasApiKey,
-  resetBots,
   testApiKey,
   type BotConfig,
 } from './config';

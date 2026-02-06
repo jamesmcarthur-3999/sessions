@@ -366,92 +366,6 @@ async function analyzeScreenshot(
 }
 
 // ============================================================================
-// Audio Transcription
-// ============================================================================
-
-async function transcribeAudio(
-  msg: Extract<WorkerMessage, { type: 'transcribe-audio' }>
-): Promise<void> {
-  const { sessionId, chunkId, audioBase64, id } = msg;
-
-  if (!openaiKey) {
-    send({
-      type: 'error',
-      id,
-      sessionId,
-      error: 'OpenAI API key not configured for transcription',
-    });
-    return;
-  }
-
-  transitionState('PROCESSING', 'Transcribing audio');
-
-  try {
-    send({ type: 'transcription-start', sessionId });
-
-    // Prepare audio data
-    const base64Data = audioBase64.replace(/^data:audio\/\w+;base64,/, '');
-    const binaryString = atob(base64Data);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
-
-    const blob = new Blob([bytes], { type: 'audio/wav' });
-    const formData = new FormData();
-    formData.append('file', blob, 'audio.wav');
-    formData.append('model', 'whisper-1');
-    formData.append('response_format', 'json');
-
-    // Call Whisper API
-    const response = await withRetry(async () => {
-      const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${openaiKey}`,
-        },
-        body: formData,
-      });
-
-      if (!res.ok) {
-        throw new Error(`Whisper API error: ${res.status}`);
-      }
-
-      return res.json();
-    });
-
-    const text = response.text || '';
-
-    send({
-      type: 'transcription-complete',
-      id,
-      sessionId,
-      chunkId,
-      text,
-    });
-
-    log('info', `Transcribed: ${text.substring(0, 50)}...`);
-
-    // Request summary update after transcription
-    if (text.trim()) {
-      send({ type: 'request-summary-update', sessionId });
-    }
-
-    transitionState('INITIALIZED', 'Transcription complete');
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    log('error', `Transcription failed: ${message}`);
-    send({
-      type: 'error',
-      id,
-      sessionId,
-      error: `Audio transcription failed: ${message}`,
-    });
-    transitionState('INITIALIZED', 'Transcription failed');
-  }
-}
-
-// ============================================================================
 // Binary Screenshot Analysis (Zero-Copy Transfer)
 // ============================================================================
 
@@ -488,12 +402,12 @@ async function transcribeAudioBinary(
   const { sessionId, chunkId, audioData, id } = msg;
 
   if (!openaiKey) {
-    send({
-      type: 'error',
-      id,
-      sessionId,
-      error: 'OpenAI API key not configured for transcription',
-    });
+    send({ type: 'error', id, sessionId, error: 'OpenAI API key not configured for transcription' });
+    return;
+  }
+
+  if (!botsModule) {
+    send({ type: 'error', id, sessionId, error: 'Worker not initialized' });
     return;
   }
 
@@ -502,44 +416,15 @@ async function transcribeAudioBinary(
   try {
     send({ type: 'transcription-start', sessionId });
 
-    // Create Blob directly from ArrayBuffer (no base64 decoding needed!)
-    const blob = new Blob([audioData], { type: 'audio/wav' });
-    const formData = new FormData();
-    formData.append('file', blob, 'audio.wav');
-    formData.append('model', 'whisper-1');
-    formData.append('response_format', 'json');
+    const input = botsModule.buildTranscriberInput(audioData);
+    const text = (await withRetry(() =>
+      botsModule!.createTranscriberBot().process(input)
+    )) as unknown as string;
 
-    // Call Whisper API
-    const response = await withRetry(async () => {
-      const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${openaiKey}`,
-        },
-        body: formData,
-      });
+    send({ type: 'transcription-complete', id, sessionId, chunkId, text: text || '' });
+    log('info', `Transcribed (binary): ${(text || '').substring(0, 50)}...`);
 
-      if (!res.ok) {
-        throw new Error(`Whisper API error: ${res.status}`);
-      }
-
-      return res.json();
-    });
-
-    const text = response.text || '';
-
-    send({
-      type: 'transcription-complete',
-      id,
-      sessionId,
-      chunkId,
-      text,
-    });
-
-    log('info', `Transcribed (binary): ${text.substring(0, 50)}...`);
-
-    // Request summary update after transcription
-    if (text.trim()) {
+    if (text?.trim()) {
       send({ type: 'request-summary-update', sessionId });
     }
 
@@ -547,12 +432,7 @@ async function transcribeAudioBinary(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     log('error', `Transcription failed: ${message}`);
-    send({
-      type: 'error',
-      id,
-      sessionId,
-      error: `Audio transcription failed: ${message}`,
-    });
+    send({ type: 'error', id, sessionId, error: `Audio transcription failed: ${message}` });
     transitionState('INITIALIZED', 'Transcription failed');
   }
 }
@@ -761,6 +641,102 @@ async function generateFinalSummary(
 }
 
 // ============================================================================
+// Quick Capture Processing
+// ============================================================================
+
+async function processCapture(
+  msg: Extract<WorkerMessage, { type: 'process-capture' }>
+): Promise<void> {
+  const { text, attachmentDescriptions, id } = msg;
+
+  if (!botsModule || !isReady()) {
+    send({
+      type: 'capture-complete',
+      id,
+      title: null,
+      summary: null,
+      tasks: [],
+      notes: [],
+      error: !botsModule ? 'Worker not initialized' : 'No API key configured',
+    });
+    return;
+  }
+
+  transitionState('PROCESSING', 'Processing capture');
+
+  try {
+    log('info', 'Processing capture...');
+
+    const input = botsModule.buildCaptureInput(text, attachmentDescriptions);
+
+    const result = (await withRetry(() =>
+      botsModule!.createCapturePipeline().process(input)
+    )) as unknown as { title?: string; summary?: string; tasks?: string[]; notes?: string[] } | null;
+
+    send({
+      type: 'capture-complete',
+      id,
+      title: result?.title ?? null,
+      summary: result?.summary ?? null,
+      tasks: result?.tasks ?? [],
+      notes: result?.notes ?? [],
+    });
+
+    log('info', `Capture processed: ${result?.title ?? 'no title'}`);
+    transitionState('INITIALIZED', 'Capture complete');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log('error', `Capture processing failed: ${message}`);
+    send({
+      type: 'capture-complete',
+      id,
+      title: null,
+      summary: null,
+      tasks: [],
+      notes: [],
+      error: message,
+    });
+    transitionState('INITIALIZED', 'Capture failed');
+  }
+}
+
+// ============================================================================
+// API Key Updates
+// ============================================================================
+
+async function updateApiKeys(
+  msg: Extract<WorkerMessage, { type: 'update-api-keys' }>
+): Promise<void> {
+  const { id } = msg;
+
+  try {
+    anthropicKey = msg.anthropicKey;
+    openaiKey = msg.openaiKey;
+
+    if (baleybots) {
+      if (anthropicKey) {
+        baleybots.setDefaultApiKey('anthropic', anthropicKey);
+      }
+      if (openaiKey) {
+        baleybots.setDefaultApiKey('openai', openaiKey);
+      }
+    }
+
+    // Reset cached pipelines so they pick up new keys
+    if (botsModule) {
+      botsModule.resetPipelines();
+    }
+
+    log('info', 'API keys updated');
+    send({ type: 'api-keys-updated', id, success: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log('error', `API key update failed: ${message}`);
+    send({ type: 'api-keys-updated', id, success: false, error: message });
+  }
+}
+
+// ============================================================================
 // Message Handler
 // ============================================================================
 
@@ -782,10 +758,6 @@ async function handleMessage(msg: WorkerMessage): Promise<void> {
       await analyzeScreenshotBinary(msg);
       break;
 
-    case 'transcribe-audio':
-      await transcribeAudio(msg);
-      break;
-
     case 'transcribe-audio-binary':
       await transcribeAudioBinary(msg);
       break;
@@ -804,6 +776,14 @@ async function handleMessage(msg: WorkerMessage): Promise<void> {
 
     case 'generate-final-summary':
       await generateFinalSummary(msg);
+      break;
+
+    case 'process-capture':
+      await processCapture(msg);
+      break;
+
+    case 'update-api-keys':
+      await updateApiKeys(msg);
       break;
 
     case 'set-analysis-mode':

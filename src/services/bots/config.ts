@@ -9,6 +9,7 @@ import { getSecureItem, setSecureItem, removeSecureItem } from '../secure-storag
 import { isTauri } from '../recording'
 import { createTauriFetch } from '../tauri-fetch'
 import { resetPipelines } from './pipelines'
+import { aiWorker } from '../worker/ai-worker-client'
 import { logger } from '../../utils/logger'
 
 export interface BotConfig {
@@ -16,7 +17,6 @@ export interface BotConfig {
   openaiApiKey?: string;
 }
 
-let isInitialized = false;
 let baleybots: typeof import('@baleybots/core') | null = null;
 
 /**
@@ -57,47 +57,6 @@ async function loadBaleybots() {
 }
 
 /**
- * Initialize Baleybots with API keys from secure storage
- */
-export async function initializeBots(): Promise<boolean> {
-  // Always try to load and set keys - don't skip even if initialized
-  // This ensures keys are re-applied after module reloads
-  try {
-    const { setDefaultApiKey } = await loadBaleybots();
-
-    // Get API keys from secure storage only
-    const claudeKey = await getSecureItem('sessions_api_key');
-    const openaiKey = await getSecureItem('sessions_openai_api_key');
-
-    let hasAnyKey = false;
-
-    if (claudeKey) {
-      setDefaultApiKey('anthropic', claudeKey);
-      hasAnyKey = true;
-      logger.info('[Baleybots] AI service configured');
-    } else {
-      logger.warn('[Baleybots] No Claude API key found');
-    }
-
-    if (openaiKey) {
-      setDefaultApiKey('openai', openaiKey);
-      logger.info('[Baleybots] Transcription service configured');
-    }
-
-    isInitialized = hasAnyKey;
-
-    if (!hasAnyKey) {
-      logger.warn('[Baleybots] No API keys configured - AI features will not work');
-    }
-
-    return hasAnyKey;
-  } catch (error) {
-    logger.error('[Baleybots] Failed to initialize:', error);
-    return false;
-  }
-}
-
-/**
  * Update API keys at runtime (called from settings)
  */
 export async function updateApiKeys(config: BotConfig): Promise<void> {
@@ -130,13 +89,25 @@ export async function updateApiKeys(config: BotConfig): Promise<void> {
       }
     }
 
-    // Reset bot state if keys were removed to force re-initialization
+    // Reset cached pipelines if keys were removed
     if (keysRemoved) {
-      resetBots();
+      resetPipelines();
     }
 
-    // Mark as initialized if we have at least Claude key
-    isInitialized = !!(await getSecureItem('sessions_api_key'));
+    // Propagate keys to the worker if it's running
+    if (aiWorker.isReady()) {
+      const currentAnthropicKey = await getSecureItem('sessions_api_key');
+      const currentOpenaiKey = await getSecureItem('sessions_openai_api_key');
+      const workerUpdated = await aiWorker.updateApiKeys(
+        currentAnthropicKey || '',
+        currentOpenaiKey || null,
+      );
+      if (workerUpdated) {
+        logger.info('[Baleybots] Worker API keys updated');
+      } else {
+        logger.warn('[Baleybots] Failed to update worker API keys');
+      }
+    }
   } catch (error) {
     logger.error('[Baleybots] Failed to update API keys:', error);
     throw error;
@@ -144,27 +115,10 @@ export async function updateApiKeys(config: BotConfig): Promise<void> {
 }
 
 /**
- * Check if bots are ready to use
- */
-export function isBotsReady(): boolean {
-  return isInitialized;
-}
-
-/**
  * Check if bots have API key without initializing
  */
 export async function hasApiKey(): Promise<boolean> {
   return !!(await getSecureItem('sessions_api_key'));
-}
-
-/**
- * Reset initialization state (for testing or key changes)
- * Also resets cached pipelines to pick up new configuration
- */
-export function resetBots(): void {
-  isInitialized = false;
-  // Reset cached pipelines so they pick up new configuration
-  resetPipelines();
 }
 
 /**
@@ -190,7 +144,7 @@ export async function testApiKey(apiKey: string): Promise<{ valid: boolean; erro
       method: 'POST',
       headers,
       body: JSON.stringify({
-        model: 'claude-3-5-haiku-20241022', // Use cheapest model for test
+        model: 'claude-haiku-4-5-20251001', // Use cheapest model for test
         max_tokens: 1,
         messages: [{ role: 'user', content: 'test' }],
       }),

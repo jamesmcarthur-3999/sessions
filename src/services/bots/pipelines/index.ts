@@ -12,6 +12,6 @@ export {
   createQABotPipeline,
   createFinalSummaryPipeline,
   createCapturePipeline,
-  createCaptureTimingPipeline,
+  createTranscriberBot,
   resetPipelines,
 } from './factory';

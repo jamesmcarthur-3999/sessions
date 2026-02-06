@@ -7,6 +7,7 @@ use activity_monitor::ActivityMonitor;
 use screenshots::{Screen, image::ImageFormat};
 use std::io::Cursor;
 use std::sync::{Arc, Mutex, MutexGuard};
+use tauri::Manager;
 use audio_capture::AudioRecorder;
 use video_recording::VideoRecorder;
 
@@ -148,24 +149,35 @@ async fn capture_screenshot(screen_id: Option<String>) -> Result<String, String>
     }, 3).await
 }
 
-/// Captures an optimized screenshot for session recording
-/// - Resizes to max 1920px width (retina displays are huge otherwise)
-/// - Uses JPEG encoding for ~10x smaller file size than PNG
-/// - Returns base64-encoded JPEG data
+/// Captures an optimized screenshot and writes it directly to disk as JPEG.
+/// Returns the file path instead of base64 data, eliminating the base64 IPC round-trip.
 #[tauri::command]
-async fn capture_screenshot_optimized(
+async fn capture_screenshot_to_file(
+    app_handle: tauri::AppHandle,
+    session_id: String,
+    screenshot_id: String,
     screen_id: Option<String>,
     max_width: Option<u32>,
     quality: Option<u8>,
 ) -> Result<String, String> {
     capture_with_retry(|| {
+        let handle = app_handle.clone();
         let sid = screen_id.clone();
+        let sess_id = session_id.clone();
+        let ss_id = screenshot_id.clone();
         let mw = max_width;
         let q = quality;
         async move {
             tokio::task::spawn_blocking(move || {
-                let screens = Screen::all().map_err(|e| format!("Failed to get screens: {}", e))?;
+                // Get app data directory and create screenshots/{session_id}/
+                let data_dir = handle.path().app_data_dir()
+                    .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+                let session_dir = data_dir.join("screenshots").join(&sess_id);
+                std::fs::create_dir_all(&session_dir)
+                    .map_err(|e| format!("Failed to create screenshot dir: {}", e))?;
 
+                // Capture screen
+                let screens = Screen::all().map_err(|e| format!("Failed to get screens: {}", e))?;
                 if screens.is_empty() {
                     return Err("No screens found".to_string());
                 }
@@ -178,12 +190,10 @@ async fn capture_screenshot_optimized(
                 let screen = screens.get(screen_idx).unwrap_or(&screens[0]);
                 let image = screen.capture().map_err(|e| format!("Failed to capture screen: {}", e))?;
 
-                // Default to 1920px width max (good balance of quality vs size)
-                let target_width = mw.unwrap_or(1920);
-                // Default JPEG quality 80 (good quality, reasonable size)
-                let jpeg_quality = q.unwrap_or(80);
+                // Resize to max_width (default 1280px)
+                let target_width = mw.unwrap_or(1280);
+                let jpeg_quality = q.unwrap_or(75);
 
-                // Resize if larger than target
                 let final_image = if image.width() > target_width {
                     let scale = target_width as f32 / image.width() as f32;
                     let new_height = (image.height() as f32 * scale) as u32;
@@ -197,16 +207,21 @@ async fn capture_screenshot_optimized(
                     image.clone()
                 };
 
-                // Encode as JPEG (much smaller than PNG)
+                // Encode as JPEG directly to bytes
                 let mut bytes: Vec<u8> = Vec::new();
                 let mut cursor = Cursor::new(&mut bytes);
-
                 let encoder = screenshots::image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, jpeg_quality);
                 final_image.write_with_encoder(encoder)
                     .map_err(|e| format!("Failed to encode JPEG: {}", e))?;
 
-                let base64_data = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
-                Ok(format!("data:image/jpeg;base64,{}", base64_data))
+                // Write directly to file (no base64 involved)
+                let file_path = session_dir.join(format!("{}.jpg", ss_id));
+                std::fs::write(&file_path, &bytes)
+                    .map_err(|e| format!("Failed to write screenshot file: {}", e))?;
+
+                let path_str = file_path.to_str()
+                    .ok_or_else(|| "Screenshot path contains non-UTF-8 characters".to_string())?;
+                Ok(path_str.to_string())
             }).await.map_err(|e| format!("Task panicked: {}", e))?
         }
     }, 3).await
@@ -411,7 +426,7 @@ pub fn run() {
             get_screens,
             // Screenshot
             capture_screenshot,
-            capture_screenshot_optimized,
+            capture_screenshot_to_file,
             test_capture_screenshot,
             // Permissions
             request_screen_recording_permission,

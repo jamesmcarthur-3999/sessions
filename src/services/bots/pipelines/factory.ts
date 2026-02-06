@@ -6,25 +6,27 @@
  */
 
 import { Pipeline } from '@baleybots/tools';
+import { Baleybot } from '@baleybots/core';
 import { BOT_DEFINITIONS } from './definitions';
 
 // Model configuration
 const MODELS = {
-  default: 'claude-sonnet-4-20250514',
-  capture: 'claude-sonnet-4-20250514',
+  /** Sonnet 4.5 — best quality-to-cost for user-facing output */
+  default: 'claude-sonnet-4-5-20250929',
+  /** Haiku 4.5 — fast + cheap for high-volume classification */
+  fast: 'claude-haiku-4-5-20251001',
 } as const;
 
 type PipelineName = keyof typeof BOT_DEFINITIONS;
 
 // Pipeline config: definition key → [display name, model]
 const PIPELINE_CONFIG: Record<PipelineName, [string, string]> = {
-  activityDetector: ['activity-detector', MODELS.default],
-  summarizer: ['summarizer', MODELS.default],
-  analysisController: ['analysis-controller', MODELS.default],
-  qaBot: ['qa-bot', MODELS.default],
-  finalSummary: ['final-summary', MODELS.default],
-  capture: ['capture', MODELS.capture],
-  captureTiming: ['capture-timing', MODELS.default],
+  activityDetector: ['activity-detector', MODELS.fast],       // runs every 10-60s, classification
+  summarizer: ['summarizer', MODELS.default],                 // user-facing rolling summary
+  analysisController: ['analysis-controller', MODELS.fast],   // ambient vs deep classification
+  qaBot: ['qa-bot', MODELS.default],                          // user-facing chat
+  finalSummary: ['final-summary', MODELS.default],            // user-facing end-of-session summary
+  capture: ['capture', MODELS.default],                       // user-facing quick capture
 };
 
 const cache = new Map<PipelineName, Pipeline>();
@@ -50,9 +52,23 @@ export const createAnalysisControllerPipeline = () => getPipeline('analysisContr
 export const createQABotPipeline = () => getPipeline('qaBot');
 export const createFinalSummaryPipeline = () => getPipeline('finalSummary');
 export const createCapturePipeline = () => getPipeline('capture');
-export const createCaptureTimingPipeline = () => getPipeline('captureTiming');
+
+// Transcriber uses Baleybot.create() (not BAL Pipeline) — transcription is a provider-level operation
+let transcriberBot: Baleybot | null = null;
+
+export function createTranscriberBot(): Baleybot {
+  if (!transcriberBot) {
+    transcriberBot = Baleybot.create({
+      name: 'transcriber',
+      goal: 'Transcribe audio input',
+      model: 'gpt-4o-transcribe',
+    });
+  }
+  return transcriberBot;
+}
 
 /** Reset all cached pipelines (for testing or when API keys change) */
 export function resetPipelines(): void {
   cache.clear();
+  transcriberBot = null;
 }

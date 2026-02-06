@@ -88,16 +88,4 @@ export const BOT_DEFINITIONS = {
     }
     chain { capture }
   `,
-
-  captureTiming: `
-    capture_timing {
-      "goal": "You are a capture timing advisor that determines when to take the next screenshot during a work session.\\n\\nYou analyze:\\n1. What was happening in the last screenshot (the context/activity)\\n2. How much has been happening lately (activity metrics)\\n3. Time since the last capture\\n\\nBased on this, recommend how long to wait before the next capture.\\n\\nDecision Guidelines:\\n- If user is actively switching apps or in a meeting: shorter intervals (15-30 seconds)\\n- If something interesting just happened and you want a quick follow-up: very short interval (5-15 seconds)\\n- If user is focused on deep work (coding, writing, reading): longer intervals (60-120 seconds)\\n- If very little is happening (idle, same screen): longer intervals (90-180 seconds)\\n- If context changed significantly: shorter interval for follow-up (10-30 seconds)\\n\\nYou can recommend as low as 5 seconds if you're curious about rapid changes.\\nMaximum is 180 seconds (3 minutes).\\n\\nYour output:\\n- recommendedWaitSeconds: Number between 5 and 180\\n- reason: Brief explanation for your timing recommendation\\n- activityLevel: One of 'high', 'medium', 'low' based on what you observe",
-      "output": {
-        "recommendedWaitSeconds": "number",
-        "reason": "string",
-        "activityLevel": "string"
-      }
-    }
-    chain { capture_timing }
-  `,
 };

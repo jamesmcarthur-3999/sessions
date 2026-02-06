@@ -15,8 +15,9 @@
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { saveScreenshot } from './database';
 import { aiWorker } from './worker';
-import { captureScreenshotOptimized, isTauri } from './recording';
+import { captureScreenshotToFile, isTauri } from './recording';
 import { loadScreenshotBinary } from './screenshot-storage';
+import { generateId } from '../utils/id';
 import { EventEmitter } from './event-emitter';
 import { logger } from '../utils/logger';
 
@@ -339,8 +340,9 @@ class SmartCaptureService {
     this.capturePending = true;
 
     try {
-      // Capture screenshot
-      const screenshot = await captureScreenshotOptimized(this.screenId, 1920, 80);
+      // Capture screenshot directly to file (no base64 IPC round-trip)
+      const screenshotId = generateId();
+      const filePath = await captureScreenshotToFile(this.sessionId, screenshotId, this.screenId, 1280, 75);
       this.lastCaptureTime = Date.now();
       this.captureCount++;
       this.consecutiveFailures = 0; // Reset on success
@@ -348,10 +350,11 @@ class SmartCaptureService {
       // Emit capture event for UI
       this.emitter.emit('capture', { sessionId: this.sessionId, trigger });
 
-      // Save to database
+      // Save metadata to database (file already on disk)
       const dbScreenshot = await saveScreenshot(
         this.sessionId,
-        screenshot,
+        screenshotId,
+        filePath,
         trigger as 'manual' | 'interval' | 'app_switch' | 'session_start' | 'session_end',
         this.lastApp ?? undefined,
         this.lastWindow ?? undefined
@@ -359,7 +362,7 @@ class SmartCaptureService {
 
       // Load binary from file for zero-copy transfer to worker
       try {
-        const imageData = await loadScreenshotBinary(dbScreenshot.file_path);
+        const imageData = await loadScreenshotBinary(filePath);
         // Send to AI Worker for analysis using binary transfer (non-blocking)
         aiWorker.analyzeScreenshotBinary(
           this.sessionId,

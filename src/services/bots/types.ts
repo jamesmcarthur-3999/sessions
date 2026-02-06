@@ -62,15 +62,6 @@ export const CaptureSchema = z.object({
 
 export type CaptureResult = z.infer<typeof CaptureSchema>;
 
-// Capture timing decision (AI-driven adaptive capture)
-export const CaptureTimingSchema = z.object({
-  recommendedWaitSeconds: z.number().min(5).max(180),
-  reason: z.string(),
-  activityLevel: z.enum(['high', 'medium', 'low']),
-});
-
-export type CaptureTimingDecision = z.infer<typeof CaptureTimingSchema>;
-
 // Session context for bots
 export interface SessionContext {
   sessionId: string;

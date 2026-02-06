@@ -111,7 +111,7 @@ function AppContent() {
     }
   }, [state.activeSession, view])
 
-  // Listen for navigate-to-settings events (from LiveSessionPanel)
+  // Listen for navigate-to-settings events (from session recording)
   useEffect(() => {
     const handleNavigateToSettings = () => {
       if (view === 'recording') {

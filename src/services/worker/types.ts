@@ -12,7 +12,7 @@
  * - Removed isTauri and tauriProxyUrl - workers use native fetch with CORS headers
  */
 
-import type { ActivityDetection, RollingSummary, CaptureTimingDecision, SessionContext } from '../bots/types';
+import type { ActivityDetection, RollingSummary, SessionContext } from '../bots/types';
 import type { WorkerState } from './worker-state';
 
 // ============================================================================
@@ -50,12 +50,6 @@ export type WorkerMessage =
       previousAnalysis: string | null;
     })
   | (BaseMessage & {
-      type: 'transcribe-audio';
-      sessionId: string;
-      chunkId: string;
-      audioBase64: string;
-    })
-  | (BaseMessage & {
       type: 'transcribe-audio-binary';
       sessionId: string;
       chunkId: string;
@@ -83,6 +77,16 @@ export type WorkerMessage =
       type: 'set-analysis-mode';
       sessionId: string;
       mode: 'ambient' | 'deep';
+    })
+  | (BaseMessage & {
+      type: 'update-api-keys';
+      anthropicKey: string;
+      openaiKey: string | null;
+    })
+  | (BaseMessage & {
+      type: 'process-capture';
+      text: string;
+      attachmentDescriptions: string[];
     })
   | (BaseMessage & {
       type: 'generate-final-summary';
@@ -175,6 +179,19 @@ export type WorkerResponse =
       sessionId: string;
     })
   | (BaseResponse & {
+      type: 'capture-complete';
+      title: string | null;
+      summary: string | null;
+      tasks: string[];
+      notes: string[];
+      error?: string;
+    })
+  | (BaseResponse & {
+      type: 'api-keys-updated';
+      success: boolean;
+      error?: string;
+    })
+  | (BaseResponse & {
       type: 'final-summary-complete';
       text: string | null;
       tasks: string[];
@@ -214,4 +231,4 @@ export interface WorkerActivityMetrics {
 }
 
 // Re-export bot types for convenience
-export type { ActivityDetection, RollingSummary, CaptureTimingDecision };
+export type { ActivityDetection, RollingSummary };

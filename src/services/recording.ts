@@ -15,6 +15,7 @@ import { loadAudioBinary } from './audio-storage'
 import { loadScreenshotBinary } from './screenshot-storage'
 import type { RecordingStopResult } from '../types'
 import { logger } from '../utils/logger'
+import { generateId } from '../utils/id'
 
 // Type-safe invoke wrapper
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -66,17 +67,19 @@ export async function captureScreenshot(screenId?: string | null): Promise<strin
 }
 
 /**
- * Capture an optimized screenshot for session recording
- * - Resizes to maxWidth (default 1920px) to avoid huge retina captures
- * - Uses JPEG encoding (~10x smaller than PNG)
- * - Returns base64 data URL
+ * Capture screenshot and write directly to file from Rust.
+ * Returns the file path — no base64 IPC round-trip.
  */
-export async function captureScreenshotOptimized(
+export async function captureScreenshotToFile(
+  sessionId: string,
+  screenshotId: string,
   screenId?: string | null,
   maxWidth?: number,
   quality?: number
 ): Promise<string> {
-  return invoke<string>('capture_screenshot_optimized', {
+  return invoke<string>('capture_screenshot_to_file', {
+    sessionId,
+    screenshotId,
     screenId: screenId ?? null,
     maxWidth: maxWidth ?? null,
     quality: quality ?? null,
@@ -396,20 +399,28 @@ class SessionRecordingController {
     if (!this.state || !isTauri()) return
 
     try {
-      // Use optimized capture: 1920px max width, JPEG encoding (~10x smaller than full-res PNG)
-      const screenshot = await captureScreenshotOptimized(this.state.options.selectedScreen, 1920, 80)
+      // Capture screenshot directly to file (no base64 IPC round-trip)
+      const screenshotId = generateId()
+      const filePath = await captureScreenshotToFile(
+        this.state.sessionId,
+        screenshotId,
+        this.state.options.selectedScreen,
+        1280,
+        75
+      )
       this.state.screenshotCount++
 
-      // Save to database (screenshot data stored on disk, not in memory)
+      // Save metadata to database (file already on disk)
       try {
         const dbScreenshot = await saveScreenshot(
           this.state.sessionId,
-          screenshot,
+          screenshotId,
+          filePath,
           'interval' // This method is only used for interval-based capture; smart capture handles its own triggers
         )
         // Load binary from file for zero-copy transfer to worker
         try {
-          const imageData = await loadScreenshotBinary(dbScreenshot.file_path)
+          const imageData = await loadScreenshotBinary(filePath)
           // Send to AI Worker for analysis using binary transfer (non-blocking)
           aiWorker.analyzeScreenshotBinary(
             this.state.sessionId,

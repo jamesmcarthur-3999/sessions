@@ -31,7 +31,6 @@ export type {
   WorkerActivityMetrics,
   ActivityDetection,
   RollingSummary,
-  CaptureTimingDecision,
 } from './types';
 
 // Core abstractions (for testing and advanced use)

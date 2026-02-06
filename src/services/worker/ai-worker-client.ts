@@ -309,6 +309,27 @@ class AiWorkerClient {
         }
         break;
 
+      case 'capture-complete':
+        if (msg.id) {
+          this.requestManager.complete(msg.id, {
+            title: msg.title,
+            summary: msg.summary,
+            tasks: msg.tasks,
+            notes: msg.notes,
+            error: msg.error,
+          });
+        }
+        break;
+
+      case 'api-keys-updated':
+        if (msg.id) {
+          this.requestManager.complete(msg.id, {
+            success: msg.success,
+            error: msg.error,
+          });
+        }
+        break;
+
       case 'chat-response':
         this.requestManager.complete(msg.requestId, msg.response);
         break;
@@ -409,23 +430,6 @@ class AiWorkerClient {
   // ============================================================================
   // Public API - Audio Transcription
   // ============================================================================
-
-  /**
-   * Transcribe audio (non-blocking)
-   * Results come back via 'transcription-complete' event
-   */
-  async transcribeAudio(sessionId: string, chunkId: string, audioBase64: string): Promise<void> {
-    await this.initialize();
-    const id = this.requestManager.generateId();
-    this.send({
-      type: 'transcribe-audio',
-      id,
-      timestamp: Date.now(),
-      sessionId,
-      chunkId,
-      audioBase64,
-    });
-  }
 
   /**
    * Transcribe audio with binary transfer (non-blocking, zero-copy)
@@ -547,6 +551,69 @@ class AiWorkerClient {
       return await promise;
     } catch {
       return { text: null, tasks: [], notes: [], error: 'Final summary generation timed out' };
+    }
+  }
+
+  // ============================================================================
+  // Public API - Quick Capture
+  // ============================================================================
+
+  /**
+   * Process a quick capture through the worker.
+   * Returns extracted title, summary, tasks, and notes.
+   */
+  async processCapture(
+    text: string,
+    attachmentDescriptions: string[] = []
+  ): Promise<{ title: string | null; summary: string | null; tasks: string[]; notes: string[]; error?: string }> {
+    await this.initialize();
+
+    type CaptureResult = { title: string | null; summary: string | null; tasks: string[]; notes: string[]; error?: string };
+    const { id, promise } = this.requestManager.create<CaptureResult>({ timeout: 120000 });
+
+    this.send({
+      type: 'process-capture',
+      id,
+      timestamp: Date.now(),
+      text,
+      attachmentDescriptions,
+    });
+
+    try {
+      return await promise;
+    } catch {
+      return { title: null, summary: null, tasks: [], notes: [], error: 'Capture processing timed out' };
+    }
+  }
+
+  // ============================================================================
+  // Public API - API Key Updates
+  // ============================================================================
+
+  /**
+   * Update API keys in the worker (called after settings change).
+   */
+  async updateApiKeys(
+    anthropicKey: string,
+    openaiKey: string | null
+  ): Promise<{ success: boolean; error?: string }> {
+    await this.initialize();
+
+    type KeysResult = { success: boolean; error?: string };
+    const { id, promise } = this.requestManager.create<KeysResult>({ timeout: 10000 });
+
+    this.send({
+      type: 'update-api-keys',
+      id,
+      timestamp: Date.now(),
+      anthropicKey,
+      openaiKey,
+    });
+
+    try {
+      return await promise;
+    } catch {
+      return { success: false, error: 'API key update timed out' };
     }
   }
 

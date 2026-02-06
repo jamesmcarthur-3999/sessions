@@ -151,9 +151,10 @@ src/
 │   ├── AppContext.tsx        # Single, simple context
 │   └── ThemeContext.tsx      # Light/dark mode
 ├── services/
-│   ├── ai.ts                 # AI service (summarization)
-│   ├── storage.ts            # Local storage
-│   └── mcp.ts                # MCP client for integrations
+│   ├── bots/                  # BaleyBots AI pipeline definitions
+│   ├── worker/                # AI Worker (off-main-thread processing)
+│   ├── storage.ts             # Local storage
+│   └── mcp.ts                 # MCP client for integrations
 └── types/
     └── index.ts              # Simple, flat types
 ```
