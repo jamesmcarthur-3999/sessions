@@ -11,6 +11,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { saveAudioChunk } from './database'
 import { aiWorker } from './worker'
 import { smartCapture } from './smart-capture'
+import { sessionBridge } from './session-bridge'
 import { captureAnalyzeScreenshot } from './capture-screenshot'
 import type { RecordingStopResult } from '../types'
 import { logger } from '../utils/logger'
@@ -268,7 +269,7 @@ class SessionRecordingController {
       // Start audio recording if enabled
       if (mergedOptions.enableAudio) {
         try {
-          // Use 10-second chunks for faster transcription feedback
+          // 10-second WAV chunks for audio archival
           await startAudioRecording(sessionId, 10, mergedOptions.selectedMicrophone)
           logger.info('🎤 Audio recording started')
 
@@ -300,6 +301,10 @@ class SessionRecordingController {
 
             } catch (e) {
               logger.error('Audio chunk processing error:', e);
+              sessionBridge.emit('recording-error', {
+                sessionId: sid,
+                error: `Audio save failed: ${e instanceof Error ? e.message : String(e)}`,
+              });
             }
           });
           logger.debug('🎤 Audio chunk listener started')
@@ -335,9 +340,8 @@ class SessionRecordingController {
             })
             logger.debug('🎤 PCM audio listener started')
           } catch (e) {
-            logger.warn('Live transcription failed to start, falling back to batch:', e)
+            logger.warn('Live transcription failed to start:', e)
             this.liveTranscriptionActive = false
-            // Batch transcription (existing WAV flow) will still work as fallback
           }
         } catch (e) {
           logger.error('Failed to start audio recording:', e)

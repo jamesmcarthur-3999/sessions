@@ -83,7 +83,7 @@ export function LiveTranscript({ sessionId, audioEnabled }: LiveTranscriptProps)
     lastScrollTop.current = scrollTop
   }
 
-  // Listen to transcription events (live streaming + batch fallback)
+  // Listen to live transcription events
   useEffect(() => {
     if (!audioEnabled) {
       setStatus('idle')
@@ -99,16 +99,20 @@ export function LiveTranscript({ sessionId, audioEnabled }: LiveTranscriptProps)
 
       if (!data.text?.trim()) return
 
+      const MAX_CHUNKS = 500
+
       if (data.isFinal) {
         // Replace any interim chunk with the final version, or append new
         setChunks(prev => {
           const withoutInterim = prev.filter(c => c.isFinal)
-          return [...withoutInterim, {
+          const updated = [...withoutInterim, {
             id: generateId(),
             text: data.text,
             timestamp: new Date(),
             isFinal: true,
           }]
+          // Prune oldest finals if over limit
+          return updated.length > MAX_CHUNKS ? updated.slice(updated.length - MAX_CHUNKS) : updated
         })
       } else {
         // Interim: replace previous interim chunk (there's only ever one active)

@@ -53,14 +53,14 @@ impl ActivityMonitor {
     pub fn start(&self, app_handle: AppHandle) -> Result<(), String> {
         // Check if already started
         if self.is_started.swap(true, Ordering::SeqCst) {
-            println!("[ACTIVITY MONITOR] Already running");
+            log::info!("[ACTIVITY MONITOR] Already running");
             return Ok(());
         }
 
         // Reset stop flag
         self.stop_flag.store(false, Ordering::SeqCst);
 
-        println!("[ACTIVITY MONITOR] Starting activity monitoring");
+        log::info!("[ACTIVITY MONITOR] Starting activity monitoring");
 
         // Clone the stop flag for the thread
         let stop_flag = self.stop_flag.clone();
@@ -102,7 +102,7 @@ impl ActivityMonitor {
                     None => {
                         consecutive_failures += 1;
                         if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
-                            eprintln!("[ACTIVITY MONITOR] Disabling after {} consecutive failures", MAX_CONSECUTIVE_FAILURES);
+                            log::error!("[ACTIVITY MONITOR] Disabling after {} consecutive failures", MAX_CONSECUTIVE_FAILURES);
                             break;
                         }
                         continue;
@@ -120,7 +120,7 @@ impl ActivityMonitor {
                 let window_changed = last_window.as_ref() != Some(&window_title);
 
                 if app_switched {
-                    println!("[ACTIVITY MONITOR] App switch: {:?} -> {}", last_app, app_name);
+                    log::info!("[ACTIVITY MONITOR] App switch: {:?} -> {}", last_app, app_name);
 
                     let event = ActivityEvent {
                         event_type: "app_switch".to_string(),
@@ -130,7 +130,7 @@ impl ActivityMonitor {
                     };
 
                     if let Err(e) = app_handle.emit("activity-event", event) {
-                        eprintln!("[ACTIVITY MONITOR] Failed to emit event: {}", e);
+                        log::error!("[ACTIVITY MONITOR] Failed to emit event: {}", e);
                     }
 
                     // Enter fast-polling mode after an app switch
@@ -150,7 +150,7 @@ impl ActivityMonitor {
                     };
 
                     if let Err(e) = app_handle.emit("activity-event", event) {
-                        eprintln!("[ACTIVITY MONITOR] Failed to emit event: {}", e);
+                        log::error!("[ACTIVITY MONITOR] Failed to emit event: {}", e);
                     }
                 }
 
@@ -160,7 +160,7 @@ impl ActivityMonitor {
                 }
             }
 
-            println!("[ACTIVITY MONITOR] Monitoring thread exiting");
+            log::info!("[ACTIVITY MONITOR] Monitoring thread exiting");
         });
 
         if let Ok(mut h) = self.thread_handle.lock() {
@@ -172,7 +172,7 @@ impl ActivityMonitor {
 
     /// Stop monitoring
     pub fn stop(&self) {
-        println!("[ACTIVITY MONITOR] Stopping activity monitoring");
+        log::info!("[ACTIVITY MONITOR] Stopping activity monitoring");
         // Set stop flag - the thread will see this and exit
         self.stop_flag.store(true, Ordering::SeqCst);
         // Mark as not started so it can be restarted
@@ -215,7 +215,7 @@ fn get_frontmost_app() -> Option<(String, String)> {
     {
         Ok(child) => child,
         Err(e) => {
-            eprintln!("[ACTIVITY MONITOR] Failed to spawn osascript: {}", e);
+            log::error!("[ACTIVITY MONITOR] Failed to spawn osascript: {}", e);
             return None;
         }
     };
@@ -231,11 +231,11 @@ fn get_frontmost_app() -> Option<(String, String)> {
             // Timeout - kill the process
             let _ = child.kill();
             let _ = child.wait();
-            eprintln!("[ACTIVITY MONITOR] osascript timed out after 3s");
+            log::warn!("[ACTIVITY MONITOR] osascript timed out after 3s");
             return None;
         }
         Err(e) => {
-            eprintln!("[ACTIVITY MONITOR] Failed to wait for osascript: {}", e);
+            log::error!("[ACTIVITY MONITOR] Failed to wait for osascript: {}", e);
             return None;
         }
     }

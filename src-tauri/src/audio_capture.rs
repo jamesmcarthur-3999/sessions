@@ -137,13 +137,13 @@ impl AudioRecorder {
 
     /// Start recording audio
     pub fn start_recording(&self, session_id: String, chunk_duration_secs: u64, device_id: Option<String>, app_handle: &AppHandle) -> Result<(), String> {
-        println!("🎤 [AUDIO CAPTURE] Starting recording for session: {} (chunk duration: {}s, device: {:?})", session_id, chunk_duration_secs, device_id);
+        log::info!("🎤 [AUDIO CAPTURE] Starting recording for session: {} (chunk duration: {}s, device: {:?})", session_id, chunk_duration_secs, device_id);
 
         // Check if already recording
         let current_state = self.state.lock()
             .map_err(|e| format!("Failed to lock state: {}", e))?.clone();
         if current_state == RecordingState::Recording {
-            println!("⚠️  [AUDIO CAPTURE] Already recording");
+            log::warn!("⚠️  [AUDIO CAPTURE] Already recording");
             return Ok(());
         }
 
@@ -157,7 +157,7 @@ impl AudioRecorder {
         fs::create_dir_all(&session_audio_dir)
             .map_err(|e| format!("Failed to create audio directory: {}", e))?;
 
-        println!("🎤 [AUDIO CAPTURE] Audio directory: {:?}", session_audio_dir);
+        log::info!("🎤 [AUDIO CAPTURE] Audio directory: {:?}", session_audio_dir);
 
         // Store audio directory
         *self.audio_dir.lock()
@@ -190,14 +190,14 @@ impl AudioRecorder {
                 .ok_or_else(|| "No input device available".to_string())?
         };
 
-        println!("🎤 [AUDIO CAPTURE] Using device: {}", device.name().unwrap_or_else(|_| "Unknown".to_string()));
+        log::info!("🎤 [AUDIO CAPTURE] Using device: {}", device.name().unwrap_or_else(|_| "Unknown".to_string()));
 
         // Get device config
         let config = device
             .default_input_config()
             .map_err(|e| format!("Failed to get default input config: {}", e))?;
 
-        println!("🎤 [AUDIO CAPTURE] Sample format: {:?}, Sample rate: {}, Channels: {}",
+        log::info!("🎤 [AUDIO CAPTURE] Sample format: {:?}, Sample rate: {}, Channels: {}",
             config.sample_format(), config.sample_rate().0, config.channels());
 
         // Store sample rate (device's native rate, e.g., 44100)
@@ -236,7 +236,7 @@ impl AudioRecorder {
         // Start background thread to check for completed chunks
         self.start_chunk_processor(sample_rate);
 
-        println!("✅ [AUDIO CAPTURE] Recording started");
+        log::info!("✅ [AUDIO CAPTURE] Recording started");
         Ok(())
     }
 
@@ -286,7 +286,7 @@ impl AudioRecorder {
                         }
                     }
                 },
-                |err| eprintln!("❌ [AUDIO CAPTURE] Stream error: {}", err),
+                |err| log::error!("❌ [AUDIO CAPTURE] Stream error: {}", err),
                 None,
             )
             .map_err(|e| format!("Failed to build input stream: {}", e))?;
@@ -412,14 +412,14 @@ impl AudioRecorder {
                     continue;
                 }
 
-                println!("🎤 [AUDIO CAPTURE] Processing chunk: {} samples", samples.len());
+                log::info!("🎤 [AUDIO CAPTURE] Processing chunk: {} samples", samples.len());
 
                 // Get audio directory
                 let Ok(dir_guard) = audio_dir.lock() else { continue };
                 let dir_opt = dir_guard.clone();
                 drop(dir_guard);
                 let Some(dir) = dir_opt else {
-                    eprintln!("❌ [AUDIO CAPTURE] No audio directory set");
+                    log::error!("❌ [AUDIO CAPTURE] No audio directory set");
                     continue;
                 };
 
@@ -453,22 +453,22 @@ impl AudioRecorder {
                                 });
 
                             if let Err(e) = emit_result {
-                                eprintln!("❌ [AUDIO CAPTURE] Failed to emit audio-chunk event after retry: {}", e);
+                                log::error!("❌ [AUDIO CAPTURE] Failed to emit audio-chunk event after retry: {}", e);
                                 if let Err(del_err) = std::fs::remove_file(&file_path) {
-                                    eprintln!("❌ [AUDIO CAPTURE] Failed to clean up orphaned file {}: {}", file_path.display(), del_err);
+                                    log::error!("❌ [AUDIO CAPTURE] Failed to clean up orphaned file {}: {}", file_path.display(), del_err);
                                 }
                             } else {
-                                println!("✅ [AUDIO CAPTURE] Saved audio chunk: {} ({:.1}s)", file_path_str, duration);
+                                log::info!("✅ [AUDIO CAPTURE] Saved audio chunk: {} ({:.1}s)", file_path_str, duration);
                             }
                         }
                     }
                     Err(e) => {
-                        eprintln!("❌ [AUDIO CAPTURE] Failed to save audio file: {}", e);
+                        log::error!("❌ [AUDIO CAPTURE] Failed to save audio file: {}", e);
                     }
                 }
             }
 
-            println!("🛑 [AUDIO CAPTURE] Chunk processor thread exiting");
+            log::info!("🛑 [AUDIO CAPTURE] Chunk processor thread exiting");
         });
 
         if let Ok(mut h) = self.chunk_processor_handle.lock() {
@@ -546,7 +546,7 @@ impl AudioRecorder {
 
     /// Pause recording
     pub fn pause_recording(&self) -> Result<(), String> {
-        println!("⏸️  [AUDIO CAPTURE] Pausing recording");
+        log::info!("⏸️  [AUDIO CAPTURE] Pausing recording");
         *self.state.lock()
             .map_err(|e| format!("Failed to lock state: {}", e))? = RecordingState::Paused;
 
@@ -561,7 +561,7 @@ impl AudioRecorder {
 
     /// Resume recording
     pub fn resume_recording(&self) -> Result<(), String> {
-        println!("▶️  [AUDIO CAPTURE] Resuming recording");
+        log::info!("▶️  [AUDIO CAPTURE] Resuming recording");
         let current_state = self.state.lock()
             .map_err(|e| format!("Failed to lock state: {}", e))?.clone();
 
@@ -583,7 +583,7 @@ impl AudioRecorder {
 
     /// Stop recording
     pub fn stop_recording(&self) -> Result<(), String> {
-        println!("🛑 [AUDIO CAPTURE] Stopping recording");
+        log::info!("🛑 [AUDIO CAPTURE] Stopping recording");
 
         // 1. Signal the chunk processor thread to stop
         *self.state.lock()
@@ -593,7 +593,7 @@ impl AudioRecorder {
         if let Ok(mut handle) = self.chunk_processor_handle.lock() {
             if let Some(h) = handle.take() {
                 if let Err(e) = h.join() {
-                    eprintln!("❌ [AUDIO CAPTURE] Chunk processor thread panicked: {:?}", e);
+                    log::error!("❌ [AUDIO CAPTURE] Chunk processor thread panicked: {:?}", e);
                 }
             }
         }
@@ -610,7 +610,7 @@ impl AudioRecorder {
         *self.audio_dir.lock()
             .map_err(|e| format!("Failed to lock audio_dir: {}", e))? = None;
 
-        println!("✅ [AUDIO CAPTURE] Recording stopped");
+        log::info!("✅ [AUDIO CAPTURE] Recording stopped");
         Ok(())
     }
 
@@ -642,7 +642,7 @@ impl Drop for AudioRecorder {
             *stream = None;
         }
 
-        println!("AudioRecorder dropped, resources cleaned up");
+        log::info!("AudioRecorder dropped, resources cleaned up");
     }
 }
 

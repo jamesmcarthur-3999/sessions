@@ -33,6 +33,10 @@ export interface PendingRequest<T = unknown> {
   timeoutId: ReturnType<typeof setTimeout> | null;
   abortController: AbortController | null;
   metadata?: Record<string, unknown>;
+  /** Stored abort listener for cleanup */
+  abortListener?: (() => void) | null;
+  /** Reference to external AbortSignal for removeEventListener */
+  externalSignal?: AbortSignal | null;
 }
 
 export type RequestManagerEvents = {
@@ -85,11 +89,11 @@ export class RequestManager {
 
     // Set up abort handling
     let abortController: AbortController | null = null;
+    let abortListener: (() => void) | null = null;
     if (options.signal) {
       abortController = new AbortController();
-      options.signal.addEventListener('abort', () => {
-        this.abort(id);
-      });
+      abortListener = () => this.abort(id);
+      options.signal.addEventListener('abort', abortListener);
     }
 
     // Set up timeout
@@ -106,6 +110,8 @@ export class RequestManager {
       timeoutId,
       abortController,
       metadata: options.metadata,
+      abortListener,
+      externalSignal: options.signal ?? null,
     };
 
     this.requests.set(id, request as PendingRequest);
@@ -202,12 +208,15 @@ export class RequestManager {
   }
 
   /**
-   * Clean up a request (remove from map, clear timeout)
+   * Clean up a request (remove from map, clear timeout, remove abort listener)
    */
   private cleanup(id: string): void {
     const request = this.requests.get(id);
     if (request?.timeoutId) {
       clearTimeout(request.timeoutId);
+    }
+    if (request?.abortListener && request.externalSignal) {
+      request.externalSignal.removeEventListener('abort', request.abortListener);
     }
     this.requests.delete(id);
   }

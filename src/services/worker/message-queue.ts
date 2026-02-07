@@ -40,12 +40,14 @@ export class MessageQueue<T = unknown> {
   private totalDropped = 0;
   private handler: ((message: T) => Promise<void>) | null = null;
   private errorHandler: ((error: Error, message: T) => void) | null = null;
+  private onDrop: ((message: T) => void) | null = null;
   private clearOnError: boolean;
   private maxSize: number;
 
-  constructor(options: { clearOnError?: boolean; maxSize?: number } = {}) {
+  constructor(options: { clearOnError?: boolean; maxSize?: number; onDrop?: (message: T) => void } = {}) {
     this.clearOnError = options.clearOnError ?? false;
     this.maxSize = options.maxSize ?? 50; // Default max queue size
+    this.onDrop = options.onDrop ?? null;
   }
 
   /**
@@ -70,9 +72,12 @@ export class MessageQueue<T = unknown> {
   enqueue(message: T): void {
     // If queue is at capacity, drop oldest message (backpressure)
     if (this.queue.length >= this.maxSize) {
-      this.queue.shift();
+      const dropped = this.queue.shift()!;
       this.totalDropped++;
       console.warn(`[MessageQueue] Queue full, dropped oldest message (total dropped: ${this.totalDropped})`);
+      if (this.onDrop) {
+        try { this.onDrop(dropped.data); } catch { /* don't let callback errors break enqueue */ }
+      }
     }
 
     this.queue.push({

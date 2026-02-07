@@ -24,6 +24,12 @@ import { logger } from './utils/logger'
 
 type View = 'home' | 'setup' | 'summary' | 'history' | 'capture' | 'recording' | 'settings'
 
+const LoadingFallback = () => (
+  <div className="h-full flex items-center justify-center">
+    <div className="w-5 h-5 border-2 border-[var(--border-medium)] border-t-[var(--accent)] rounded-full animate-spin" />
+  </div>
+)
+
 function AppContent() {
   const { state, dispatch } = useApp()
   const [view, setView] = useState<View>('home')
@@ -157,7 +163,7 @@ function AppContent() {
 
   return (
     <div className="min-h-screen bg-[var(--paper)] text-[var(--ink)]">
-      <Suspense fallback={null}>
+      <Suspense fallback={<LoadingFallback />}>
         <AnimatePresence mode="wait">
           {view === 'home' && (
             <Home

@@ -106,6 +106,7 @@ export function useRecordingSession(
   const isPausedRef = useRef(false)
   const showToastRef = useRef(showToast)
   const isMountedRef = useRef(true)
+  const userSetTitleRef = useRef(false)
 
   // Get recording config from active session
   const recordingConfig = state.activeSession?.recordingConfig
@@ -266,10 +267,10 @@ export function useRecordingSession(
         logger.debug('[SessionRecording] Cleanup: stopping session', sessionId)
         Promise.all([
           sessionRecorder.isRecording()
-            ? sessionRecorder.stopRecording().catch(() => {})
+            ? sessionRecorder.stopRecording().catch(e => { logger.error('[Cleanup] stopRecording failed:', e) })
             : Promise.resolve(),
-          sessionBridge.stopSession(sessionId).catch(() => {}),
-        ]).catch(() => {})
+          sessionBridge.stopSession(sessionId).catch(e => { logger.error('[Cleanup] stopSession failed:', e) }),
+        ]).catch(e => { logger.error('[Cleanup] Unexpected cleanup error:', e) })
       } else {
         logger.debug('[SessionRecording] Cleanup: session not started, skipping')
       }
@@ -374,9 +375,34 @@ export function useRecordingSession(
       }
     })
 
+    const unsubRecordingError = sessionBridge.on('recording-error', ({ error }) => {
+      showToastRef.current(error, 'error', 5000)
+      setRecordingHealth(prev => ({
+        ...prev,
+        lastError: error,
+        firstErrorAt: prev.firstErrorAt ?? Date.now(),
+      }))
+    })
+
     return () => {
       unsubError()
+      unsubRecordingError()
     }
+  }, [])
+
+  // ========================================================================
+  // Session Narrator — auto-title from speech
+  // ========================================================================
+  useEffect(() => {
+    const unsub = sessionBridge.on('title-suggestion', (data) => {
+      if (data.sessionId !== sessionIdRef.current) return
+      if (userSetTitleRef.current) return // Respect user's title
+      setSessionTitle(data.title)
+      if (isTauri()) {
+        updateSessionTitle(sessionIdRef.current, data.title).catch((err: unknown) => logger.error(err))
+      }
+    })
+    return unsub
   }, [])
 
   // ========================================================================
@@ -433,6 +459,7 @@ export function useRecordingSession(
   // Title change
   // ========================================================================
   const handleTitleChange = useCallback((newTitle: string) => {
+    userSetTitleRef.current = true
     setSessionTitle(newTitle)
     if (isTauri()) {
       updateSessionTitle(sessionIdRef.current, newTitle).catch((err: unknown) => logger.error(err))

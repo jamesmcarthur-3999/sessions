@@ -149,12 +149,19 @@ export function ActivityFeed({ sessionId, maxItems = 20 }: ActivityFeedProps) {
       addItem({ type: 'speech', content: 'Speech detected' })
     })
 
+    // Topic changes from Session Narrator
+    const unsubTopic = sessionBridge.on('topic-change', (data) => {
+      if (data.sessionId !== sessionId) return
+      addItem({ type: 'topic', content: data.topic })
+    })
+
     return () => {
       unsubActivity()
       unsubInsight()
       unsubTranscript()
       unsubCapture()
       unsubLiveSpeech()
+      unsubTopic()
     }
   }, [sessionId, maxItems])
 

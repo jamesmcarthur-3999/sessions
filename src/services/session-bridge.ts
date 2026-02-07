@@ -64,6 +64,7 @@ export type SessionBridgeEvents = {
     isFinal: boolean;
     confidence?: number;
   };
+  'recording-error': { sessionId: string; error: string };
   'live-speech-started': { sessionId: string };
   'live-speech-ended': { sessionId: string };
   'topic-change': { sessionId: string; topic: string };
@@ -86,6 +87,8 @@ class SessionBridgeService {
 
   // In-flight operation tracking (fixes D1)
   private inflightOps = new Map<string, Set<string>>();
+  // Guard against duplicate listener setup
+  private listenersSetUp = false;
 
   // Session Narrator state
   private narratorTranscriptBuffer = new Map<string, string[]>();
@@ -103,6 +106,13 @@ class SessionBridgeService {
    */
   on<K extends keyof SessionBridgeEvents>(event: K, callback: EventCallback<K>): () => void {
     return this.emitter.on(event, callback);
+  }
+
+  /**
+   * Emit an event on the session bridge (for external services like recording.ts)
+   */
+  emit<K extends keyof SessionBridgeEvents>(event: K, data: SessionBridgeEvents[K]): void {
+    this.emitter.emit(event, data);
   }
 
   /**
@@ -133,6 +143,17 @@ class SessionBridgeService {
         // Continue anyway - will try again on first use
       }
 
+      // Clear any stale timer for this session before creating new one
+      const existingAnalysisTimer = this.analysisCheckTimers.get(sessionId);
+      if (existingAnalysisTimer) {
+        clearInterval(existingAnalysisTimer);
+      }
+      const existingSummaryTimer = this.summaryUpdateTimers.get(sessionId);
+      if (existingSummaryTimer) {
+        clearTimeout(existingSummaryTimer);
+        this.summaryUpdateTimers.delete(sessionId);
+      }
+
       // Set up periodic analysis mode check (every 2 minutes)
       const analysisInterval = setInterval(() => {
         this.checkAnalysisMode(sessionId).catch(logger.error);
@@ -157,6 +178,28 @@ class SessionBridgeService {
    * 3. UI updates work regardless of session state
    */
   async stopSession(sessionId: string): Promise<void> {
+    // Run narrator one last time if there's buffered content.
+    // Await with timeout so the result arrives while session is still active.
+    const remainingBuffer = this.narratorTranscriptBuffer.get(sessionId);
+    if (remainingBuffer && remainingBuffer.length > 0) {
+      try {
+        const session = await getSession(sessionId);
+        await Promise.race([
+          aiWorker.narrateSession(
+            sessionId,
+            remainingBuffer,
+            session?.title || '',
+            this.narratorPreviousTopic.get(sessionId) || null,
+          ),
+          new Promise((r) => setTimeout(r, 5000)), // 5s max wait for final narration (API round-trip)
+        ]);
+      } catch {
+        // Best effort final flush
+      }
+    }
+    this.narratorTranscriptBuffer.delete(sessionId);
+    this.narratorPreviousTopic.delete(sessionId);
+
     // Wait for tracked in-flight operations
     const inflight = this.inflightOps.get(sessionId);
     if (inflight && inflight.size > 0) {
@@ -273,6 +316,9 @@ class SessionBridgeService {
   // ============================================================================
 
   private setupWorkerListeners(): void {
+    if (this.listenersSetUp) return;
+    this.listenersSetUp = true;
+
     // Analysis complete - persist and forward
     const unsubAnalysis = aiWorker.on('analysis-complete', async (data) => {
       if (!this.activeSessions.has(data.sessionId)) return;
@@ -459,6 +505,7 @@ class SessionBridgeService {
     // Narrator update - forward title suggestions, topic changes, and key points
     const unsubNarrator = aiWorker.on('narrator-update', async (data) => {
       if (!this.activeSessions.has(data.sessionId)) return;
+      if (this.pausedSessions.has(data.sessionId)) return;
 
       // Update tracked topic
       this.narratorPreviousTopic.set(data.sessionId, data.currentTopic);
@@ -589,6 +636,9 @@ class SessionBridgeService {
     }
   }
 
+  // ~30-45 seconds of natural speech; enough context for meaningful narration
+  private static readonly NARRATOR_WORD_THRESHOLD = 50;
+
   /**
    * Buffer transcript text for narrator and flush when enough words accumulate
    */
@@ -599,11 +649,9 @@ class SessionBridgeService {
     buffer.push(text);
     this.narratorTranscriptBuffer.set(sessionId, buffer);
 
-    // Count total words in buffer
     const wordCount = buffer.reduce((sum, t) => sum + t.split(/\s+/).length, 0);
 
-    // Flush at 50+ words
-    if (wordCount >= 50) {
+    if (wordCount >= SessionBridgeService.NARRATOR_WORD_THRESHOLD) {
       const transcripts = [...buffer];
       this.narratorTranscriptBuffer.set(sessionId, []);
 
@@ -633,6 +681,7 @@ class SessionBridgeService {
   destroy(): void {
     this.unsubscribers.forEach((unsub) => unsub());
     this.unsubscribers = [];
+    this.listenersSetUp = false;
     this.activeSessions.clear();
     this.pausedSessions.clear();
     this.inflightOps.clear();

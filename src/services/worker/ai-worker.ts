@@ -52,7 +52,14 @@ type SessionEvent =
 // ============================================================================
 
 const stateMachine = new WorkerStateMachine();
-const messageQueue = new MessageQueue<WorkerMessage>();
+const messageQueue = new MessageQueue<WorkerMessage>({
+  onDrop: (msg) => {
+    // Notify main thread that a message was dropped so the request doesn't hang
+    const id = 'id' in msg ? (msg as { id?: string }).id : undefined;
+    const sessionId = 'sessionId' in msg ? (msg as { sessionId?: string }).sessionId ?? '' : '';
+    send({ type: 'error', id, sessionId, error: `Message dropped: worker queue full (type: ${msg.type})` });
+  },
+});
 
 let anthropicKey: string | null = null;
 let openaiKey: string | null = null;
@@ -804,6 +811,7 @@ async function narrateSession(
   try {
     const input = botsModule.buildSessionNarratorInput(transcripts, currentTitle, previousTopic);
 
+    // 2 retries (not 3) — narrator runs frequently, prefer skipping a batch over long retry chains
     const result = (await withRetry(() =>
       botsModule!.createSessionNarratorPipeline().process(input),
       2,
@@ -824,6 +832,7 @@ async function narrateSession(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     log('error', `Session narration failed: ${message}`);
+    send({ type: 'error', id, sessionId, error: `Narration failed: ${message}` });
     transitionState('INITIALIZED', 'Narration failed');
   }
 }

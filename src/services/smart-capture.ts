@@ -77,7 +77,7 @@ class SmartCaptureService {
 
   // Listeners and timers
   private unlisten: UnlistenFn | null = null;
-  private tickInterval: ReturnType<typeof setInterval> | null = null;
+  private tickTimeout: ReturnType<typeof setTimeout> | null = null;
 
   // Pending capture flag (prevents stacking)
   private capturePending = false;
@@ -166,9 +166,9 @@ class SmartCaptureService {
       this.unlisten = null;
     }
 
-    if (this.tickInterval) {
-      clearInterval(this.tickInterval);
-      this.tickInterval = null;
+    if (this.tickTimeout) {
+      clearTimeout(this.tickTimeout);
+      this.tickTimeout = null;
     }
 
     if (isTauri()) {
@@ -293,10 +293,11 @@ class SmartCaptureService {
   }
 
   /**
-   * Tick loop - checks if it's time to capture
+   * Tick loop - checks if it's time to capture.
+   * Uses recursive setTimeout to prevent tick overlap when capture takes >1s.
    */
   private startTick(): void {
-    this.tickInterval = setInterval(async () => {
+    const tick = async () => {
       if (!this.isRunning || !this.sessionId) return;
 
       // Decay activity
@@ -309,7 +310,13 @@ class SmartCaptureService {
       }
 
       this.emitStateChange();
-    }, TICK_INTERVAL_MS);
+
+      // Schedule next tick only if still running
+      if (this.isRunning) {
+        this.tickTimeout = setTimeout(tick, TICK_INTERVAL_MS);
+      }
+    };
+    this.tickTimeout = setTimeout(tick, TICK_INTERVAL_MS);
   }
 
   // ============================================================================
@@ -367,11 +374,16 @@ class SmartCaptureService {
       if (this.consecutiveFailures >= SmartCaptureService.MAX_CONSECUTIVE_FAILURES) {
         this.circuitBrokenUntil = Date.now() + 60_000;
         this.consecutiveFailures = 0;
+        const lastError = e instanceof Error ? e.message : String(e);
+        const isPermissionError = lastError.includes('permission') || lastError.includes('not permitted') || lastError.includes('denied');
+        const errorMsg = isPermissionError
+          ? 'Screen recording permission may have been revoked. Check System Settings > Privacy > Screen Recording.'
+          : 'Screenshot capture paused after repeated failures. Will retry in 60s.';
         this.emitter.emit('capture-error', {
           sessionId: this.sessionId!,
-          error: 'Screenshot capture paused after repeated failures. Will retry in 60s.',
+          error: errorMsg,
         });
-        logger.warn('[SMART CAPTURE] Circuit breaker triggered after repeated failures, pausing for 60s');
+        logger.warn('[SMART CAPTURE] Circuit breaker triggered:', errorMsg);
       }
     } finally {
       this.capturePending = false;

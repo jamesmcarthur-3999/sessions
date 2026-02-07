@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS insights (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   created_at TEXT NOT NULL,
-  type TEXT NOT NULL CHECK (type IN ('activity', 'summary', 'moment', 'suggestion')),
+  type TEXT NOT NULL CHECK (type IN ('activity', 'summary', 'moment', 'suggestion', 'key-insight')),
   content TEXT NOT NULL,
   metadata TEXT,
   pinned INTEGER NOT NULL DEFAULT 0
@@ -141,23 +141,30 @@ async function migrateToFileBasedStorage(database: Database): Promise<void> {
 
   if (hasOldScreenshotSchema) {
     logger.info('[DATABASE] Migrating screenshots table from base64 to file-based storage');
-    // Drop old table and its indexes — old base64 data is not recoverable as file paths
-    await database.execute('DROP TABLE IF EXISTS screenshots');
-    await database.execute(`
-      CREATE TABLE IF NOT EXISTS screenshots (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-        captured_at TEXT NOT NULL,
-        trigger TEXT NOT NULL CHECK (trigger IN ('interval', 'app_switch', 'activity', 'manual', 'session_start', 'session_end')),
-        app_name TEXT,
-        window_title TEXT,
-        file_path TEXT NOT NULL,
-        analysis TEXT
-      )
-    `);
-    await database.execute('CREATE INDEX IF NOT EXISTS idx_screenshots_session ON screenshots(session_id)');
-    await database.execute('CREATE INDEX IF NOT EXISTS idx_screenshots_time ON screenshots(captured_at)');
-    logger.info('[DATABASE] Screenshots table migrated successfully');
+    try {
+      await database.execute('BEGIN TRANSACTION');
+      // Drop old table and its indexes — old base64 data is not recoverable as file paths
+      await database.execute('DROP TABLE IF EXISTS screenshots');
+      await database.execute(`
+        CREATE TABLE IF NOT EXISTS screenshots (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+          captured_at TEXT NOT NULL,
+          trigger TEXT NOT NULL CHECK (trigger IN ('interval', 'app_switch', 'activity', 'manual', 'session_start', 'session_end')),
+          app_name TEXT,
+          window_title TEXT,
+          file_path TEXT NOT NULL,
+          analysis TEXT
+        )
+      `);
+      await database.execute('CREATE INDEX IF NOT EXISTS idx_screenshots_session ON screenshots(session_id)');
+      await database.execute('CREATE INDEX IF NOT EXISTS idx_screenshots_time ON screenshots(captured_at)');
+      await database.execute('COMMIT');
+      logger.info('[DATABASE] Screenshots table migrated successfully');
+    } catch (e) {
+      await database.execute('ROLLBACK').catch(() => {});
+      throw e;
+    }
   }
 
   // Check if audio_chunks table has the old data_base64 column
@@ -168,20 +175,80 @@ async function migrateToFileBasedStorage(database: Database): Promise<void> {
 
   if (hasOldAudioSchema) {
     logger.info('[DATABASE] Migrating audio_chunks table from base64 to file-based storage');
-    await database.execute('DROP TABLE IF EXISTS audio_chunks');
-    await database.execute(`
-      CREATE TABLE IF NOT EXISTS audio_chunks (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-        start_time TEXT NOT NULL,
-        end_time TEXT NOT NULL,
-        duration_seconds REAL NOT NULL,
-        file_path TEXT NOT NULL,
-        transcript TEXT
-      )
-    `);
-    await database.execute('CREATE INDEX IF NOT EXISTS idx_audio_session ON audio_chunks(session_id)');
-    logger.info('[DATABASE] Audio chunks table migrated successfully');
+    try {
+      await database.execute('BEGIN TRANSACTION');
+      await database.execute('DROP TABLE IF EXISTS audio_chunks');
+      await database.execute(`
+        CREATE TABLE IF NOT EXISTS audio_chunks (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+          start_time TEXT NOT NULL,
+          end_time TEXT NOT NULL,
+          duration_seconds REAL NOT NULL,
+          file_path TEXT NOT NULL,
+          transcript TEXT
+        )
+      `);
+      await database.execute('CREATE INDEX IF NOT EXISTS idx_audio_session ON audio_chunks(session_id)');
+      await database.execute('COMMIT');
+      logger.info('[DATABASE] Audio chunks table migrated successfully');
+    } catch (e) {
+      await database.execute('ROLLBACK').catch(() => {});
+      throw e;
+    }
+  }
+}
+
+/**
+ * Migrate insights CHECK constraint to include 'key-insight'.
+ * Older databases have CHECK (type IN ('activity', 'summary', 'moment', 'suggestion'))
+ * which rejects the narrator's 'key-insight' type at runtime.
+ */
+async function migrateInsightsType(database: Database): Promise<void> {
+  try {
+    // Test if 'key-insight' is accepted by the existing constraint
+    await database.execute('BEGIN TRANSACTION');
+    await database.execute(
+      `INSERT INTO insights (id, session_id, created_at, type, content, pinned)
+       VALUES ('__migrate_test__', '__none__', '2000-01-01', 'key-insight', 'test', 0)`
+    );
+    // Clean up test row and roll back
+    await database.execute('ROLLBACK');
+  } catch {
+    // ROLLBACK the failed transaction
+    await database.execute('ROLLBACK').catch(() => {});
+
+    // Constraint rejected 'key-insight' — recreate the table
+    logger.info('[DATABASE] Migrating insights table to add key-insight type');
+    try {
+      await database.execute('BEGIN TRANSACTION');
+      await database.execute('ALTER TABLE insights RENAME TO insights_old');
+      await database.execute(`
+        CREATE TABLE insights (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+          created_at TEXT NOT NULL,
+          type TEXT NOT NULL CHECK (type IN ('activity', 'summary', 'moment', 'suggestion', 'key-insight')),
+          content TEXT NOT NULL,
+          metadata TEXT,
+          pinned INTEGER NOT NULL DEFAULT 0
+        )
+      `);
+      await database.execute(`
+        INSERT INTO insights (id, session_id, created_at, type, content, metadata, pinned)
+        SELECT id, session_id, created_at, type, content, metadata, pinned
+        FROM insights_old
+      `);
+      await database.execute('DROP TABLE insights_old');
+      await database.execute('CREATE INDEX IF NOT EXISTS idx_insights_session ON insights(session_id)');
+      await database.execute('CREATE INDEX IF NOT EXISTS idx_insights_type ON insights(type)');
+      await database.execute('COMMIT');
+      logger.info('[DATABASE] Insights table migrated successfully');
+    } catch (e) {
+      await database.execute('ROLLBACK').catch(() => {});
+      logger.error('[DATABASE] Failed to migrate insights table:', e);
+      throw e;
+    }
   }
 }
 
@@ -235,6 +302,7 @@ export async function initDatabase(): Promise<void> {
       // data_base64 NOT NULL instead of file_path. If the old columns
       // exist, recreate the tables with the new schema.
       await migrateToFileBasedStorage(db);
+      await migrateInsightsType(db);
 
       logger.info('[DATABASE] Schema initialized successfully');
     } catch (error) {
@@ -505,23 +573,10 @@ export async function saveAudioChunk(
   return chunk;
 }
 
-export async function updateAudioTranscript(
-  sessionId: string,
-  chunkId: string,
-  transcript: string
-): Promise<void> {
-  const db = await ensureDb();
-  const globalId = `${sessionId}/${chunkId}`;
-  await db.execute(
-    'UPDATE audio_chunks SET transcript = $1 WHERE id = $2',
-    [transcript, globalId]
-  );
-}
-
 /**
  * Save a live transcript as an audio_chunks row.
  * Live transcripts come from WebSocket streaming and don't have a WAV file.
- * Uses file_path='live' as a sentinel to distinguish from batch transcripts.
+ * Uses file_path='live' as a sentinel to distinguish from file-based chunks.
  */
 export async function saveLiveTranscript(
   sessionId: string,
@@ -869,31 +924,53 @@ export async function getAllSessionsForSync(): Promise<DbSession[]> {
 
 /**
  * Load all sessions from the database as fully-hydrated Session objects.
+ * Uses a single JOIN query instead of N+1 individual queries.
  * This is the primary way to load sessions — no localStorage involved.
  */
 export async function loadAllSessions(): Promise<import('../types').Session[]> {
-  const dbSessions = await getAllSessionsForSync();
-  const sessions: import('../types').Session[] = [];
+  const database = await ensureDb();
+  const rows = await database.select<Array<DbSession & {
+    summary_json: string | null;
+    capture_text: string | null;
+    capture_attachments_json: string | null;
+  }>>(
+    `SELECT s.*,
+            ss.summary_json,
+            cp.text AS capture_text,
+            cp.attachments_json AS capture_attachments_json
+     FROM sessions s
+     LEFT JOIN session_summaries ss ON ss.session_id = s.id
+     LEFT JOIN capture_payloads cp ON cp.session_id = s.id
+     WHERE s.status IN ('complete', 'interrupted', 'error', 'processing')
+     ORDER BY s.created_at DESC`
+  );
 
-  for (const db of dbSessions) {
-    const summary = await getSessionSummary(db.id);
-    const capturePayload = db.type === 'capture'
-      ? await getCapturePayload(db.id)
-      : null;
+  return rows.map(row => {
+    let summary: import('../types').Summary | undefined;
+    if (row.summary_json) {
+      try { summary = validateSummary(JSON.parse(row.summary_json)) ?? undefined; } catch { /* skip */ }
+    }
 
-    sessions.push({
-      id: db.id,
-      type: db.type as 'session' | 'capture',
-      title: db.title,
-      createdAt: db.created_at,
-      duration: db.duration_seconds ?? undefined,
-      videoPath: db.video_path ?? undefined,
-      status: db.status,
-      summary: summary ?? undefined,
-      captureText: capturePayload?.text || undefined,
-      attachments: capturePayload?.attachments || undefined,
-    });
-  }
+    let captureText: string | undefined;
+    let attachments: Attachment[] | undefined;
+    if (row.type === 'capture' && row.capture_text !== null) {
+      captureText = row.capture_text;
+      if (row.capture_attachments_json) {
+        try { attachments = validateAttachments(JSON.parse(row.capture_attachments_json)); } catch { /* skip */ }
+      }
+    }
 
-  return sessions;
+    return {
+      id: row.id,
+      type: row.type as 'session' | 'capture',
+      title: row.title,
+      createdAt: row.created_at,
+      duration: row.duration_seconds ?? undefined,
+      videoPath: row.video_path ?? undefined,
+      status: row.status,
+      summary,
+      captureText,
+      attachments,
+    };
+  });
 }

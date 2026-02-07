@@ -45,7 +45,7 @@ export interface DbInsight {
   id: string;
   session_id: string;
   created_at: string;
-  type: 'activity' | 'summary' | 'moment' | 'suggestion';
+  type: 'activity' | 'summary' | 'moment' | 'suggestion' | 'key-insight';
   content: string;
   metadata: string | null; // JSON string
   pinned: boolean;
