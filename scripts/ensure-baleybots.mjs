@@ -4,7 +4,6 @@ import path from 'node:path';
 
 const projectRoot = process.cwd();
 const baleybotsRoot = path.join(projectRoot, 'vendor', 'baleybots', 'typescript');
-const coreFile = path.join(baleybotsRoot, 'packages', 'core', 'src', 'baleybot.ts');
 
 const distMarkers = [
   ['@baleybots/core', 'packages/core/dist/esm/index.js'],
@@ -22,39 +21,11 @@ const run = (command, args, cwd) => {
   }
 };
 
-const ensurePatched = () => {
-  const content = fs.readFileSync(coreFile, 'utf8');
-  if (content.includes("'__TAURI__' in window")) {
-    return false;
-  }
-
-  const blockRegex = /if \(!proxyUrl && typeof window !== 'undefined' && window\.location\) {\n\s*proxyUrl = window\.location\.origin;\n\s*}/;
-  const replacement = [
-    "if (!proxyUrl && typeof window !== 'undefined' && window.location) {",
-    "      const isTauri = '__TAURI__' in window;",
-    "      if (!isTauri) {",
-    "        proxyUrl = window.location.origin;",
-    "      }",
-    "    }",
-  ].join('\n');
-
-  const updated = content.replace(blockRegex, replacement);
-  if (updated === content) {
-    throw new Error('Unable to apply BaleyBots Tauri proxy patch. Pattern not found.');
-  }
-
-  fs.writeFileSync(coreFile, updated);
-  return true;
-};
-
 const missingDist = distMarkers.filter(([, relativePath]) => {
   return !fs.existsSync(path.join(baleybotsRoot, relativePath));
 });
 
-const patched = ensurePatched();
-const needsBuild = patched || missingDist.length > 0;
-
-if (!needsBuild) {
+if (missingDist.length === 0) {
   console.log('BaleyBots build artifacts present. Skipping build.');
   process.exit(0);
 }
