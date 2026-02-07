@@ -18,11 +18,34 @@ import type {
   AnalysisModeDecision,
   QAResponse,
   FinalSummary,
+  SessionNarratorResult,
 } from '../bots/types';
 import { MessageQueue } from './message-queue';
 import { WorkerStateMachine } from './worker-state';
 import type { WorkerState } from './worker-state';
-import type { LiveSession, SessionEvent } from './live-transcription';
+// Live transcription types — matches @baleybots/core LiveSession + SessionEvent interfaces.
+// Defined locally to avoid type-level import from the dynamically-loaded module.
+interface LiveSessionHandle {
+  sendAudio(data: ArrayBuffer | Uint8Array): void;
+  close(): void;
+  readonly state: 'connecting' | 'open' | 'closing' | 'closed';
+}
+
+interface TranscriptEvent {
+  text: string;
+  isFinal: boolean;
+  confidence?: number;
+  words?: Array<{ word: string; start: number; end: number; confidence?: number }>;
+  language?: string;
+  startTime?: number;
+  endTime?: number;
+}
+
+type SessionEvent =
+  | { kind: 'transcript'; event: TranscriptEvent }
+  | { kind: 'speech_started' }
+  | { kind: 'speech_ended' }
+  | { kind: 'error'; error: Error };
 
 // ============================================================================
 // State
@@ -39,7 +62,7 @@ let baleybots: typeof import('@baleybots/core') | null = null;
 let botsModule: typeof import('../bots') | null = null;
 
 // Live transcription session (runs independently of message queue)
-let liveSession: LiveSession | null = null;
+let liveSession: LiveSessionHandle | null = null;
 
 // ============================================================================
 // Helpers
@@ -391,60 +414,6 @@ async function analyzeScreenshotBinary(
 }
 
 // ============================================================================
-// Binary Audio Transcription (Zero-Copy Transfer)
-// ============================================================================
-
-// Concurrency guard for batch transcription
-let batchTranscriptionCount = 0;
-const MAX_BATCH_TRANSCRIPTIONS = 3;
-
-async function transcribeAudioBinary(
-  msg: Extract<WorkerMessage, { type: 'transcribe-audio-binary' }>
-): Promise<void> {
-  const { sessionId, chunkId, audioData, id } = msg;
-
-  if (!openaiKey) {
-    send({ type: 'error', id, sessionId, error: 'OpenAI API key not configured for transcription' });
-    return;
-  }
-
-  if (!botsModule) {
-    send({ type: 'error', id, sessionId, error: 'Worker not initialized' });
-    return;
-  }
-
-  if (batchTranscriptionCount >= MAX_BATCH_TRANSCRIPTIONS) {
-    log('warn', `Skipping batch transcription — ${batchTranscriptionCount} already in flight`);
-    return;
-  }
-
-  batchTranscriptionCount++;
-
-  try {
-    send({ type: 'transcription-start', sessionId });
-
-    const input = botsModule.buildTranscriberInput(audioData);
-    const text = (await withRetry(() =>
-      botsModule!.createTranscriberBot().process(input),
-      2, // Reduced retries — prefer skipping a chunk over 60s+ of retries
-    )) as unknown as string;
-
-    send({ type: 'transcription-complete', id, sessionId, chunkId, text: text || '' });
-    log('info', `Transcribed (binary): ${(text || '').substring(0, 50)}...`);
-
-    if (text?.trim()) {
-      send({ type: 'request-summary-update', sessionId });
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    log('error', `Transcription failed: ${message}`);
-    send({ type: 'error', id, sessionId, error: `Audio transcription failed: ${message}` });
-  } finally {
-    batchTranscriptionCount--;
-  }
-}
-
-// ============================================================================
 // Live Transcription (bypasses message queue)
 // ============================================================================
 
@@ -453,7 +422,7 @@ async function handleStartLiveTranscription(
 ): Promise<void> {
   const { sessionId, id } = msg;
 
-  if (!openaiKey) {
+  if (!baleybots || !openaiKey) {
     send({ type: 'error', id, sessionId, error: 'OpenAI API key not configured for live transcription' });
     return;
   }
@@ -465,8 +434,6 @@ async function handleStartLiveTranscription(
   }
 
   try {
-    const { startLiveTranscription } = await import('./live-transcription');
-
     const onEvent = (event: SessionEvent): void => {
       switch (event.kind) {
         case 'transcript':
@@ -496,7 +463,16 @@ async function handleStartLiveTranscription(
       }
     };
 
-    liveSession = await startLiveTranscription(openaiKey, onEvent);
+    liveSession = await baleybots.createLiveSession(
+      'gpt-4o-mini-transcribe',
+      {
+        sampleRate: 24000,
+        encoding: 'pcm16',
+        vad: { threshold: 0.5, silenceDurationMs: 500 },
+        providerConfig: { apiKey: openaiKey },
+      },
+      onEvent,
+    );
 
     send({ type: 'live-transcription-started', sessionId });
     log('info', `Live transcription started for session ${sessionId}`);
@@ -810,6 +786,49 @@ async function processCapture(
 }
 
 // ============================================================================
+// Session Narrator
+// ============================================================================
+
+async function narrateSession(
+  msg: Extract<WorkerMessage, { type: 'narrate-session' }>
+): Promise<void> {
+  const { sessionId, transcripts, currentTitle, previousTopic, id } = msg;
+
+  if (!botsModule || !isReady()) {
+    log('info', 'Skipping narration - not ready');
+    return;
+  }
+
+  transitionState('PROCESSING', 'Narrating session');
+
+  try {
+    const input = botsModule.buildSessionNarratorInput(transcripts, currentTitle, previousTopic);
+
+    const result = (await withRetry(() =>
+      botsModule!.createSessionNarratorPipeline().process(input),
+      2,
+    )) as unknown as SessionNarratorResult | null;
+
+    send({
+      type: 'narrator-update',
+      id,
+      sessionId,
+      suggestedTitle: result?.suggestedTitle ?? null,
+      currentTopic: result?.currentTopic ?? 'Unknown',
+      isTopicChange: result?.isTopicChange ?? false,
+      keyPoints: result?.keyPoints ?? [],
+    });
+
+    log('info', `Narration complete: topic="${result?.currentTopic}", keyPoints=${result?.keyPoints?.length ?? 0}`);
+    transitionState('INITIALIZED', 'Narration complete');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log('error', `Session narration failed: ${message}`);
+    transitionState('INITIALIZED', 'Narration failed');
+  }
+}
+
+// ============================================================================
 // API Key Updates
 // ============================================================================
 
@@ -860,8 +879,6 @@ async function handleMessage(msg: WorkerMessage): Promise<void> {
       await analyzeScreenshotBinary(msg);
       break;
 
-    // transcribe-audio-binary is routed directly in self.onmessage (bypasses queue)
-
     case 'update-summary':
       await updateSummary(msg);
       break;
@@ -880,6 +897,10 @@ async function handleMessage(msg: WorkerMessage): Promise<void> {
 
     case 'process-capture':
       await processCapture(msg);
+      break;
+
+    case 'narrate-session':
+      await narrateSession(msg);
       break;
 
     case 'update-api-keys':
@@ -911,7 +932,7 @@ messageQueue.setErrorHandler((error, msg) => {
 });
 
 // Main message receiver
-// Live transcription and batch transcription bypass the queue for low latency.
+// Live transcription bypasses the queue for low latency.
 // All other messages are enqueued for sequential processing.
 self.onmessage = (event: MessageEvent<WorkerMessage>) => {
   const msg = event.data;
@@ -931,13 +952,6 @@ self.onmessage = (event: MessageEvent<WorkerMessage>) => {
     case 'stop-live-transcription':
       handleStopLiveTranscription(msg).catch((e) =>
         log('error', `stop-live-transcription handler error: ${e}`)
-      );
-      return;
-
-    // Batch transcription — also bypass queue (independent of AI pipelines)
-    case 'transcribe-audio-binary':
-      transcribeAudioBinary(msg).catch((e) =>
-        log('error', `transcribe-audio-binary handler error: ${e}`)
       );
       return;
 

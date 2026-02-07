@@ -5,7 +5,7 @@
  * These functions format data for the various bot pipelines.
  */
 
-import { combine, text, image, audio } from '@baleybots/core';
+import { combine, text, image } from '@baleybots/core';
 import type { SessionContext } from './types';
 import type { WorkerActivityMetrics as ActivityMetrics } from '../worker/types';
 import type { DbScreenshot, DbAudioChunk, DbInsight, DbRollingSummary } from '../../types/database';
@@ -286,11 +286,31 @@ export function buildCaptureInput(text: string, attachmentDescriptions?: string[
 }
 
 /**
- * Build input for audio transcription via Baleybots
- * Uses the SDK's audio() primitive with 'transcribe' mode
+ * Build input for the session narrator bot
  */
-export function buildTranscriberInput(audioData: ArrayBuffer): ReturnType<typeof audio> {
-  const blob = new Blob([audioData], { type: 'audio/wav' });
-  return audio(blob, 'transcribe');
-}
+export function buildSessionNarratorInput(
+  transcripts: string[],
+  currentTitle: string,
+  previousTopic: string | null,
+): string {
+  const parts: string[] = [];
 
+  parts.push(`## Current Session Title: ${currentTitle || '(none — please suggest one)'}`);
+
+  if (previousTopic) {
+    parts.push(`## Previous Topic: ${previousTopic}`);
+  } else {
+    parts.push('## Previous Topic: (session just started)');
+  }
+
+  parts.push('');
+  parts.push('## New Transcript:');
+  for (const t of transcripts) {
+    parts.push(t);
+  }
+
+  parts.push('');
+  parts.push('Analyze this transcript batch. Suggest a title if needed, identify the current topic, and extract any key points.');
+
+  return parts.join('\n');
+}

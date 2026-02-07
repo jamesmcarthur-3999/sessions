@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Camera, MessageSquare, Lightbulb, ArrowRight, Zap } from 'lucide-react'
+import { Camera, MessageSquare, Lightbulb, ArrowRight, Zap, Bookmark } from 'lucide-react'
 import { sessionBridge } from '../services/session-bridge'
 import { smartCapture } from '../services/smart-capture'
 import { formatRelativeTimeLive } from '../utils/formatting'
@@ -15,7 +15,7 @@ import { generateId } from '../utils/id'
 
 interface ActivityItem {
   id: string
-  type: 'app-switch' | 'screenshot' | 'speech' | 'insight' | 'quiet'
+  type: 'app-switch' | 'screenshot' | 'speech' | 'insight' | 'quiet' | 'topic'
   content: string
   timestamp: Date
   metadata?: {
@@ -61,6 +61,12 @@ const typeConfig = {
     color: 'var(--ink-muted)',
     bg: 'var(--paper-dark)',
     label: 'Activity',
+  },
+  'topic': {
+    icon: Bookmark,
+    color: 'var(--info)',
+    bg: 'var(--info-muted)',
+    label: 'Topic',
   },
 }
 
@@ -111,9 +117,9 @@ export function ActivityFeed({ sessionId, maxItems = 20 }: ActivityFeedProps) {
       })
     })
 
-    // Transcription events
-    const unsubTranscriptionComplete = sessionBridge.on('transcription-complete', (data) => {
-      if (data.sessionId !== sessionId) return
+    // Live transcription events — show final transcripts in feed
+    const unsubTranscript = sessionBridge.on('live-transcript', (data) => {
+      if (data.sessionId !== sessionId || !data.isFinal) return
       const preview = data.text?.substring(0, 50) + (data.text?.length > 50 ? '...' : '') || 'Audio transcribed'
       addItem({
         type: 'speech',
@@ -133,11 +139,22 @@ export function ActivityFeed({ sessionId, maxItems = 20 }: ActivityFeedProps) {
       })
     })
 
+    // Throttled speech markers (at most 1 per 30 seconds)
+    let lastSpeechTime = 0
+    const unsubLiveSpeech = sessionBridge.on('live-speech-started', (data) => {
+      if (data.sessionId !== sessionId) return
+      const now = Date.now()
+      if (now - lastSpeechTime < 30_000) return
+      lastSpeechTime = now
+      addItem({ type: 'speech', content: 'Speech detected' })
+    })
+
     return () => {
       unsubActivity()
       unsubInsight()
-      unsubTranscriptionComplete()
+      unsubTranscript()
       unsubCapture()
+      unsubLiveSpeech()
     }
   }, [sessionId, maxItems])
 

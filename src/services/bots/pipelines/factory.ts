@@ -6,7 +6,6 @@
  */
 
 import { Pipeline } from '@baleybots/tools';
-import { Baleybot } from '@baleybots/core';
 import { BOT_DEFINITIONS } from './definitions';
 
 // Model configuration
@@ -27,6 +26,7 @@ const PIPELINE_CONFIG: Record<PipelineName, [string, string]> = {
   qaBot: ['qa-bot', MODELS.default],                          // user-facing chat
   finalSummary: ['final-summary', MODELS.default],            // user-facing end-of-session summary
   capture: ['capture', MODELS.default],                       // user-facing quick capture
+  sessionNarrator: ['session-narrator', MODELS.fast],          // live speech intelligence, runs often
 };
 
 const cache = new Map<PipelineName, Pipeline>();
@@ -52,23 +52,9 @@ export function createAnalysisControllerPipeline(): Pipeline { return getPipelin
 export function createQABotPipeline(): Pipeline { return getPipeline('qaBot'); }
 export function createFinalSummaryPipeline(): Pipeline { return getPipeline('finalSummary'); }
 export function createCapturePipeline(): Pipeline { return getPipeline('capture'); }
-
-// Transcriber uses Baleybot.create() (not BAL Pipeline) — transcription is a provider-level operation
-let transcriberBot: Baleybot | null = null;
-
-export function createTranscriberBot(): Baleybot {
-  if (!transcriberBot) {
-    transcriberBot = Baleybot.create({
-      name: 'transcriber',
-      goal: 'Transcribe audio input',
-      model: 'gpt-4o-transcribe',
-    });
-  }
-  return transcriberBot;
-}
+export function createSessionNarratorPipeline(): Pipeline { return getPipeline('sessionNarrator'); }
 
 /** Reset all cached pipelines (for testing or when API keys change) */
 export function resetPipelines(): void {
   cache.clear();
-  transcriberBot = null;
 }

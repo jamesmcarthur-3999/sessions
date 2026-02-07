@@ -62,6 +62,16 @@ export const CaptureSchema = z.object({
 
 export type CaptureResult = z.infer<typeof CaptureSchema>;
 
+// Session narrator output (live speech intelligence)
+export const SessionNarratorResultSchema = z.object({
+  suggestedTitle: z.string().nullable(),
+  currentTopic: z.string(),
+  isTopicChange: z.boolean(),
+  keyPoints: z.array(z.string()),
+});
+
+export type SessionNarratorResult = z.infer<typeof SessionNarratorResultSchema>;
+
 // Session context for bots
 export interface SessionContext {
   sessionId: string;

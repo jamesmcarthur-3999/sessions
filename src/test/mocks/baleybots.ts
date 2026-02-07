@@ -39,7 +39,6 @@ export const mockBotsModule = {
   createQABotPipeline: vi.fn(() => createMockPipeline({ answer: 'Mock answer' })),
   createFinalSummaryPipeline: vi.fn(() => createMockPipeline({ summary: 'Final summary' })),
   createCapturePipeline: vi.fn(() => createMockPipeline({ title: 'Mock', summary: 'Mock capture', tasks: [], notes: [] })),
-  createTranscriberBot: vi.fn(() => createMockPipeline('Transcribed text from mock')),
   buildActivityDetectorInput: vi.fn((imageBase64: string, previousAnalysis?: string) => ({
     imageBase64,
     previousAnalysis,
@@ -49,7 +48,6 @@ export const mockBotsModule = {
   buildQAInput: vi.fn((question: string, context: any) => ({ question, context })),
   buildCaptureInput: vi.fn((text: string, attachments?: string[]) => ({ text, attachments })),
   buildFinalSummaryInput: vi.fn((input: any) => ({ input })),
-  buildTranscriberInput: vi.fn((audioData: ArrayBuffer) => ({ audioData })),
 };
 
 // Mock the baleybots core module

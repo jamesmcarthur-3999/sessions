@@ -28,8 +28,6 @@ export type AiWorkerEvents = {
     analysis: import('../bots/types').ActivityDetection | null;
     error?: string;
   };
-  'transcription-start': { sessionId: string };
-  'transcription-complete': { sessionId: string; chunkId: string; text: string };
   'live-transcription-started': { sessionId: string };
   'live-transcription-stopped': { sessionId: string };
   'live-transcript': {
@@ -55,6 +53,13 @@ export type AiWorkerEvents = {
   };
   'mode-changed': { sessionId: string; mode: 'ambient' | 'deep'; reason: string };
   'insight-created': { sessionId: string; insightType: string; content: string };
+  'narrator-update': {
+    sessionId: string;
+    suggestedTitle: string | null;
+    currentTopic: string;
+    isTopicChange: boolean;
+    keyPoints: string[];
+  };
   'request-summary-update': { sessionId: string };
   'state-change': { from: WorkerState; to: WorkerState; reason?: string };
   'error': { sessionId: string; error: string };
@@ -243,21 +248,6 @@ class AiWorkerClient {
         });
         break;
 
-      case 'transcription-start':
-        this.emitter.emit('transcription-start', { sessionId: msg.sessionId });
-        break;
-
-      case 'transcription-complete':
-        if (msg.id) {
-          this.requestManager.complete(msg.id, msg);
-        }
-        this.emitter.emit('transcription-complete', {
-          sessionId: msg.sessionId,
-          chunkId: msg.chunkId,
-          text: msg.text,
-        });
-        break;
-
       case 'live-transcription-started':
         this.emitter.emit('live-transcription-started', { sessionId: msg.sessionId });
         break;
@@ -318,6 +308,16 @@ class AiWorkerClient {
           sessionId: msg.sessionId,
           insightType: msg.insightType,
           content: msg.content,
+        });
+        break;
+
+      case 'narrator-update':
+        this.emitter.emit('narrator-update', {
+          sessionId: msg.sessionId,
+          suggestedTitle: msg.suggestedTitle,
+          currentTopic: msg.currentTopic,
+          isTopicChange: msg.isTopicChange,
+          keyPoints: msg.keyPoints,
         });
         break;
 
@@ -452,33 +452,6 @@ class AiWorkerClient {
 
     // Use postMessage with Transferable for zero-copy transfer
     this.worker.postMessage(message, [imageData]);
-  }
-
-  // ============================================================================
-  // Public API - Audio Transcription
-  // ============================================================================
-
-  /**
-   * Transcribe audio with binary transfer (non-blocking, zero-copy)
-   * Use this when you have ArrayBuffer from file load
-   * Results come back via 'transcription-complete' event
-   */
-  async transcribeAudioBinary(sessionId: string, chunkId: string, audioData: ArrayBuffer): Promise<void> {
-    await this.initialize();
-    if (!this.worker) return;
-
-    const id = this.requestManager.generateId();
-    const message = {
-      type: 'transcribe-audio-binary' as const,
-      id,
-      timestamp: Date.now(),
-      sessionId,
-      chunkId,
-      audioData,
-    };
-
-    // Use postMessage with Transferable for zero-copy transfer
-    this.worker.postMessage(message, [audioData]);
   }
 
   // ============================================================================
@@ -724,6 +697,32 @@ class AiWorkerClient {
     } catch {
       return 'Request timed out. Please try again.';
     }
+  }
+
+  // ============================================================================
+  // Public API - Session Narrator
+  // ============================================================================
+
+  /**
+   * Narrate a session based on transcript content (non-blocking).
+   * Results come back via 'narrator-update' event.
+   */
+  async narrateSession(
+    sessionId: string,
+    transcripts: string[],
+    currentTitle: string,
+    previousTopic: string | null,
+  ): Promise<void> {
+    await this.initialize();
+    this.send({
+      type: 'narrate-session',
+      id: this.requestManager.generateId(),
+      timestamp: Date.now(),
+      sessionId,
+      transcripts,
+      currentTitle,
+      previousTopic,
+    });
   }
 
   // ============================================================================

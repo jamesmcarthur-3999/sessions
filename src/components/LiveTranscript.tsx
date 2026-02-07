@@ -5,7 +5,7 @@
  * Shows real-time transcription with auto-scroll behavior.
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Mic, MicOff, Loader2, Key } from 'lucide-react'
 import { sessionBridge } from '../services/session-bridge'
@@ -16,6 +16,7 @@ interface TranscriptChunk {
   id: string
   text: string
   timestamp: Date
+  isFinal: boolean
 }
 
 interface LiveTranscriptProps {
@@ -82,7 +83,7 @@ export function LiveTranscript({ sessionId, audioEnabled }: LiveTranscriptProps)
     lastScrollTop.current = scrollTop
   }
 
-  // Listen to transcription events
+  // Listen to transcription events (live streaming + batch fallback)
   useEffect(() => {
     if (!audioEnabled) {
       setStatus('idle')
@@ -91,23 +92,47 @@ export function LiveTranscript({ sessionId, audioEnabled }: LiveTranscriptProps)
 
     setStatus('listening')
 
-    const unsubStart = sessionBridge.on('transcription-start', (data) => {
+    // -- Live transcription events (streaming, low latency) --
+
+    const unsubLiveTranscript = sessionBridge.on('live-transcript', (data) => {
+      if (data.sessionId !== sessionId) return
+
+      if (!data.text?.trim()) return
+
+      if (data.isFinal) {
+        // Replace any interim chunk with the final version, or append new
+        setChunks(prev => {
+          const withoutInterim = prev.filter(c => c.isFinal)
+          return [...withoutInterim, {
+            id: generateId(),
+            text: data.text,
+            timestamp: new Date(),
+            isFinal: true,
+          }]
+        })
+      } else {
+        // Interim: replace previous interim chunk (there's only ever one active)
+        setChunks(prev => {
+          const finals = prev.filter(c => c.isFinal)
+          return [...finals, {
+            id: 'interim',
+            text: data.text,
+            timestamp: new Date(),
+            isFinal: false,
+          }]
+        })
+      }
+
+      setStatus('transcribing')
+    })
+
+    const unsubSpeechStarted = sessionBridge.on('live-speech-started', (data) => {
       if (data.sessionId !== sessionId) return
       setStatus('transcribing')
     })
 
-    const unsubComplete = sessionBridge.on('transcription-complete', (data) => {
+    const unsubSpeechEnded = sessionBridge.on('live-speech-ended', (data) => {
       if (data.sessionId !== sessionId) return
-
-      if (data.text) {
-        const newChunk: TranscriptChunk = {
-          id: generateId(),
-          text: data.text,
-          timestamp: new Date(),
-        }
-        setChunks(prev => [...prev, newChunk])
-      }
-
       setStatus('listening')
     })
 
@@ -119,11 +144,37 @@ export function LiveTranscript({ sessionId, audioEnabled }: LiveTranscriptProps)
     })
 
     return () => {
-      unsubStart()
-      unsubComplete()
+      unsubLiveTranscript()
+      unsubSpeechStarted()
+      unsubSpeechEnded()
       unsubError()
     }
   }, [sessionId, audioEnabled])
+
+  // Derive paragraphs from chunks (group finals by time proximity)
+  const PARAGRAPH_GAP_MS = 30_000 // 30 seconds of silence = new paragraph
+
+  const paragraphs = useMemo(() => {
+    const finals = chunks.filter(c => c.isFinal)
+    if (finals.length === 0) return []
+
+    const result: { id: string; sentences: TranscriptChunk[]; startTime: Date }[] = []
+    let current = { id: finals[0].id, sentences: [finals[0]], startTime: finals[0].timestamp }
+
+    for (let i = 1; i < finals.length; i++) {
+      const gap = finals[i].timestamp.getTime() - finals[i - 1].timestamp.getTime()
+      if (gap > PARAGRAPH_GAP_MS) {
+        result.push(current)
+        current = { id: finals[i].id, sentences: [finals[i]], startTime: finals[i].timestamp }
+      } else {
+        current.sentences.push(finals[i])
+      }
+    }
+    result.push(current)
+    return result
+  }, [chunks])
+
+  const interimChunk = useMemo(() => chunks.find(c => !c.isFinal), [chunks])
 
   // Scroll to bottom when new chunks arrive
   useEffect(() => {
@@ -218,7 +269,7 @@ export function LiveTranscript({ sessionId, audioEnabled }: LiveTranscriptProps)
         </AnimatePresence>
       </div>
 
-      {chunks.length === 0 ? (
+      {paragraphs.length === 0 && !interimChunk ? (
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center px-4">
             <motion.div
@@ -240,25 +291,28 @@ export function LiveTranscript({ sessionId, audioEnabled }: LiveTranscriptProps)
           className="flex-1 overflow-y-auto pr-2 -mr-2"
         >
           <div className="space-y-4">
-            {chunks.map((chunk, index) => (
-              <motion.div
-                key={chunk.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.2 }}
-              >
-                {/* Show timestamp for first chunk or when there's a gap */}
-                {(index === 0 ||
-                  chunk.timestamp.getTime() - chunks[index - 1].timestamp.getTime() > 60000) && (
-                  <p className="text-xs text-[var(--ink-muted)] mb-2">
-                    {formatTime(chunk.timestamp)}
-                  </p>
-                )}
-                <p className="text-sm text-[var(--ink)] leading-relaxed">
-                  {chunk.text}
-                </p>
-              </motion.div>
+            {paragraphs.map((para, pIndex) => (
+              <div key={para.id}>
+                <p className="text-xs text-[var(--ink-muted)] mb-2">{formatTime(para.startTime)}</p>
+
+                <motion.p
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.3 }}
+                  className="text-sm leading-relaxed text-[var(--ink)]"
+                >
+                  {para.sentences.map(s => s.text).join(' ')}
+                  {pIndex === paragraphs.length - 1 && interimChunk && (
+                    <span className="text-[var(--ink-muted)] italic"> {interimChunk.text}</span>
+                  )}
+                </motion.p>
+              </div>
             ))}
+
+            {/* Interim-only state (no finals yet) */}
+            {paragraphs.length === 0 && interimChunk && (
+              <p className="text-sm leading-relaxed text-[var(--ink-muted)] italic">{interimChunk.text}</p>
+            )}
           </div>
 
           {/* Scroll indicator when user scrolled up */}

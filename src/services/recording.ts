@@ -11,7 +11,6 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { saveAudioChunk } from './database'
 import { aiWorker } from './worker'
 import { smartCapture } from './smart-capture'
-import { loadAudioBinary } from './audio-storage'
 import { captureAnalyzeScreenshot } from './capture-screenshot'
 import type { RecordingStopResult } from '../types'
 import { logger } from '../utils/logger'
@@ -299,15 +298,6 @@ class SessionRecordingController {
 
               logger.debug('[RECORDING] Audio chunk saved:', chunk.id, audioPath);
 
-              // Load audio binary from file and send to AI Worker for transcription (zero-copy)
-              try {
-                const audioData = await loadAudioBinary(audioPath);
-                aiWorker.transcribeAudioBinary(sid, chunk.id, audioData).catch((e) => {
-                  logger.error('Audio transcription request error:', e);
-                });
-              } catch (loadError) {
-                logger.error('Failed to load audio for transcription:', loadError);
-              }
             } catch (e) {
               logger.error('Audio chunk processing error:', e);
             }

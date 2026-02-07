@@ -76,6 +76,19 @@ export const BOT_DEFINITIONS = {
     chain { final_summary }
   `,
 
+  sessionNarrator: `
+    session_narrator {
+      "goal": "You are a session narrator analyzing recent speech transcripts from a live work session.\\n\\nYou receive the current session title, the previous discussion topic (if any), and a batch of new transcript text. Your job is to:\\n\\n1. Suggest a session title if the current one is empty or generic. The title should be concise (2-6 words) and describe what's being worked on or discussed. Return null if the current title is already good.\\n\\n2. Identify the current topic of discussion in a short phrase (e.g., 'API authentication design', 'deployment timeline', 'bug in user registration'). If the topic changed from the previous one, set isTopicChange to true.\\n\\n3. Extract 0-3 key points worth noting from the transcripts. Only include genuinely important points — decisions, action items, realizations. Return an empty array if nothing stands out. Each key point should be a concise sentence.\\n\\nBe concise and specific. Focus on substance, not filler.",
+      "output": {
+        "suggestedTitle": "string",
+        "currentTopic": "string",
+        "isTopicChange": "boolean",
+        "keyPoints": "array"
+      }
+    }
+    chain { session_narrator }
+  `,
+
   capture: `
     capture {
       "goal": "You are an AI assistant that analyzes captured text and extracts structured information.\\n\\nYour job is to:\\n1. Create a concise, descriptive title (2-6 words) in the 'title' field\\n2. Write a brief summary paragraph in the 'summary' field\\n3. Extract actionable tasks as an array of strings in the 'tasks' field (start each with a verb)\\n4. Extract key notes or insights as an array of strings in the 'notes' field\\n\\nGuidelines:\\n- Be concise but insightful\\n- Tasks should be clear and actionable (start with verbs)\\n- Notes should capture important information or insights\\n- If there are no clear tasks, return an empty array\\n- Same for notes - only include if there's something worth noting\\n- Look for implicit tasks: TODOs, FIXMEs, need to, should, must, etc.",

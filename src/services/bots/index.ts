@@ -20,7 +20,7 @@ export {
   createQABotPipeline,
   createFinalSummaryPipeline,
   createCapturePipeline,
-  createTranscriberBot,
+  createSessionNarratorPipeline,
   resetPipelines,
 } from './pipelines';
 

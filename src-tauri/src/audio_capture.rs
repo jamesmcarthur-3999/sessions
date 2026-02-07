@@ -20,8 +20,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
-/// Target sample rate for WAV output (optimal for speech recognition)
+/// Target sample rate for WAV output (optimal for Whisper speech recognition)
 const TARGET_SAMPLE_RATE: u32 = 16000;
+/// Target sample rate for live PCM output (required by OpenAI Realtime API)
+const PCM_TARGET_SAMPLE_RATE: u32 = 24000;
 
 /// Scale factor to normalize typical speech RMS (~0.33) to full [0, 1] range
 const RMS_NORMALIZATION_FACTOR: f32 = 3.0;
@@ -348,8 +350,8 @@ impl AudioRecorder {
                 }
 
                 if pcm_last_emit.elapsed() >= PCM_EMISSION_INTERVAL && !pcm_buffer.is_empty() {
-                    // Resample to 16kHz and emit
-                    let resampled = Self::resample_to_16khz(&pcm_buffer, sample_rate);
+                    // Resample to 24kHz for OpenAI Realtime API
+                    let resampled = Self::resample_to_24khz(&pcm_buffer, sample_rate);
                     pcm_buffer.clear();
                     pcm_last_emit = Instant::now();
 
@@ -362,7 +364,7 @@ impl AudioRecorder {
                             let event = AudioPcmEvent {
                                 session_id: sid.clone(),
                                 pcm_base64,
-                                sample_rate: TARGET_SAMPLE_RATE,
+                                sample_rate: PCM_TARGET_SAMPLE_RATE,
                                 encoding: "pcm16".to_string(),
                             };
                             let _ = app.emit("audio-pcm", event);
@@ -378,7 +380,7 @@ impl AudioRecorder {
 
                 // Flush remaining PCM before clearing to avoid gaps in live transcription
                 if !pcm_buffer.is_empty() {
-                    let remaining = Self::resample_to_16khz(&pcm_buffer, sample_rate);
+                    let remaining = Self::resample_to_24khz(&pcm_buffer, sample_rate);
                     if !remaining.is_empty() {
                         let Ok(app) = app_handle.lock().map(|h| h.clone()) else {
                             pcm_buffer.clear();
@@ -395,7 +397,7 @@ impl AudioRecorder {
                             let event = AudioPcmEvent {
                                 session_id: sid.clone(),
                                 pcm_base64,
-                                sample_rate: TARGET_SAMPLE_RATE,
+                                sample_rate: PCM_TARGET_SAMPLE_RATE,
                                 encoding: "pcm16".to_string(),
                             };
                             let _ = app.emit("audio-pcm", event);
@@ -474,13 +476,13 @@ impl AudioRecorder {
         }
     }
 
-    /// Resample audio from source sample rate to target rate using linear interpolation
-    fn resample_to_16khz(samples: &[f32], source_rate: u32) -> Vec<f32> {
-        if source_rate == TARGET_SAMPLE_RATE {
+    /// Resample audio from source sample rate to a target rate using linear interpolation
+    fn resample(samples: &[f32], source_rate: u32, target_rate: u32) -> Vec<f32> {
+        if source_rate == target_rate {
             return samples.to_vec(); // Already at target rate
         }
 
-        let ratio = source_rate as f64 / TARGET_SAMPLE_RATE as f64;
+        let ratio = source_rate as f64 / target_rate as f64;
         let output_length = (samples.len() as f64 / ratio) as usize;
         let mut resampled = Vec::with_capacity(output_length);
 
@@ -498,6 +500,16 @@ impl AudioRecorder {
         }
 
         resampled
+    }
+
+    /// Resample to 16kHz (WAV output for Whisper)
+    fn resample_to_16khz(samples: &[f32], source_rate: u32) -> Vec<f32> {
+        Self::resample(samples, source_rate, TARGET_SAMPLE_RATE)
+    }
+
+    /// Resample to 24kHz (live PCM for OpenAI Realtime)
+    fn resample_to_24khz(samples: &[f32], source_rate: u32) -> Vec<f32> {
+        Self::resample(samples, source_rate, PCM_TARGET_SAMPLE_RATE)
     }
 
     /// Save audio samples directly to WAV file

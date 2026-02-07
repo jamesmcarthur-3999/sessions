@@ -362,8 +362,6 @@ export function useRecordingSession(
   // Session bridge (coordinator) events
   // ========================================================================
   useEffect(() => {
-    let statusResetTimer: ReturnType<typeof setTimeout> | null = null
-
     const unsubError = sessionBridge.on('error', ({ error }) => {
       showToastRef.current(error, 'error', 5000)
       setRecordingHealth(prev => ({
@@ -376,22 +374,8 @@ export function useRecordingSession(
       }
     })
 
-    const unsubTranscriptionStart = sessionBridge.on('transcription-start', () => {
-      setTranscriptionStatus('transcribing')
-    })
-
-    const unsubTranscriptionComplete = sessionBridge.on('transcription-complete', () => {
-      setTranscriptionStatus('success')
-      statusResetTimer = setTimeout(() => {
-        if (isMountedRef.current) setTranscriptionStatus('idle')
-      }, 2000)
-    })
-
     return () => {
       unsubError()
-      unsubTranscriptionStart()
-      unsubTranscriptionComplete()
-      if (statusResetTimer) clearTimeout(statusResetTimer)
     }
   }, [])
 

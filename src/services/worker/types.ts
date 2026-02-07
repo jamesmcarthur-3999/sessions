@@ -43,12 +43,6 @@ export type WorkerMessage =
       previousAnalysis: string | null;
     })
   | (BaseMessage & {
-      type: 'transcribe-audio-binary';
-      sessionId: string;
-      chunkId: string;
-      audioData: ArrayBuffer; // Transferred, not copied
-    })
-  | (BaseMessage & {
       type: 'update-summary';
       sessionId: string;
       context: SessionContext;
@@ -103,6 +97,13 @@ export type WorkerMessage =
       type: 'stop-live-transcription';
       sessionId: string;
     })
+  | (BaseMessage & {
+      type: 'narrate-session';
+      sessionId: string;
+      transcripts: string[];
+      currentTitle: string;
+      previousTopic: string | null;
+    })
   | (BaseMessage & { type: 'stop' });
 
 // ============================================================================
@@ -138,16 +139,6 @@ export type WorkerResponse =
       screenshotId: string;
       analysis: ActivityDetection | null;
       error?: string;
-    })
-  | (BaseResponse & {
-      type: 'transcription-complete';
-      sessionId: string;
-      chunkId: string;
-      text: string;
-    })
-  | (BaseResponse & {
-      type: 'transcription-start';
-      sessionId: string;
     })
   | (BaseResponse & {
       type: 'summary-updated';
@@ -233,6 +224,14 @@ export type WorkerResponse =
       sessionId: string;
       error: string;
       requestId?: string;
+    })
+  | (BaseResponse & {
+      type: 'narrator-update';
+      sessionId: string;
+      suggestedTitle: string | null;
+      currentTopic: string;
+      isTopicChange: boolean;
+      keyPoints: string[];
     })
   | (BaseResponse & {
       type: 'log';

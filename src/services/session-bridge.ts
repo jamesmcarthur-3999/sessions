@@ -27,7 +27,6 @@ import {
   updateAnalysisMode,
   updateScreenshotAnalysis,
   saveChatMessage,
-  updateAudioTranscript,
   saveLiveTranscript,
 } from './database';
 import type { DbInsight } from '../types/database';
@@ -59,8 +58,6 @@ export type SessionBridgeEvents = {
   };
   'chat-response': { sessionId: string; message: string };
   'error': { sessionId: string; error: string };
-  'transcription-start': { sessionId: string };
-  'transcription-complete': { sessionId: string; text: string };
   'live-transcript': {
     sessionId: string;
     text: string;
@@ -69,6 +66,8 @@ export type SessionBridgeEvents = {
   };
   'live-speech-started': { sessionId: string };
   'live-speech-ended': { sessionId: string };
+  'topic-change': { sessionId: string; topic: string };
+  'title-suggestion': { sessionId: string; title: string };
 };
 
 type EventCallback<K extends keyof SessionBridgeEvents> = (data: SessionBridgeEvents[K]) => void;
@@ -87,6 +86,10 @@ class SessionBridgeService {
 
   // In-flight operation tracking (fixes D1)
   private inflightOps = new Map<string, Set<string>>();
+
+  // Session Narrator state
+  private narratorTranscriptBuffer = new Map<string, string[]>();
+  private narratorPreviousTopic = new Map<string, string>();
 
   // Prevent concurrent session starts
   private isStarting = false;
@@ -417,35 +420,6 @@ class SessionBridgeService {
       this.emitter.emit('capture-timing', data);
     });
 
-    // Transcription events - persist and forward
-    const unsubTranscriptionStart = aiWorker.on('transcription-start', (data) => {
-      if (!this.activeSessions.has(data.sessionId)) return;
-      this.emitter.emit('transcription-start', data);
-    });
-
-    const unsubTranscription = aiWorker.on('transcription-complete', async (data) => {
-      if (!this.activeSessions.has(data.sessionId)) return;
-
-      // Complete in-flight tracking
-      if (data.chunkId) {
-        this.completeInflightOp(data.sessionId, data.chunkId);
-      }
-
-      // Always persist transcription even when paused — the audio was already recorded
-      try {
-        // Update audio chunk with transcript
-        await updateAudioTranscript(data.sessionId, data.chunkId, data.text);
-
-        // Forward to UI
-        this.emitter.emit('transcription-complete', {
-          sessionId: data.sessionId,
-          text: data.text,
-        });
-      } catch (error) {
-        logger.error('[SESSION BRIDGE] Failed to persist transcription:', error);
-      }
-    });
-
     // Live transcript events - persist finals, forward all to UI
     const unsubLiveTranscript = aiWorker.on('live-transcript', async (data) => {
       if (!this.activeSessions.has(data.sessionId)) return;
@@ -466,6 +440,9 @@ class SessionBridgeService {
         } catch (error) {
           logger.error('[SESSION BRIDGE] Failed to persist live transcript:', error);
         }
+
+        // Buffer for Session Narrator
+        this.bufferTranscriptForNarrator(data.sessionId, data.text);
       }
     });
 
@@ -477,6 +454,44 @@ class SessionBridgeService {
     const unsubLiveSpeechEnded = aiWorker.on('live-speech-ended', (data) => {
       if (!this.activeSessions.has(data.sessionId)) return;
       this.emitter.emit('live-speech-ended', data);
+    });
+
+    // Narrator update - forward title suggestions, topic changes, and key points
+    const unsubNarrator = aiWorker.on('narrator-update', async (data) => {
+      if (!this.activeSessions.has(data.sessionId)) return;
+
+      // Update tracked topic
+      this.narratorPreviousTopic.set(data.sessionId, data.currentTopic);
+
+      // Title suggestion → emit event for UI hook to pick up
+      if (data.suggestedTitle) {
+        this.emitter.emit('title-suggestion', {
+          sessionId: data.sessionId,
+          title: data.suggestedTitle,
+        });
+      }
+
+      // Topic change → activity feed event
+      if (data.isTopicChange) {
+        this.emitter.emit('topic-change', {
+          sessionId: data.sessionId,
+          topic: data.currentTopic,
+        });
+      }
+
+      // Key points → create as insights (feeds existing InsightsPanel + summary bot)
+      for (const point of data.keyPoints) {
+        try {
+          await createInsight(data.sessionId, 'key-insight', point);
+          this.emitter.emit('insight-created', {
+            sessionId: data.sessionId,
+            type: 'key-insight',
+            content: point,
+          });
+        } catch (error) {
+          logger.error('[SESSION BRIDGE] Failed to create narrator insight:', error);
+        }
+      }
     });
 
     // State changes - log for debugging
@@ -499,11 +514,10 @@ class SessionBridgeService {
       unsubSummaryRequest,
       unsubMode,
       unsubTiming,
-      unsubTranscriptionStart,
-      unsubTranscription,
       unsubLiveTranscript,
       unsubLiveSpeechStarted,
       unsubLiveSpeechEnded,
+      unsubNarrator,
       unsubStateChange,
       unsubError,
     ];
@@ -576,6 +590,37 @@ class SessionBridgeService {
   }
 
   /**
+   * Buffer transcript text for narrator and flush when enough words accumulate
+   */
+  private bufferTranscriptForNarrator(sessionId: string, text: string): void {
+    if (this.pausedSessions.has(sessionId)) return;
+
+    const buffer = this.narratorTranscriptBuffer.get(sessionId) || [];
+    buffer.push(text);
+    this.narratorTranscriptBuffer.set(sessionId, buffer);
+
+    // Count total words in buffer
+    const wordCount = buffer.reduce((sum, t) => sum + t.split(/\s+/).length, 0);
+
+    // Flush at 50+ words
+    if (wordCount >= 50) {
+      const transcripts = [...buffer];
+      this.narratorTranscriptBuffer.set(sessionId, []);
+
+      getSession(sessionId).then(session => {
+        const currentTitle = session?.title || '';
+        const previousTopic = this.narratorPreviousTopic.get(sessionId) || null;
+
+        aiWorker.narrateSession(sessionId, transcripts, currentTitle, previousTopic).catch(error => {
+          logger.error('[SESSION BRIDGE] Failed to trigger narrator:', error);
+        });
+      }).catch(error => {
+        logger.error('[SESSION BRIDGE] Failed to get session for narrator:', error);
+      });
+    }
+  }
+
+  /**
    * Get count of in-flight operations for a session
    */
   getInflightCount(sessionId: string): number {
@@ -591,6 +636,8 @@ class SessionBridgeService {
     this.activeSessions.clear();
     this.pausedSessions.clear();
     this.inflightOps.clear();
+    this.narratorTranscriptBuffer.clear();
+    this.narratorPreviousTopic.clear();
     this.summaryUpdateTimers.forEach((timer) => clearTimeout(timer));
     this.summaryUpdateTimers.clear();
     this.analysisCheckTimers.forEach((timer) => clearInterval(timer));
